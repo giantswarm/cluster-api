@@ -404,7 +404,7 @@ func (m *ClusterCacheTracker) healthCheckCluster(ctx context.Context, in *health
 
 	runHealthCheckWithThreshold := func() (bool, error) {
 		cluster := &clusterv1.Cluster{}
-		if err := m.client.Get(context.Background(), in.cluster, cluster); err != nil {
+		if err := m.client.Get(ctx, in.cluster, cluster); err != nil {
 			if apierrors.IsNotFound(err) {
 				// If the cluster can't be found, we should delete the cache.
 				return false, err
