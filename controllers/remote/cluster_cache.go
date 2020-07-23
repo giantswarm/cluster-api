@@ -350,7 +350,7 @@ func (m *ClusterCacheTracker) newClusterCache(ctx context.Context, cluster clien
 	// Start the cache!!!
 	go remoteCache.Start(cc.stop)
 	// Start cluster healthcheck!!!
-	go m.healthCheckCluster(&healthCheckInput{
+	go m.healthCheckCluster(ctx, &healthCheckInput{
 		stop:    cc.stop,
 		cluster: cluster,
 		cfg:     config,
@@ -396,7 +396,7 @@ func (h *healthCheckInput) validate() {
 // healthCheckCluster will poll the cluster's API at the path given and, if there are
 // `unhealthyThreshold` consecutive failures, will deem the cluster unhealthy.
 // Once the cluster is deemed unhealthy, the cluster's cache is stopped and removed.
-func (m *ClusterCacheTracker) healthCheckCluster(in *healthCheckInput) {
+func (m *ClusterCacheTracker) healthCheckCluster(ctx context.Context, in *healthCheckInput) {
 	// populate optional params for healthCheckInput
 	in.validate()
 
@@ -404,7 +404,7 @@ func (m *ClusterCacheTracker) healthCheckCluster(in *healthCheckInput) {
 
 	runHealthCheckWithThreshold := func() (bool, error) {
 		cluster := &clusterv1.Cluster{}
-		if err := m.client.Get(context.TODO(), in.cluster, cluster); err != nil {
+		if err := m.client.Get(ctx, in.cluster, cluster); err != nil {
 			if apierrors.IsNotFound(err) {
 				// If the cluster can't be found, we should delete the cache.
 				return false, err
@@ -474,7 +474,7 @@ func healthCheckPath(sourceCfg *rest.Config, requestTimeout time.Duration, path 
 		return err
 	}
 
-	_, err = restClient.Get().AbsPath(path).Timeout(requestTimeout).Do().Get()
+	_, err = restClient.Get().AbsPath(path).Timeout(requestTimeout).Do(context.Background()).Get()
 	if err != nil {
 		return err
 	}
