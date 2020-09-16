@@ -474,7 +474,7 @@ func healthCheckPath(sourceCfg *rest.Config, requestTimeout time.Duration, path 
 		return err
 	}
 
-	_, err = restClient.Get().AbsPath(path).Timeout(requestTimeout).Do().Get()
+	_, err = restClient.Get().AbsPath(path).Timeout(requestTimeout).Do(context.TODO()).Get()
 	if err != nil {
 		return err
 	}

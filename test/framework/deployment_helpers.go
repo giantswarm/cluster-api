@@ -130,7 +130,7 @@ func WatchDeploymentLogs(ctx context.Context, input WatchDeploymentLogsInput) {
 					Follow:    true,
 				}
 
-				podLogs, err := input.ClientSet.CoreV1().Pods(input.Deployment.Namespace).GetLogs(pod.Name, opts).Stream()
+				podLogs, err := input.ClientSet.CoreV1().Pods(input.Deployment.Namespace).GetLogs(pod.Name, opts).Stream(context.TODO())
 				if err != nil {
 					// Failing to stream logs should not cause the test to fail
 					log.Logf("Error starting logs stream for pod %s/%s, container %s: %v", input.Deployment.Namespace, pod.Name, container.Name, err)
@@ -209,7 +209,7 @@ func dumpPodMetrics(client *kubernetes.Clientset, metricsPath string, deployment
 			Name(fmt.Sprintf("%s:8080", pod.Name)).
 			SubResource("proxy").
 			Suffix("metrics").
-			Do()
+			Do(context.TODO())
 		data, err := res.Raw()
 
 		if err != nil {
