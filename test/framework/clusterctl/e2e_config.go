@@ -18,6 +18,7 @@ package clusterctl
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io/ioutil"
 	"os"
@@ -61,6 +62,19 @@ func LoadE2EConfig(ctx context.Context, input LoadE2EConfigInput) *E2EConfig {
 	Expect(config.Validate()).To(Succeed(), "The e2e test config file is not valid")
 
 	return config
+}
+
+// SetCNIEnvVar read CNI from cniManifestPath and sets an environmental variable that keeps CNI resources.
+// A ClusterResourceSet can be used to apply CNI using this environmental variable.
+func SetCNIEnvVar(cniManifestPath string, cniEnvVar string) {
+	cniData, err := ioutil.ReadFile(cniManifestPath)
+	Expect(err).ToNot(HaveOccurred(), "Failed to read the e2e test CNI file")
+	Expect(cniData).ToNot(BeEmpty(), "CNI file should not be empty")
+	data := map[string]interface{}{}
+	data["resources"] = string(cniData)
+	marshalledData, err := json.Marshal(data)
+	Expect(err).NotTo(HaveOccurred())
+	Expect(os.Setenv(cniEnvVar, string(marshalledData))).NotTo(HaveOccurred())
 }
 
 // E2EConfig defines the configuration of an e2e test environment.
@@ -376,7 +390,7 @@ func (c *E2EConfig) GetVariable(varName string) string {
 	return version
 }
 
-// GetVariable returns an Int64Ptr variable from the e2e config file.
+// GetInt64PtrVariable returns an Int64Ptr variable from the e2e config file.
 func (c *E2EConfig) GetInt64PtrVariable(varName string) *int64 {
 	wCountStr := c.GetVariable(varName)
 	if wCountStr == "" {
@@ -386,4 +400,16 @@ func (c *E2EConfig) GetInt64PtrVariable(varName string) *int64 {
 	wCount, err := strconv.ParseInt(wCountStr, 10, 64)
 	Expect(err).NotTo(HaveOccurred())
 	return pointer.Int64Ptr(wCount)
+}
+
+// GetInt32PtrVariable returns an Int32Ptr variable from the e2e config file.
+func (c *E2EConfig) GetInt32PtrVariable(varName string) *int32 {
+	wCountStr := c.GetVariable(varName)
+	if wCountStr == "" {
+		return nil
+	}
+
+	wCount, err := strconv.ParseUint(wCountStr, 10, 32)
+	Expect(err).NotTo(HaveOccurred())
+	return pointer.Int32Ptr(int32(wCount))
 }

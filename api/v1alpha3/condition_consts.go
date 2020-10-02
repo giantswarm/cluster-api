@@ -24,14 +24,27 @@ const (
 	ReadyCondition ConditionType = "Ready"
 )
 
+// Common ConditionReason used by Cluster API objects.
 const (
-	// InfrastructureReadyCondition reports a summary of current status of the infrastructure object defined for this cluster/machine.
+	// DeletingReason (Severity=Info) documents an condition not in Status=True because the underlying object it is currently being deleted.
+	DeletingReason = "Deleting"
+
+	// DeletionFailedReason (Severity=Warning) documents an condition not in Status=True because the underlying object
+	// encountered problems during deletion. This is a warning because the reconciler will retry deletion.
+	DeletionFailedReason = "DeletionFailed"
+
+	// DeletedReason (Severity=Info) documents an condition not in Status=True because the underlying object was deleted.
+	DeletedReason = "Deleted"
+)
+
+const (
+	// InfrastructureReadyCondition reports a summary of current status of the infrastructure object defined for this cluster/machine/machinepool.
 	// This condition is mirrored from the Ready condition in the infrastructure ref object, and
 	// the absence of this condition might signal problems in the reconcile external loops or the fact that
-	// the infrastructure provider does not not implements the Ready condition yet.
+	// the infrastructure provider does not implement the Ready condition yet.
 	InfrastructureReadyCondition ConditionType = "InfrastructureReady"
 
-	// WaitingForInfrastructureFallbackReason (Severity=Info) documents a cluster/machine waiting for the cluster/machine infrastructure
+	// WaitingForInfrastructureFallbackReason (Severity=Info) documents a cluster/machine/machinepool waiting for the underlying infrastructure
 	// to be available.
 	// NOTE: This reason is used only as a fallback when the infrastructure object is not reporting its own ready condition.
 	WaitingForInfrastructureFallbackReason = "WaitingForInfrastructure"
@@ -60,13 +73,32 @@ const (
 	// BootstrapReadyCondition reports a summary of current status of the bootstrap object defined for this machine.
 	// This condition is mirrored from the Ready condition in the bootstrap ref object, and
 	// the absence of this condition might signal problems in the reconcile external loops or the fact that
-	// the bootstrap provider does not not implements the Ready condition yet.
+	// the bootstrap provider does not implement the Ready condition yet.
 	BootstrapReadyCondition ConditionType = "BootstrapReady"
 
 	// WaitingForDataSecretFallbackReason (Severity=Info) documents a machine waiting for the bootstrap data secret
 	// to be available.
 	// NOTE: This reason is used only as a fallback when the bootstrap object is not reporting its own ready condition.
 	WaitingForDataSecretFallbackReason = "WaitingForDataSecret"
+
+	// DrainingSucceededCondition provide evidence of the status of the node drain operation which happens during the machine
+	// deletion process.
+	DrainingSucceededCondition ConditionType = "DrainingSucceeded"
+
+	// DrainingReason (Severity=Info) documents a machine node being drained.
+	DrainingReason = "Draining"
+
+	// DrainingFailedReason (Severity=Warning) documents a machine node drain operation failed.
+	DrainingFailedReason = "DrainingFailed"
+
+	// PreDrainDeleteHookSucceededCondition reports a machine waiting for a PreDrainDeleteHook before being delete.
+	PreDrainDeleteHookSucceededCondition ConditionType = "PreDrainDeleteHookSucceeded"
+
+	// PreTerminateDeleteHookSucceededCondition reports a machine waiting for a PreDrainDeleteHook before being delete.
+	PreTerminateDeleteHookSucceededCondition ConditionType = "PreTerminateDeleteHookSucceeded"
+
+	// WaitingExternalHookReason (Severity=Info) provide evidence that we are waiting for an external hook to complete.
+	WaitingExternalHookReason = "WaitingExternalHook"
 )
 
 const (
@@ -74,17 +106,17 @@ const (
 	// In the event that the health check fails it will be set to False.
 	MachineHealthCheckSuccededCondition ConditionType = "HealthCheckSucceeded"
 
-	// MachineHasFailure is the reason used when a machine has either a FailureReason or a FailureMessage set on its status.
-	MachineHasFailure = "MachineHasFailure"
+	// MachineHasFailureReason is the reason used when a machine has either a FailureReason or a FailureMessage set on its status.
+	MachineHasFailureReason = "MachineHasFailure"
 
-	// NodeNotFound is the reason used when a machine's node has previously been observed but is now gone.
-	NodeNotFound = "NodeNotFound"
+	// NodeNotFoundReason is the reason used when a machine's node has previously been observed but is now gone.
+	NodeNotFoundReason = "NodeNotFound"
 
-	// NodeStartupTimeout is the reason used when a machine's node does not appear within the specified timeout.
-	NodeStartupTimeout = "NodeStartupTimeout"
+	// NodeStartupTimeoutReason is the reason used when a machine's node does not appear within the specified timeout.
+	NodeStartupTimeoutReason = "NodeStartupTimeout"
 
-	// UnhealthyNodeCondition is the reason used when a machine's node has one of the MachineHealthCheck's unhealthy conditions.
-	UnhealthyNodeCondition = "UnhealthyNode"
+	// UnhealthyNodeConditionReason is the reason used when a machine's node has one of the MachineHealthCheck's unhealthy conditions.
+	UnhealthyNodeConditionReason = "UnhealthyNode"
 )
 
 const (
@@ -92,6 +124,6 @@ const (
 	// MachineOwnerRemediatedCondition is set to False after a health check fails, but should be changed to True by the owning controller after remediation succeeds.
 	MachineOwnerRemediatedCondition ConditionType = "OwnerRemediated"
 
-	// WaitingForRemediation is the reason used when a machine fails a health check and remediation is needed.
-	WaitingForRemediation = "WaitingForRemediation"
+	// WaitingForRemediationReason is the reason used when a machine fails a health check and remediation is needed.
+	WaitingForRemediationReason = "WaitingForRemediation"
 )

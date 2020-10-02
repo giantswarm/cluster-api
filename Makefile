@@ -46,12 +46,12 @@ E2E_FRAMEWORK_DIR := test/framework
 CAPD_DIR := test/infrastructure/docker
 RELEASE_NOTES_BIN := bin/release-notes
 RELEASE_NOTES := $(TOOLS_DIR)/$(RELEASE_NOTES_BIN)
-LINK_CHECKER_BIN := bin/liche
-LINK_CHECKER := $(TOOLS_DIR)/$(LINK_CHECKER_BIN)
 GO_APIDIFF_BIN := bin/go-apidiff
 GO_APIDIFF := $(TOOLS_DIR)/$(GO_APIDIFF_BIN)
 ENVSUBST_BIN := bin/envsubst
 ENVSUBST := $(TOOLS_DIR)/$(ENVSUBST_BIN)
+
+export PATH := $(abspath $(TOOLS_BIN_DIR)):$(PATH)
 
 # Binaries.
 # Need to use abspath so we can invoke these from subdirectories
@@ -89,8 +89,6 @@ TAG ?= dev
 ARCH ?= amd64
 ALL_ARCH = amd64 arm arm64 ppc64le s390x
 
-GINKGO_NODES ?= 1
-
 # Allow overriding the imagePullPolicy
 PULL_POLICY ?= Always
 
@@ -114,8 +112,14 @@ help:  ## Display this help
 ## --------------------------------------
 
 .PHONY: test
-test: ## Run tests
+test: ## Run tests.
 	source ./scripts/fetch_ext_bins.sh; fetch_tools; setup_envs; go test -v ./... $(TEST_ARGS)
+
+.PHONY: test-cover
+test-cover: ## Run tests with code coverage and code generate  reports
+	source ./scripts/fetch_ext_bins.sh; fetch_tools; setup_envs; go test -v -coverprofile=out/coverage.out ./... $(TEST_ARGS)
+	go tool cover -func=out/coverage.out -o out/coverage.txt
+	go tool cover -html=out/coverage.out -o out/coverage.html
 
 .PHONY: docker-build-e2e
 docker-build-e2e: ## Rebuild all Cluster API provider images to be used in the e2e tests
@@ -170,16 +174,14 @@ $(GOBINDATA): $(TOOLS_DIR)/go.mod # Build go-bindata from tools folder.
 $(RELEASE_NOTES): $(TOOLS_DIR)/go.mod
 	cd $(TOOLS_DIR) && go build -tags=tools -o $(RELEASE_NOTES_BIN) ./release
 
-$(LINK_CHECKER): $(TOOLS_DIR)/go.mod
-	cd $(TOOLS_DIR) && go build -tags=tools -o $(LINK_CHECKER_BIN) github.com/raviqqe/liche
-
 $(GO_APIDIFF): $(TOOLS_DIR)/go.mod
 	cd $(TOOLS_DIR) && go build -tags=tools -o $(GO_APIDIFF_BIN) github.com/joelanford/go-apidiff
 
 $(ENVSUBST): $(TOOLS_DIR)/go.mod
 	cd $(TOOLS_DIR) && go build -tags=tools -o $(ENVSUBST_BIN) github.com/drone/envsubst/cmd/envsubst
 
-envsubst: $(ENVSUBST)
+envsubst: $(ENVSUBST) ## Build a local copy of envsubst.
+kustomize: $(KUSTOMIZE) ## Build a local copy of kustomize.
 
 .PHONY: e2e-framework
 e2e-framework: ## Builds the CAPI e2e framework
@@ -215,7 +217,8 @@ generate: ## Generate code
 	$(MAKE) -C test/infrastructure/docker generate
 
 .PHONY: generate-go
-generate-go: ## Runs Go related generate targets
+generate-go: $(GOBINDATA) ## Runs Go related generate targets
+	go generate ./...
 	$(MAKE) generate-go-core
 	$(MAKE) generate-go-kubeadm-bootstrap
 	$(MAKE) generate-go-kubeadm-control-plane
@@ -447,7 +450,10 @@ release: clean-release ## Builds and push container images using the latest git 
 	$(MAKE) set-manifest-pull-policy PULL_POLICY=IfNotPresent TARGET_RESOURCE="./config/manager/manager_pull_policy.yaml"
 	$(MAKE) set-manifest-pull-policy PULL_POLICY=IfNotPresent TARGET_RESOURCE="./bootstrap/kubeadm/config/manager/manager_pull_policy.yaml"
 	$(MAKE) set-manifest-pull-policy PULL_POLICY=IfNotPresent TARGET_RESOURCE="./controlplane/kubeadm/config/manager/manager_pull_policy.yaml"
-	$(MAKE) release-manifests
+	## Build the manifests
+	$(MAKE) release-manifests clean-release-git
+	## Build the development manifests
+	$(MAKE) release-manifests-dev clean-release-git
 
 .PHONY: release-manifests
 release-manifests: $(RELEASE_DIR) $(KUSTOMIZE) ## Builds the manifests to publish with a release
@@ -465,6 +471,14 @@ release-manifests: $(RELEASE_DIR) $(KUSTOMIZE) ## Builds the manifests to publis
 	echo "---" >> $(RELEASE_DIR)/cluster-api-components.yaml
 	cat $(RELEASE_DIR)/control-plane-components.yaml >> $(RELEASE_DIR)/cluster-api-components.yaml
 
+.PHONY: release-manifests-dev
+release-manifests-dev: ## Builds the development manifests and copies them in the release folder
+	# Release CAPD components and add them to the release dir
+	$(MAKE) -C test/infrastructure/docker/ release
+	cp test/infrastructure/docker/out/infrastructure-components.yaml $(RELEASE_DIR)/infrastructure-components-development.yaml
+	# Adds CAPD templates
+	cp test/infrastructure/docker/templates/* $(RELEASE_DIR)/
+
 release-binaries: ## Builds the binaries to publish with a release
 	RELEASE_BINARY=./cmd/clusterctl GOOS=linux GOARCH=amd64 $(MAKE) release-binary
 	RELEASE_BINARY=./cmd/clusterctl GOOS=darwin GOARCH=amd64 $(MAKE) release-binary
@@ -477,14 +491,14 @@ release-binary: $(RELEASE_DIR)
 		-e GOARCH=$(GOARCH) \
 		-v "$$(pwd):/workspace$(DOCKER_VOL_OPTS)" \
 		-w /workspace \
-		golang:1.13.12 \
+		golang:1.13.15 \
 		go build -a -ldflags "$(LDFLAGS) -extldflags '-static'" \
 		-o $(RELEASE_DIR)/$(notdir $(RELEASE_BINARY))-$(GOOS)-$(GOARCH) $(RELEASE_BINARY)
 
 .PHONY: release-staging
 release-staging: ## Builds and push container images to the staging bucket.
 	docker pull docker.io/docker/dockerfile:experimental
-	docker pull docker.io/library/golang:1.13.12
+	docker pull docker.io/library/golang:1.13.15
 	docker pull gcr.io/distroless/static:latest
 	REGISTRY=$(STAGING_REGISTRY) $(MAKE) docker-build-all docker-push-all release-alias-tag
 
@@ -529,6 +543,10 @@ clean-bin: ## Remove all generated binaries
 clean-release: ## Remove the release folder
 	rm -rf $(RELEASE_DIR)
 
+.PHONY: clean-release-git
+clean-release-git: ## Restores the git files usually modified during a release
+	git restore ./*manager_image_patch.yaml ./*manager_pull_policy.yaml
+
 .PHONY: clean-book
 clean-book: ## Remove all generated GitBook files
 	rm -rf ./docs/book/_book
@@ -552,7 +570,6 @@ verify:
 	./hack/verify-doctoc.sh
 	./hack/verify-shellcheck.sh
 	./hack/verify-starlark.sh
-	$(MAKE) verify-book-links
 	$(MAKE) verify-modules
 	$(MAKE) verify-gen
 	$(MAKE) verify-docker-provider
@@ -581,9 +598,9 @@ verify-docker-provider:
 	cd $(CAPD_DIR); $(MAKE) verify
 
 .PHONY: verify-book-links
-verify-book-links: $(LINK_CHECKER)
-	 # Ignore localhost links and set concurrency to a reasonable number
-	$(LINK_CHECKER) -r docs/book -x "^https?://" -c 10
+verify-book-links:
+	$(MAKE) -C docs/book verify
+
 ## --------------------------------------
 ## Others / Utilities
 ## --------------------------------------
@@ -595,3 +612,4 @@ diagrams: ## Build proposal diagrams
 .PHONY: serve-book
 serve-book: ## Build and serve the book with live-reloading enabled
 	$(MAKE) -C docs/book serve
+

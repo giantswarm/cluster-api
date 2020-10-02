@@ -32,7 +32,6 @@ import (
 	bootstrapv1 "sigs.k8s.io/cluster-api/bootstrap/kubeadm/api/v1alpha3"
 	controlplanev1 "sigs.k8s.io/cluster-api/controlplane/kubeadm/api/v1alpha3"
 	"sigs.k8s.io/cluster-api/controlplane/kubeadm/internal"
-	capierrors "sigs.k8s.io/cluster-api/errors"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
@@ -96,7 +95,7 @@ func TestKubeadmControlPlaneReconciler_scaleUpControlPlane(t *testing.T) {
 
 		for i := 0; i < 2; i++ {
 			m, _ := createMachineNodePair(fmt.Sprintf("test-%d", i), cluster, kcp, true)
-			fmc.Machines = fmc.Machines.Insert(m)
+			fmc.Machines.Insert(m)
 			initObjs = append(initObjs, m.DeepCopy())
 		}
 
@@ -130,7 +129,7 @@ func TestKubeadmControlPlaneReconciler_scaleUpControlPlane(t *testing.T) {
 		beforeMachines := internal.NewFilterableMachineCollection()
 		for i := 0; i < 2; i++ {
 			m, _ := createMachineNodePair(fmt.Sprintf("test-%d", i), cluster.DeepCopy(), kcp.DeepCopy(), true)
-			beforeMachines = beforeMachines.Insert(m)
+			beforeMachines.Insert(m)
 			initObjs = append(initObjs, m.DeepCopy())
 		}
 
@@ -138,14 +137,20 @@ func TestKubeadmControlPlaneReconciler_scaleUpControlPlane(t *testing.T) {
 			name                  string
 			etcdUnHealthy         bool
 			controlPlaneUnHealthy bool
+			expectErr             bool
+			expectResult          ctrl.Result
 		}{
 			{
 				name:          "etcd health check fails",
 				etcdUnHealthy: true,
+				expectErr:     true,
+				expectResult:  ctrl.Result{},
 			},
 			{
 				name:                  "controlplane component health check fails",
 				controlPlaneUnHealthy: true,
+				expectErr:             false,
+				expectResult:          ctrl.Result{RequeueAfter: healthCheckFailedRequeueAfter},
 			},
 		}
 		for _, tc := range testCases {
@@ -171,9 +176,11 @@ func TestKubeadmControlPlaneReconciler_scaleUpControlPlane(t *testing.T) {
 				Machines: beforeMachines,
 			}
 
-			_, err := r.scaleUpControlPlane(context.Background(), cluster.DeepCopy(), kcp.DeepCopy(), controlPlane)
-			g.Expect(err).To(HaveOccurred())
-			g.Expect(err).To(MatchError(&capierrors.RequeueAfterError{RequeueAfter: healthCheckFailedRequeueAfter}))
+			result, err := r.scaleUpControlPlane(context.Background(), cluster.DeepCopy(), kcp.DeepCopy(), controlPlane)
+			if tc.expectErr {
+				g.Expect(err).To(HaveOccurred())
+			}
+			g.Expect(result).To(Equal(tc.expectResult))
 
 			controlPlaneMachines := &clusterv1.MachineList{}
 			g.Expect(fakeClient.List(context.Background(), controlPlaneMachines)).To(Succeed())
