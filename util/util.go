@@ -582,7 +582,7 @@ func GetCRDMetadataFromGVK(ctx context.Context, restConfig *rest.Config, gvk sch
 
 	// Get the partial metadata CRD.
 	generatedName := fmt.Sprintf("%s.%s", flect.Pluralize(strings.ToLower(gvk.Kind)), gvk.Group)
-	return metadataClient.Resource(apiextensionsv1.SchemeGroupVersion.WithResource("customresourcedefinitions")).Get(generatedName, metav1.GetOptions{})
+	return metadataClient.Resource(apiextensionsv1.SchemeGroupVersion.WithResource("customresourcedefinitions")).Get(ctx, generatedName, metav1.GetOptions{})
 }
 
 // KubeAwareAPIVersions is a sortable slice of kube-like version strings.

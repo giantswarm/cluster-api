@@ -156,7 +156,7 @@ func (t *ClusterCacheTracker) newClusterAccessor(ctx context.Context, cluster cl
 	go cache.Start(cache.stop)
 
 	// Start cluster healthcheck!!!
-	go t.healthCheckCluster(&healthCheckInput{
+	go t.healthCheckCluster(ctx, &healthCheckInput{
 		stop:    cache.stop,
 		cluster: cluster,
 		cfg:     config,
@@ -313,7 +313,7 @@ func (m *ClusterCacheTracker) healthCheckCluster(ctx context.Context, in *health
 			return false, nil
 		}
 
-		if !t.clusterAccessorExists(in.cluster) {
+		if !m.clusterAccessorExists(in.cluster) {
 			// Cache for this cluster has already been cleaned up.
 			// Nothing to do, so return true.
 			return true, nil
@@ -321,7 +321,7 @@ func (m *ClusterCacheTracker) healthCheckCluster(ctx context.Context, in *health
 
 		// An error here means there was either an issue connecting or the API returned an error.
 		// If no error occurs, reset the unhealthy counter.
-		_, err := restClient.Get().AbsPath(in.path).Timeout(in.requestTimeout).DoRaw()
+		_, err := restClient.Get().AbsPath(in.path).Timeout(in.requestTimeout).DoRaw(ctx)
 		if err != nil {
 			unhealthyCount++
 		} else {
@@ -340,7 +340,7 @@ func (m *ClusterCacheTracker) healthCheckCluster(ctx context.Context, in *health
 	// An error returned implies the health check has failed a sufficient number of
 	// times for the cluster to be considered unhealthy
 	if err != nil {
-		t.log.Error(err, "Error health checking cluster", "cluster", in.cluster.String())
-		t.deleteAccessor(in.cluster)
+		m.log.Error(err, "Error health checking cluster", "cluster", in.cluster.String())
+		m.deleteAccessor(in.cluster)
 	}
 }
