@@ -103,6 +103,8 @@ func init() {
 			external.TestGenericBootstrapTemplateCRD.DeepCopy(),
 			external.TestGenericInfrastructureCRD.DeepCopy(),
 			external.TestGenericInfrastructureTemplateCRD.DeepCopy(),
+			external.TestGenericInfrastructureRemediationCRD.DeepCopy(),
+			external.TestGenericInfrastructureRemediationTemplateCRD.DeepCopy(),
 		},
 	}
 }
@@ -132,9 +134,14 @@ func NewTestEnvironment() *TestEnvironment {
 	options := manager.Options{
 		Scheme:             scheme.Scheme,
 		MetricsBindAddress: "0",
-		NewClient:          util.ManagerDelegatingClientFunc,
-		CertDir:            env.WebhookInstallOptions.LocalServingCertDir,
-		Port:               env.WebhookInstallOptions.LocalServingPort,
+		NewClient: util.DelegatingClientFuncWithUncached(
+			&corev1.ConfigMap{},
+			&corev1.ConfigMapList{},
+			&corev1.Secret{},
+			&corev1.SecretList{},
+		),
+		CertDir: env.WebhookInstallOptions.LocalServingCertDir,
+		Port:    env.WebhookInstallOptions.LocalServingPort,
 	}
 
 	mgr, err := ctrl.NewManager(env.Config, options)

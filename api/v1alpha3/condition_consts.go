@@ -65,6 +65,13 @@ const (
 	// to be available.
 	// NOTE: This reason is used only as a fallback when the control plane object is not reporting its own ready condition.
 	WaitingForControlPlaneFallbackReason = "WaitingForControlPlane"
+
+	// WaitingForControlPlaneAvailableReason (Severity=Info) documents a Cluster API object
+	// waiting for the control plane machine to be available.
+	//
+	// NOTE: Having the control plane machine available is a pre-condition for joining additional control planes
+	// or workers nodes.
+	WaitingForControlPlaneAvailableReason = "WaitingForControlPlaneAvailable"
 )
 
 // Conditions and condition Reasons for the Machine object
@@ -109,9 +116,6 @@ const (
 	// MachineHasFailureReason is the reason used when a machine has either a FailureReason or a FailureMessage set on its status.
 	MachineHasFailureReason = "MachineHasFailure"
 
-	// NodeNotFoundReason is the reason used when a machine's node has previously been observed but is now gone.
-	NodeNotFoundReason = "NodeNotFound"
-
 	// NodeStartupTimeoutReason is the reason used when a machine's node does not appear within the specified timeout.
 	NodeStartupTimeoutReason = "NodeStartupTimeout"
 
@@ -126,4 +130,57 @@ const (
 
 	// WaitingForRemediationReason is the reason used when a machine fails a health check and remediation is needed.
 	WaitingForRemediationReason = "WaitingForRemediation"
+
+	// RemediationFailedReason is the reason used when a remediation owner fails to remediate an unhealthy machine.
+	RemediationFailedReason = "RemediationFailed"
+
+	// RemediationInProgressReason is the reason used when an unhealthy machine is being remediated by the remediation owner.
+	RemediationInProgressReason = "RemediationInProgress"
+
+	// ExternalRemediationTemplateAvailable is set on machinehealthchecks when MachineHealthCheck controller uses external remediation.
+	// ExternalRemediationTemplateAvailable is set to false if external remediation template is not found.
+	ExternalRemediationTemplateAvailable ConditionType = "ExternalRemediationTemplateAvailable"
+
+	// ExternalRemediationTemplateNotFound is the reason used when a machine health check fails to find external remediation template.
+	ExternalRemediationTemplateNotFound = "ExternalRemediationTemplateNotFound"
+
+	// ExternalRemediationRequestAvailable is set on machinehealthchecks when MachineHealthCheck controller uses external remediation.
+	// ExternalRemediationRequestAvailable is set to false if creating external remediation request fails.
+	ExternalRemediationRequestAvailable ConditionType = "ExternalRemediationRequestAvailable"
+
+	// ExternalRemediationRequestCreationFailed is the reason used when a machine health check fails to create external remediation request.
+	ExternalRemediationRequestCreationFailed = "ExternalRemediationRequestCreationFailed"
+)
+
+// Conditions and condition Reasons for the MachineHealthCheck object
+
+const (
+	// RemediationAllowedCondition is set on MachineHealthChecks to show the status of whether the MachineHealthCheck is
+	// allowed to remediate any Machines or whether it is blocked from remediating any further.
+	RemediationAllowedCondition ConditionType = "RemediationAllowed"
+
+	// TooManyUnhealthy is the reason used when too many Machines are unhealthy and the MachineHealthCheck is blocked
+	// from making any further remediations.
+	TooManyUnhealthyReason = "TooManyUnhealthy"
+)
+
+// Conditions and condition Reasons for the Machine's Node object
+const (
+	// MachineNodeHealthyCondition provides info about the operational state of the Kubernetes node hosted on the machine by summarizing  node conditions.
+	// If the conditions defined in a Kubernetes node (i.e., NodeReady, NodeMemoryPressure, NodeDiskPressure, NodePIDPressure, and NodeNetworkUnavailable) are in a healthy state, it will be set to True.
+	MachineNodeHealthyCondition ConditionType = "NodeHealthy"
+
+	// WaitingForNodeRefReason (Severity=Info) documents a machine.spec.providerId is not assigned yet.
+	WaitingForNodeRefReason = "WaitingForNodeRef"
+
+	// NodeProvisioningReason (Severity=Info) documents machine in the process of provisioning a node.
+	// NB. provisioning --> NodeRef == ""
+	NodeProvisioningReason = "NodeProvisioning"
+
+	// NodeNotFoundReason (Severity=Error) documents a machine's node has previously been observed but is now gone.
+	// NB. provisioned --> NodeRef != ""
+	NodeNotFoundReason = "NodeNotFound"
+
+	// NodeConditionsFailedReason (Severity=Warning) documents a node is not in a healthy state due to the failed state of at least 1 Kubelet condition.
+	NodeConditionsFailedReason = "NodeConditionsFailed"
 )

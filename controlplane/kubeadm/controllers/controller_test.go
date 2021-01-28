@@ -396,9 +396,8 @@ func TestKubeadmControlPlaneReconciler_adoption(t *testing.T) {
 		kcp.Spec.Version = version
 
 		fmc := &fakeManagementCluster{
-			Machines:            internal.FilterableMachineCollection{},
-			ControlPlaneHealthy: true,
-			EtcdHealthy:         true,
+			Machines: internal.FilterableMachineCollection{},
+			Workload: fakeWorkloadCluster{},
 		}
 		objs := []runtime.Object{cluster.DeepCopy(), kcp.DeepCopy(), tmpl.DeepCopy()}
 		for i := 0; i < 3; i++ {
@@ -465,9 +464,8 @@ func TestKubeadmControlPlaneReconciler_adoption(t *testing.T) {
 		kcp.Spec.Version = version
 
 		fmc := &fakeManagementCluster{
-			Machines:            internal.FilterableMachineCollection{},
-			ControlPlaneHealthy: true,
-			EtcdHealthy:         true,
+			Machines: internal.FilterableMachineCollection{},
+			Workload: fakeWorkloadCluster{},
 		}
 		objs := []runtime.Object{cluster.DeepCopy(), kcp.DeepCopy(), tmpl.DeepCopy()}
 		for i := 0; i < 3; i++ {
@@ -572,7 +570,7 @@ func TestKubeadmControlPlaneReconciler_adoption(t *testing.T) {
 		g := NewWithT(t)
 
 		cluster, kcp, tmpl := createClusterWithControlPlane()
-		cluster.Spec.ControlPlaneEndpoint.Host = "nodomain.example.com"
+		cluster.Spec.ControlPlaneEndpoint.Host = "nodomain.example.com1"
 		cluster.Spec.ControlPlaneEndpoint.Port = 6443
 		kcp.Spec.Version = version
 
@@ -580,9 +578,8 @@ func TestKubeadmControlPlaneReconciler_adoption(t *testing.T) {
 		kcp.DeletionTimestamp = &now
 
 		fmc := &fakeManagementCluster{
-			Machines:            internal.FilterableMachineCollection{},
-			ControlPlaneHealthy: true,
-			EtcdHealthy:         true,
+			Machines: internal.FilterableMachineCollection{},
+			Workload: fakeWorkloadCluster{},
 		}
 		objs := []runtime.Object{cluster.DeepCopy(), kcp.DeepCopy(), tmpl.DeepCopy()}
 		for i := 0; i < 3; i++ {
@@ -642,7 +639,7 @@ func TestKubeadmControlPlaneReconciler_adoption(t *testing.T) {
 		g := NewWithT(t)
 
 		cluster, kcp, tmpl := createClusterWithControlPlane()
-		cluster.Spec.ControlPlaneEndpoint.Host = "nodomain.example.com"
+		cluster.Spec.ControlPlaneEndpoint.Host = "nodomain.example.com2"
 		cluster.Spec.ControlPlaneEndpoint.Port = 6443
 		kcp.Spec.Version = "v1.17.0"
 
@@ -665,8 +662,7 @@ func TestKubeadmControlPlaneReconciler_adoption(t *testing.T) {
 					},
 				},
 			},
-			ControlPlaneHealthy: true,
-			EtcdHealthy:         true,
+			Workload: fakeWorkloadCluster{},
 		}
 
 		fakeClient := newFakeClient(g, cluster.DeepCopy(), kcp.DeepCopy(), tmpl.DeepCopy(), fmc.Machines["test0"].DeepCopy())
@@ -1178,10 +1174,8 @@ func TestKubeadmControlPlaneReconciler_reconcileDelete(t *testing.T) {
 		r := &KubeadmControlPlaneReconciler{
 			Client: fakeClient,
 			managementCluster: &fakeManagementCluster{
-				ControlPlaneHealthy: true,
-				EtcdHealthy:         true,
-				Management:          &internal.Management{Client: fakeClient},
-				Workload:            fakeWorkloadCluster{},
+				Management: &internal.Management{Client: fakeClient},
+				Workload:   fakeWorkloadCluster{},
 			},
 			Log:      log.Log,
 			recorder: record.NewFakeRecorder(32),
@@ -1230,10 +1224,8 @@ func TestKubeadmControlPlaneReconciler_reconcileDelete(t *testing.T) {
 		r := &KubeadmControlPlaneReconciler{
 			Client: fakeClient,
 			managementCluster: &fakeManagementCluster{
-				ControlPlaneHealthy: true,
-				EtcdHealthy:         true,
-				Management:          &internal.Management{Client: fakeClient},
-				Workload:            fakeWorkloadCluster{},
+				Management: &internal.Management{Client: fakeClient},
+				Workload:   fakeWorkloadCluster{},
 			},
 			Log:      log.Log,
 			recorder: record.NewFakeRecorder(32),
@@ -1264,10 +1256,8 @@ func TestKubeadmControlPlaneReconciler_reconcileDelete(t *testing.T) {
 		r := &KubeadmControlPlaneReconciler{
 			Client: fakeClient,
 			managementCluster: &fakeManagementCluster{
-				ControlPlaneHealthy: true,
-				EtcdHealthy:         true,
-				Management:          &internal.Management{Client: fakeClient},
-				Workload:            fakeWorkloadCluster{},
+				Management: &internal.Management{Client: fakeClient},
+				Workload:   fakeWorkloadCluster{},
 			},
 			recorder: record.NewFakeRecorder(32),
 			Log:      log.Log,
@@ -1383,6 +1373,11 @@ func createClusterWithControlPlane() (*clusterv1.Cluster, *controlplanev1.Kubead
 	return cluster, kcp, genericMachineTemplate
 }
 
+func setKCPHealthy(kcp *controlplanev1.KubeadmControlPlane) {
+	conditions.MarkTrue(kcp, controlplanev1.ControlPlaneComponentsHealthyCondition)
+	conditions.MarkTrue(kcp, controlplanev1.EtcdClusterHealthyCondition)
+}
+
 func createMachineNodePair(name string, cluster *clusterv1.Cluster, kcp *controlplanev1.KubeadmControlPlane, ready bool) (*clusterv1.Machine, *corev1.Node) {
 	machine := &clusterv1.Machine{
 		TypeMeta: metav1.TypeMeta{
@@ -1433,6 +1428,14 @@ func createMachineNodePair(name string, cluster *clusterv1.Cluster, kcp *control
 		}
 	}
 	return machine, node
+}
+
+func setMachineHealthy(m *clusterv1.Machine) {
+	conditions.MarkTrue(m, controlplanev1.MachineAPIServerPodHealthyCondition)
+	conditions.MarkTrue(m, controlplanev1.MachineControllerManagerPodHealthyCondition)
+	conditions.MarkTrue(m, controlplanev1.MachineSchedulerPodHealthyCondition)
+	conditions.MarkTrue(m, controlplanev1.MachineEtcdPodHealthyCondition)
+	conditions.MarkTrue(m, controlplanev1.MachineEtcdMemberHealthyCondition)
 }
 
 // newCluster return a CAPI cluster object

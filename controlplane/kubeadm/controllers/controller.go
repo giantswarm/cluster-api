@@ -31,13 +31,6 @@ import (
 	kerrors "k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/utils/pointer"
-	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/controller"
-	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
-	"sigs.k8s.io/controller-runtime/pkg/handler"
-	"sigs.k8s.io/controller-runtime/pkg/source"
-
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1alpha3"
 	bootstrapv1 "sigs.k8s.io/cluster-api/bootstrap/kubeadm/api/v1alpha3"
 	kubeadmv1 "sigs.k8s.io/cluster-api/bootstrap/kubeadm/types/v1beta1"
@@ -51,6 +44,12 @@ import (
 	"sigs.k8s.io/cluster-api/util/patch"
 	"sigs.k8s.io/cluster-api/util/predicates"
 	"sigs.k8s.io/cluster-api/util/secret"
+	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
+	"sigs.k8s.io/controller-runtime/pkg/source"
 )
 
 // +kubebuilder:rbac:groups=core,resources=events,verbs=get;list;watch;create;patch
@@ -271,12 +270,12 @@ func (r *KubeadmControlPlaneReconciler) reconcile(ctx context.Context, cluster *
 	}
 
 	// Generate Cluster Kubeconfig if needed
-	if err := r.reconcileKubeconfig(ctx, util.ObjectKey(cluster), cluster.Spec.ControlPlaneEndpoint, kcp); err != nil {
+	if err := r.reconcileKubeconfig(ctx, cluster, kcp); err != nil {
 		logger.Error(err, "failed to reconcile Kubeconfig")
 		return ctrl.Result{}, err
 	}
 
-	controlPlaneMachines, err := r.managementCluster.GetMachinesForCluster(ctx, util.ObjectKey(cluster), machinefilters.ControlPlaneMachines(cluster.Name))
+	controlPlaneMachines, err := r.managementClusterUncached.GetMachinesForCluster(ctx, util.ObjectKey(cluster), machinefilters.ControlPlaneMachines(cluster.Name))
 	if err != nil {
 		logger.Error(err, "failed to retrieve control plane machines for cluster")
 		return ctrl.Result{}, err
@@ -303,16 +302,32 @@ func (r *KubeadmControlPlaneReconciler) reconcile(ctx context.Context, cluster *
 
 	// Aggregate the operational state of all the machines; while aggregating we are adding the
 	// source ref (reason@machine/name) so the problem can be easily tracked down to its source machine.
-	conditions.SetAggregate(controlPlane.KCP, controlplanev1.MachinesReadyCondition, ownedMachines.ConditionGetters(), conditions.AddSourceRef())
+	conditions.SetAggregate(controlPlane.KCP, controlplanev1.MachinesReadyCondition, ownedMachines.ConditionGetters(), conditions.AddSourceRef(), conditions.WithStepCounterIf(false))
+
+	// Updates conditions reporting the status of static pods and the status of the etcd cluster.
+	// NOTE: Conditions reporting KCP operation progress like e.g. Resized or SpecUpToDate are inlined with the rest of the execution.
+	if result, err := r.reconcileControlPlaneConditions(ctx, controlPlane); err != nil || !result.IsZero() {
+		return result, err
+	}
+
+	// Ensures the number of etcd members is in sync with the number of machines/nodes.
+	// NOTE: This is usually required after a machine deletion.
+	if result, err := r.reconcileEtcdMembers(ctx, controlPlane); err != nil || !result.IsZero() {
+		return result, err
+	}
+
+	// Reconcile unhealthy machines by triggering deletion and requeue if it is considered safe to remediate,
+	// otherwise continue with the other KCP operations.
+	if result, err := r.reconcileUnhealthyMachines(ctx, controlPlane); err != nil || !result.IsZero() {
+		return result, err
+	}
 
 	// Control plane machines rollout due to configuration changes (e.g. upgrades) takes precedence over other operations.
 	needRollout := controlPlane.MachinesNeedingRollout()
 	switch {
 	case len(needRollout) > 0:
 		logger.Info("Rolling out Control Plane machines", "needRollout", needRollout.Names())
-		// NOTE: we are using Status.UpdatedReplicas from the previous reconciliation only to provide a meaningful message
-		// and this does not influence any reconciliation logic.
-		conditions.MarkFalse(controlPlane.KCP, controlplanev1.MachinesSpecUpToDateCondition, controlplanev1.RollingUpdateInProgressReason, clusterv1.ConditionSeverityWarning, "Rolling %d replicas with outdated spec (%d replicas up to date)", len(needRollout), kcp.Status.UpdatedReplicas)
+		conditions.MarkFalse(controlPlane.KCP, controlplanev1.MachinesSpecUpToDateCondition, controlplanev1.RollingUpdateInProgressReason, clusterv1.ConditionSeverityWarning, "Rolling %d replicas with outdated spec (%d replicas up to date)", len(needRollout), len(controlPlane.Machines)-len(needRollout))
 		return r.upgradeControlPlane(ctx, cluster, kcp, controlPlane, needRollout)
 	default:
 		// make sure last upgrade operation is marked as completed.
@@ -379,6 +394,7 @@ func (r *KubeadmControlPlaneReconciler) reconcileDelete(ctx context.Context, clu
 	logger := r.Log.WithValues("namespace", kcp.Namespace, "kubeadmControlPlane", kcp.Name, "cluster", cluster.Name)
 	logger.Info("Reconcile KubeadmControlPlane deletion")
 
+	// Gets all machines, not just control plane machines.
 	allMachines, err := r.managementCluster.GetMachinesForCluster(ctx, util.ObjectKey(cluster))
 	if err != nil {
 		return ctrl.Result{}, err
@@ -389,6 +405,18 @@ func (r *KubeadmControlPlaneReconciler) reconcileDelete(ctx context.Context, clu
 	if len(ownedMachines) == 0 {
 		controllerutil.RemoveFinalizer(kcp, controlplanev1.KubeadmControlPlaneFinalizer)
 		return ctrl.Result{}, nil
+	}
+
+	controlPlane, err := internal.NewControlPlane(ctx, r.Client, cluster, kcp, ownedMachines)
+	if err != nil {
+		logger.Error(err, "failed to initialize control plane")
+		return ctrl.Result{}, err
+	}
+
+	// Updates conditions reporting the status of static pods and the status of the etcd cluster.
+	// NOTE: Ignoring failures given that we are deleting
+	if _, err := r.reconcileControlPlaneConditions(ctx, controlPlane); err != nil {
+		logger.Info("failed to reconcile conditions", "error", err.Error())
 	}
 
 	// Aggregate the operational state of all the machines; while aggregating we are adding the
@@ -442,41 +470,79 @@ func (r *KubeadmControlPlaneReconciler) ClusterToKubeadmControlPlane(o handler.M
 	return nil
 }
 
-// reconcileHealth performs health checks for control plane components and etcd
-// It removes any etcd members that do not have a corresponding node.
-// Also, as a final step, checks if there is any machines that is being deleted.
-func (r *KubeadmControlPlaneReconciler) reconcileHealth(ctx context.Context, cluster *clusterv1.Cluster, kcp *controlplanev1.KubeadmControlPlane, controlPlane *internal.ControlPlane) (ctrl.Result, error) {
-
-	// Do a health check of the Control Plane components
-	if err := r.managementCluster.TargetClusterControlPlaneIsHealthy(ctx, util.ObjectKey(cluster)); err != nil {
-		r.recorder.Eventf(kcp, corev1.EventTypeWarning, "ControlPlaneUnhealthy",
-			"Waiting for control plane to pass control plane health check to continue reconciliation: %v", err)
-		return ctrl.Result{RequeueAfter: healthCheckFailedRequeueAfter}, nil
+// reconcileControlPlaneConditions is responsible of reconciling conditions reporting the status of static pods and
+// the status of the etcd cluster.
+func (r *KubeadmControlPlaneReconciler) reconcileControlPlaneConditions(ctx context.Context, controlPlane *internal.ControlPlane) (ctrl.Result, error) {
+	// If the cluster is not yet initialized, there is no way to connect to the workload cluster and fetch information
+	// for updating conditions. Return early.
+	if !controlPlane.KCP.Status.Initialized {
+		return ctrl.Result{}, nil
 	}
 
-	// If KCP should manage etcd, ensure etcd is healthy.
-	if controlPlane.IsEtcdManaged() {
-		if err := r.managementCluster.TargetClusterEtcdIsHealthy(ctx, util.ObjectKey(cluster)); err != nil {
-			errList := []error{errors.Wrap(err, "failed to pass etcd health check")}
-			r.recorder.Eventf(kcp, corev1.EventTypeWarning, "ControlPlaneUnhealthy",
-				"Waiting for control plane to pass etcd health check to continue reconciliation: %v", err)
-			// If there are any etcd members that do not have corresponding nodes, remove them from etcd and from the kubeadm configmap.
-			// This will solve issues related to manual control-plane machine deletion.
-			workloadCluster, err := r.managementCluster.GetWorkloadCluster(ctx, util.ObjectKey(cluster))
-			if err != nil {
-				errList = append(errList, errors.Wrap(err, "cannot get remote client to workload cluster"))
-			} else if err := workloadCluster.ReconcileEtcdMembers(ctx); err != nil {
-				errList = append(errList, errors.Wrap(err, "failed attempt to remove potential hanging etcd members to pass etcd health check to continue reconciliation"))
-			}
-			return ctrl.Result{}, kerrors.NewAggregate(errList)
+	workloadCluster, err := r.managementCluster.GetWorkloadCluster(ctx, util.ObjectKey(controlPlane.Cluster))
+	if err != nil {
+		return ctrl.Result{}, errors.Wrap(err, "cannot get remote client to workload cluster")
+	}
+
+	// Update conditions status
+	workloadCluster.UpdateStaticPodConditions(ctx, controlPlane)
+	workloadCluster.UpdateEtcdConditions(ctx, controlPlane)
+
+	// Patch machines with the updated conditions.
+	if err := controlPlane.PatchMachines(ctx); err != nil {
+		return ctrl.Result{}, err
+	}
+
+	// KCP will be patched at the end of Reconcile to reflect updated conditions, so we can return now.
+	return ctrl.Result{}, nil
+}
+
+// reconcileEtcdMembers ensures the number of etcd members is in sync with the number of machines/nodes.
+// This is usually required after a machine deletion.
+//
+// NOTE: this func uses KCP conditions, it is required to call reconcileControlPlaneConditions before this.
+func (r *KubeadmControlPlaneReconciler) reconcileEtcdMembers(ctx context.Context, controlPlane *internal.ControlPlane) (ctrl.Result, error) {
+	logger := r.Log.WithValues("namespace", controlPlane.KCP.Namespace, "kubeadmControlPlane", controlPlane.KCP.Name, "cluster", controlPlane.Cluster.Name)
+
+	// If etcd is not managed by KCP this is a no-op.
+	if !controlPlane.IsEtcdManaged() {
+		return ctrl.Result{}, nil
+	}
+
+	// If there is no KCP-owned control-plane machines, then control-plane has not been initialized yet.
+	if controlPlane.Machines.Len() == 0 {
+		return ctrl.Result{}, nil
+	}
+
+	// Collect all the node names.
+	nodeNames := []string{}
+	for _, machine := range controlPlane.Machines {
+		if machine.Status.NodeRef == nil {
+			// If there are provisioning machines (machines without a node yet), return.
+			return ctrl.Result{}, nil
 		}
+		nodeNames = append(nodeNames, machine.Status.NodeRef.Name)
 	}
 
-	// We need this check for scale up as well as down to avoid scaling up when there is a machine being deleted.
-	// This should be at the end of this method as no need to wait for machine to be completely deleted to reconcile etcd.
-	// TODO: Revisit during machine remediation implementation which may need to cover other machine phases.
-	if controlPlane.HasDeletingMachine() {
-		return ctrl.Result{RequeueAfter: deleteRequeueAfter}, nil
+	// Potential inconsistencies between the list of members and the list of machines/nodes are
+	// surfaced using the EtcdClusterHealthyCondition; if this condition is true, meaning no inconsistencies exists, return early.
+	if conditions.IsTrue(controlPlane.KCP, controlplanev1.EtcdClusterHealthyCondition) {
+		return ctrl.Result{}, nil
+	}
+
+	workloadCluster, err := r.managementCluster.GetWorkloadCluster(ctx, util.ObjectKey(controlPlane.Cluster))
+	if err != nil {
+		// Failing at connecting to the workload cluster can mean workload cluster is unhealthy for a variety of reasons such as etcd quorum loss.
+		return ctrl.Result{}, errors.Wrap(err, "cannot get remote client to workload cluster")
+	}
+
+	removedMembers, err := workloadCluster.ReconcileEtcdMembers(ctx, nodeNames)
+	if err != nil {
+		return ctrl.Result{}, errors.Wrap(err, "failed attempt to reconcile etcd members")
+	}
+
+	if len(removedMembers) > 0 {
+		logger.Info("Etcd members without nodes removed from the cluster", "members", removedMembers)
 	}
 
 	return ctrl.Result{}, nil
