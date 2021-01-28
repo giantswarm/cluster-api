@@ -23,6 +23,7 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/pkg/errors"
+	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/serializer"
@@ -31,6 +32,8 @@ import (
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1alpha3"
+	"sigs.k8s.io/cluster-api/cmd/clusterctl/log"
+	"sigs.k8s.io/cluster-api/util"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -68,6 +71,26 @@ func NewClusterCacheTracker(log logr.Logger, manager ctrl.Manager) (*ClusterCach
 	}, nil
 }
 
+// NewTestClusterCacheTracker creates a new fake ClusterCacheTracker that can be used by unit tests with fake client.
+func NewTestClusterCacheTracker(cl client.Client, scheme *runtime.Scheme, objKey client.ObjectKey, watchObjects ...string) *ClusterCacheTracker {
+	testCacheTracker := &ClusterCacheTracker{
+		log:              log.Log,
+		client:           cl,
+		scheme:           scheme,
+		clusterAccessors: make(map[client.ObjectKey]*clusterAccessor),
+	}
+	testCacheTracker.clusterAccessors[objKey] = &clusterAccessor{
+		cache: nil,
+		client: &client.DelegatingClient{
+			Reader:       cl,
+			Writer:       cl,
+			StatusClient: cl,
+		},
+		watches: sets.NewString(watchObjects...),
+	}
+	return testCacheTracker
+}
+
 // GetClient returns a client for the given cluster.
 func (t *ClusterCacheTracker) GetClient(ctx context.Context, cluster client.ObjectKey) (client.Client, error) {
 	t.lock.Lock()
@@ -84,7 +107,7 @@ func (t *ClusterCacheTracker) GetClient(ctx context.Context, cluster client.Obje
 // clusterAccessor represents the combination of a client, cache, and watches for a remote cluster.
 type clusterAccessor struct {
 	cache   *stoppableCache
-	client  *client.DelegatingClient
+	client  client.Client
 	watches sets.String
 }
 
@@ -130,12 +153,6 @@ func (t *ClusterCacheTracker) newClusterAccessor(ctx context.Context, cluster cl
 		return nil, errors.Wrapf(err, "error creating dynamic rest mapper for remote cluster %q", cluster.String())
 	}
 
-	// Create the client for the remote cluster
-	c, err := client.New(config, client.Options{Scheme: t.scheme, Mapper: mapper})
-	if err != nil {
-		return nil, errors.Wrapf(err, "error creating client for remote cluster %q", cluster.String())
-	}
-
 	// Create the cache for the remote cluster
 	cacheOptions := cache.Options{
 		Scheme: t.scheme,
@@ -152,6 +169,18 @@ func (t *ClusterCacheTracker) newClusterAccessor(ctx context.Context, cluster cl
 		stop:  make(chan struct{}),
 	}
 
+	// Create a new delegating client, making sure we never cache secrets or configmaps.
+	newDelegatingClientFunc := util.DelegatingClientFuncWithUncached(
+		&corev1.ConfigMap{},
+		&corev1.ConfigMapList{},
+		&corev1.Secret{},
+		&corev1.SecretList{},
+	)
+	delegatingClient, err := newDelegatingClientFunc(cache, config, client.Options{Scheme: t.scheme, Mapper: mapper})
+	if err != nil {
+		return nil, errors.Wrapf(err, "error creating a delegating client for cluster %q", cluster.String())
+	}
+
 	// Start the cache!!!
 	go cache.Start(cache.stop)
 
@@ -161,12 +190,6 @@ func (t *ClusterCacheTracker) newClusterAccessor(ctx context.Context, cluster cl
 		cluster: cluster,
 		cfg:     config,
 	})
-
-	delegatingClient := &client.DelegatingClient{
-		Reader:       cache,
-		Writer:       c,
-		StatusClient: c,
-	}
 
 	return &clusterAccessor{
 		cache:   cache,

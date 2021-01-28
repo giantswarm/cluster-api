@@ -34,7 +34,8 @@ const (
 	AWSProviderName       = "aws"
 	AzureProviderName     = "azure"
 	DockerProviderName    = "docker"
-	DOProviderName        = "do"
+	DOProviderName        = "digitalocean"
+	GCPProviderName       = "gcp"
 	Metal3ProviderName    = "metal3"
 	OpenStackProviderName = "openstack"
 	PacketProviderName    = "packet"
@@ -115,6 +116,11 @@ func (p *providersClient) defaults() []Provider {
 		&provider{
 			name:         DOProviderName,
 			url:          "https://github.com/kubernetes-sigs/cluster-api-provider-digitalocean/releases/latest/infrastructure-components.yaml",
+			providerType: clusterctlv1.InfrastructureProviderType,
+		},
+		&provider{
+			name:         GCPProviderName,
+			url:          "https://github.com/kubernetes-sigs/cluster-api-provider-gcp/releases/latest/infrastructure-components.yaml",
 			providerType: clusterctlv1.InfrastructureProviderType,
 		},
 		&provider{

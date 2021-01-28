@@ -74,6 +74,7 @@ type MachineReconciler struct {
 	Log     logr.Logger
 	Tracker *remote.ClusterCacheTracker
 
+	controller      controller.Controller
 	restConfig      *rest.Config
 	scheme          *runtime.Scheme
 	recorder        record.EventRecorder
@@ -81,6 +82,8 @@ type MachineReconciler struct {
 }
 
 func (r *MachineReconciler) SetupWithManager(mgr ctrl.Manager, options controller.Options) error {
+	ctx := context.Background()
+
 	clusterToMachines, err := util.ClusterToObjectsMapper(mgr.GetClient(), &clusterv1.MachineList{}, mgr.GetScheme())
 	if err != nil {
 		return err
@@ -106,6 +109,16 @@ func (r *MachineReconciler) SetupWithManager(mgr ctrl.Manager, options controlle
 	if err != nil {
 		return errors.Wrap(err, "failed to add Watch for Clusters to controller manager")
 	}
+
+	// Add index to Machine for listing by Node reference.
+	if err := mgr.GetCache().IndexField(ctx, &clusterv1.Machine{},
+		clusterv1.MachineNodeNameIndex,
+		r.indexMachineByNodeName,
+	); err != nil {
+		return errors.Wrap(err, "error setting index fields")
+	}
+
+	r.controller = controller
 
 	r.recorder = mgr.GetEventRecorderFor("machine-controller")
 	r.restConfig = mgr.GetConfig()
@@ -208,9 +221,13 @@ func patchMachine(ctx context.Context, patchHelper *patch.Helper, machine *clust
 	// after provisioning - e.g. when a MHC condition exists - or during the deletion process).
 	conditions.SetSummary(machine,
 		conditions.WithConditions(
+			// Infrastructure problems should take precedence over all the other conditions
 			clusterv1.InfrastructureReadyCondition,
+			// Boostrap comes after, but it is relevant only during initial machine provisioning.
 			clusterv1.BootstrapReadyCondition,
-			// TODO: add MHC conditions here
+			// MHC reported condition should take precedence over the remediation progress
+			clusterv1.MachineHealthCheckSuccededCondition,
+			clusterv1.MachineOwnerRemediatedCondition,
 		),
 		conditions.WithStepCounterIf(machine.ObjectMeta.DeletionTimestamp.IsZero()),
 		conditions.WithStepCounterIfOnly(
@@ -228,6 +245,8 @@ func patchMachine(ctx context.Context, patchHelper *patch.Helper, machine *clust
 			clusterv1.BootstrapReadyCondition,
 			clusterv1.InfrastructureReadyCondition,
 			clusterv1.DrainingSucceededCondition,
+			clusterv1.MachineHealthCheckSuccededCondition,
+			clusterv1.MachineOwnerRemediatedCondition,
 		}},
 	)
 
@@ -236,7 +255,13 @@ func patchMachine(ctx context.Context, patchHelper *patch.Helper, machine *clust
 
 func (r *MachineReconciler) reconcile(ctx context.Context, cluster *clusterv1.Cluster, m *clusterv1.Machine) (ctrl.Result, error) {
 	logger := r.Log.WithValues("machine", m.Name, "namespace", m.Namespace)
-	logger = logger.WithValues("cluster", cluster.Name)
+
+	if cluster.Status.ControlPlaneInitialized {
+		if err := r.watchClusterNodes(ctx, cluster); err != nil {
+			logger.Error(err, "error watching nodes on target cluster")
+			return ctrl.Result{}, err
+		}
+	}
 
 	// If the Machine belongs to a cluster, add an owner reference.
 	if r.shouldAdopt(m) {
@@ -248,28 +273,24 @@ func (r *MachineReconciler) reconcile(ctx context.Context, cluster *clusterv1.Cl
 		})
 	}
 
-	// Call the inner reconciliation methods.
-	reconciliationErrors := []error{
-		r.reconcileBootstrap(ctx, cluster, m),
-		r.reconcileInfrastructure(ctx, cluster, m),
-		r.reconcileNodeRef(ctx, cluster, m),
+	phases := []func(context.Context, *clusterv1.Cluster, *clusterv1.Machine) (ctrl.Result, error){
+		r.reconcileBootstrap,
+		r.reconcileInfrastructure,
+		r.reconcileNode,
 	}
 
-	// Parse the errors, making sure we record if there is a RequeueAfterError.
 	res := ctrl.Result{}
 	errs := []error{}
-	for _, err := range reconciliationErrors {
-		if requeueErr, ok := errors.Cause(err).(capierrors.HasRequeueAfterError); ok {
-			// Only record and log the first RequeueAfterError.
-			if !res.Requeue {
-				res.Requeue = true
-				res.RequeueAfter = requeueErr.GetRequeueAfter()
-				logger.Error(err, "Reconciliation for Machine asked to requeue")
-			}
+	for _, phase := range phases {
+		// Call the inner reconciliation methods.
+		phaseResult, err := phase(ctx, cluster, m)
+		if err != nil {
+			errs = append(errs, err)
+		}
+		if len(errs) > 0 {
 			continue
 		}
-
-		errs = append(errs, err)
+		res = util.LowestNonZeroResult(res, phaseResult)
 	}
 	return res, kerrors.NewAggregate(errs)
 }
@@ -339,6 +360,16 @@ func (r *MachineReconciler) reconcileDelete(ctx context.Context, cluster *cluste
 	// Return early and don't remove the finalizer if we got an error or
 	// the external reconciliation deletion isn't ready.
 
+	patchHelper, err := patch.NewHelper(m, r.Client)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	conditions.MarkFalse(m, clusterv1.MachineNodeHealthyCondition, clusterv1.DeletingReason, clusterv1.ConditionSeverityInfo, "")
+	if err := patchMachine(ctx, patchHelper, m); err != nil {
+		conditions.MarkFalse(m, clusterv1.MachineNodeHealthyCondition, clusterv1.DeletionFailedReason, clusterv1.ConditionSeverityInfo, "")
+		return ctrl.Result{}, errors.Wrap(err, "failed to patch Machine")
+	}
+
 	if ok, err := r.reconcileDeleteInfrastructure(ctx, m); !ok || err != nil {
 		return ctrl.Result{}, err
 	}
@@ -354,13 +385,14 @@ func (r *MachineReconciler) reconcileDelete(ctx context.Context, cluster *cluste
 
 		var deleteNodeErr error
 		waitErr := wait.PollImmediate(2*time.Second, 10*time.Second, func() (bool, error) {
-			if deleteNodeErr = r.deleteNode(ctx, cluster, m.Status.NodeRef.Name); deleteNodeErr != nil && !apierrors.IsNotFound(deleteNodeErr) {
+			if deleteNodeErr = r.deleteNode(ctx, cluster, m.Status.NodeRef.Name); deleteNodeErr != nil && !apierrors.IsNotFound(errors.Cause(deleteNodeErr)) {
 				return false, nil
 			}
 			return true, nil
 		})
 		if waitErr != nil {
 			logger.Error(deleteNodeErr, "Timed out deleting node, moving on", "node", m.Status.NodeRef.Name)
+			conditions.MarkFalse(m, clusterv1.MachineNodeHealthyCondition, clusterv1.DeletionFailedReason, clusterv1.ConditionSeverityWarning, "")
 			r.recorder.Eventf(m, corev1.EventTypeWarning, "FailedDeleteNode", "error deleting Machine's node: %v", deleteNodeErr)
 		}
 	}
@@ -416,7 +448,7 @@ func (r *MachineReconciler) isDeleteNodeAllowed(ctx context.Context, cluster *cl
 	// managed control plane check if it is nil
 	if cluster.Spec.ControlPlaneRef != nil {
 		controlPlane, err := external.Get(ctx, r.Client, cluster.Spec.ControlPlaneRef, cluster.Spec.ControlPlaneRef.Namespace)
-		if apierrors.IsNotFound(err) {
+		if apierrors.IsNotFound(errors.Cause(err)) {
 			// If control plane object in the reference does not exist, log and skip check for
 			// external managed control plane
 			r.Log.Error(err, "control plane object specified in cluster spec.controlPlaneRef does not exist", "kind", cluster.Spec.ControlPlaneRef.Kind, "name", cluster.Spec.ControlPlaneRef.Name)
@@ -612,6 +644,68 @@ func (r *MachineReconciler) reconcileDeleteExternal(ctx context.Context, m *clus
 
 func (r *MachineReconciler) shouldAdopt(m *clusterv1.Machine) bool {
 	return metav1.GetControllerOf(m) == nil && !util.HasOwner(m.OwnerReferences, clusterv1.GroupVersion.String(), []string{"Cluster"})
+}
+
+func (r *MachineReconciler) watchClusterNodes(ctx context.Context, cluster *clusterv1.Cluster) error {
+	// If there is no tracker, don't watch remote nodes
+	if r.Tracker == nil {
+		return nil
+	}
+
+	if err := r.Tracker.Watch(ctx, remote.WatchInput{
+		Name:         "machine-watchNodes",
+		Cluster:      util.ObjectKey(cluster),
+		Watcher:      r.controller,
+		Kind:         &corev1.Node{},
+		EventHandler: &handler.EnqueueRequestsFromMapFunc{ToRequests: handler.ToRequestsFunc(r.nodeToMachine)},
+	}); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (r *MachineReconciler) nodeToMachine(o handler.MapObject) []reconcile.Request {
+	node, ok := o.Object.(*corev1.Node)
+	if !ok {
+		r.Log.Error(errors.New("incorrect type"), "expected a Node", "type", fmt.Sprintf("%T", o))
+		return nil
+	}
+
+	machineList := &clusterv1.MachineList{}
+	if err := r.Client.List(
+		context.TODO(),
+		machineList,
+		client.MatchingFields{clusterv1.MachineNodeNameIndex: node.Name},
+	); err != nil {
+		r.Log.Error(err, "Failed to list machines for node", "node", node.GetName())
+		return nil
+	}
+
+	// Found no Machine for Node
+	if len(machineList.Items) != 1 {
+		if len(machineList.Items) == 0 {
+			r.Log.Error(errors.New("no matching Machine"), "Unable to retrieve machine from node", "node", node.GetName())
+		} else {
+			r.Log.Error(errors.New("multiple matching Machines"), "There are multiple machines for node", "node", node.GetName())
+		}
+		return nil
+	}
+
+	return []reconcile.Request{{NamespacedName: util.ObjectKey(&machineList.Items[0])}}
+}
+
+func (r *MachineReconciler) indexMachineByNodeName(o runtime.Object) []string {
+	machine, ok := o.(*clusterv1.Machine)
+	if !ok {
+		r.Log.Error(errors.New("incorrect type"), "expected a Machine", "type", fmt.Sprintf("%T", o))
+		return nil
+	}
+
+	if machine.Status.NodeRef != nil {
+		return []string{machine.Status.NodeRef.Name}
+	}
+
+	return nil
 }
 
 // writer implements io.Writer interface as a pass-through for klog.
