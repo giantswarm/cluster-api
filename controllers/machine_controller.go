@@ -72,6 +72,7 @@ var (
 type MachineReconciler struct {
 	Client  client.Client
 	Log     logr.Logger
+	WatchFilterValue string
 	Tracker *remote.ClusterCacheTracker
 
 	controller      controller.Controller
@@ -90,7 +91,7 @@ func (r *MachineReconciler) SetupWithManager(mgr ctrl.Manager, options controlle
 	controller, err := ctrl.NewControllerManagedBy(mgr).
 		For(&clusterv1.Machine{}).
 		WithOptions(options).
-		WithEventFilter(predicates.ResourceNotPaused(r.Log)).
+		WithEventFilter(predicates.ResourceNotPausedAndHasFilterLabel(r.Log,r.WatchFilterValue)).
 		Build(r)
 	if err != nil {
 		return errors.Wrap(err, "failed setting up with a controller manager")

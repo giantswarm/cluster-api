@@ -66,6 +66,7 @@ const (
 type ClusterReconciler struct {
 	Client client.Client
 	Log    logr.Logger
+	WatchFilterValue string
 
 	scheme          *runtime.Scheme
 	restConfig      *rest.Config
@@ -81,7 +82,7 @@ func (r *ClusterReconciler) SetupWithManager(mgr ctrl.Manager, options controlle
 			&handler.EnqueueRequestsFromMapFunc{ToRequests: handler.ToRequestsFunc(r.controlPlaneMachineToCluster)},
 		).
 		WithOptions(options).
-		WithEventFilter(predicates.ResourceNotPaused(r.Log)).
+		WithEventFilter(predicates.ResourceNotPausedAndHasFilterLabel(r.Log,r.WatchFilterValue)).
 		Build(r)
 
 	if err != nil {

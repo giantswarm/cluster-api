@@ -57,6 +57,7 @@ import (
 type MachinePoolReconciler struct {
 	Client client.Client
 	Log    logr.Logger
+	WatchFilterValue string
 
 	config           *rest.Config
 	controller       controller.Controller
@@ -74,7 +75,7 @@ func (r *MachinePoolReconciler) SetupWithManager(mgr ctrl.Manager, options contr
 	c, err := ctrl.NewControllerManagedBy(mgr).
 		For(&expv1.MachinePool{}).
 		WithOptions(options).
-		WithEventFilter(predicates.ResourceNotPaused(r.Log)).
+		WithEventFilter(predicates.ResourceNotPausedAndHasFilterLabel(r.Log, r.WatchFilterValue)).
 		Build(r)
 	if err != nil {
 		return errors.Wrap(err, "failed setting up with a controller manager")

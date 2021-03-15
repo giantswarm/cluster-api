@@ -38,6 +38,7 @@ import (
 // ClusterResourceSetBindingReconciler reconciles a ClusterResourceSetBinding object
 type ClusterResourceSetBindingReconciler struct {
 	Client client.Client
+	WatchFilterValue string
 	Log    logr.Logger
 }
 
@@ -49,7 +50,7 @@ func (r *ClusterResourceSetBindingReconciler) SetupWithManager(mgr ctrl.Manager,
 			&handler.EnqueueRequestsFromMapFunc{ToRequests: handler.ToRequestsFunc(r.clusterToClusterResourceSetBinding)},
 		).
 		WithOptions(options).
-		WithEventFilter(predicates.ResourceNotPaused(r.Log)).
+		WithEventFilter(predicates.ResourceNotPausedAndHasFilterLabel(r.Log,r.WatchFilterValue)).
 		Build(r)
 	if err != nil {
 		return errors.Wrap(err, "failed setting up with a controller manager")

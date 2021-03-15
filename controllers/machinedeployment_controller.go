@@ -55,6 +55,7 @@ var (
 // MachineDeploymentReconciler reconciles a MachineDeployment object
 type MachineDeploymentReconciler struct {
 	Client client.Client
+	WatchFilterValue string
 	Log    logr.Logger
 
 	recorder   record.EventRecorder
@@ -75,7 +76,7 @@ func (r *MachineDeploymentReconciler) SetupWithManager(mgr ctrl.Manager, options
 			&handler.EnqueueRequestsFromMapFunc{ToRequests: handler.ToRequestsFunc(r.MachineSetToDeployments)},
 		).
 		WithOptions(options).
-		WithEventFilter(predicates.ResourceNotPaused(r.Log)).
+		WithEventFilter(predicates.ResourceNotPausedAndHasFilterLabel(r.Log,r.WatchFilterValue)).
 		Build(r)
 	if err != nil {
 		return errors.Wrap(err, "failed setting up with a controller manager")
