@@ -88,7 +88,7 @@ func (r *MachineDeploymentReconciler) SetupWithManager(mgr ctrl.Manager, options
 			ToRequests: clusterToMachineDeployments,
 		},
 		// TODO: should this wait for Cluster.Status.InfrastructureReady similar to Infra Machine resources?
-		predicates.ClusterUnpaused(r.Log),
+		predicates.ResourceNotPausedAndHasFilterLabel(r.Log,r.WatchFilterValue),
 	)
 	if err != nil {
 		return errors.Wrap(err, "failed to add Watch for Clusters to controller manager")
