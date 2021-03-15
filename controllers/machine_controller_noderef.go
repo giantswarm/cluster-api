@@ -35,7 +35,7 @@ var (
 )
 
 func (r *MachineReconciler) reconcileNode(ctx context.Context, cluster *clusterv1.Cluster, machine *clusterv1.Machine) (ctrl.Result, error) {
-	logger := r.Log.WithValues("machine", machine.Name, "namespace", machine.Namespace, "filter-value", r.WatchFilterValue)
+	logger := r.Log.WithValues("machine", machine.Name, "namespace", machine.Namespace)
 
 	// Check that the Machine has a valid ProviderID.
 	if machine.Spec.ProviderID == nil || *machine.Spec.ProviderID == "" {

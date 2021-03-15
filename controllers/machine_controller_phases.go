@@ -88,7 +88,7 @@ func (r *MachineReconciler) reconcilePhase(_ context.Context, m *clusterv1.Machi
 
 // reconcileExternal handles generic unstructured objects referenced by a Machine.
 func (r *MachineReconciler) reconcileExternal(ctx context.Context, cluster *clusterv1.Cluster, m *clusterv1.Machine, ref *corev1.ObjectReference) (external.ReconcileOutput, error) {
-	logger := r.Log.WithValues("machine", m.Name, "namespace", m.Namespace, "filter-value", r.WatchFilterValue)
+	logger := r.Log.WithValues("machine", m.Name, "namespace", m.Namespace)
 
 	if err := utilconversion.ConvertReferenceAPIContract(ctx, logger, r.Client, r.restConfig, ref); err != nil {
 		return external.ReconcileOutput{}, err

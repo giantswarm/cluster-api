@@ -86,7 +86,7 @@ func (r *MachinePoolReconciler) SetupWithManager(mgr ctrl.Manager, options contr
 			ToRequests: clusterToMachinePools,
 		},
 		// TODO: should this wait for Cluster.Status.InfrastructureReady similar to Infra Machine resources?
-		predicates.ClusterUnpaused(r.Log),
+		predicates.ResourceNotPausedAndHasFilterLabel(r.Log, r.WatchFilterValue),
 	)
 	if err != nil {
 		return errors.Wrap(err, "failed adding Watch for Cluster to controller manager")

@@ -145,7 +145,7 @@ func (r *MachineReconciler) clusterToActiveMachines(a handler.MapObject) []recon
 
 func (r *MachineReconciler) Reconcile(req ctrl.Request) (_ ctrl.Result, reterr error) {
 	ctx := context.Background()
-	logger := r.Log.WithValues("machine", req.Name, "namespace", req.Namespace, "filter-value", r.WatchFilterValue)
+	logger := r.Log.WithValues("machine", req.Name, "namespace", req.Namespace)
 
 	// Fetch the Machine instance
 	m := &clusterv1.Machine{}
