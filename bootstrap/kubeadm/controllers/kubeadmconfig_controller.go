@@ -70,6 +70,7 @@ type KubeadmConfigReconciler struct {
 	Log             logr.Logger
 	KubeadmInitLock InitLocker
 	scheme          *runtime.Scheme
+	WatchFilterValue string
 
 	remoteClientGetter remote.ClusterClientGetter
 }
@@ -95,7 +96,7 @@ func (r *KubeadmConfigReconciler) SetupWithManager(mgr ctrl.Manager, option cont
 	b := ctrl.NewControllerManagedBy(mgr).
 		For(&bootstrapv1.KubeadmConfig{}).
 		WithOptions(option).
-		WithEventFilter(predicates.ResourceNotPaused(r.Log)).
+		WithEventFilter(predicates.ResourceNotPausedAndHasFilterLabel(r.Log,r.WatchFilterValue)).
 		Watches(
 			&source.Kind{Type: &clusterv1.Machine{}},
 			&handler.EnqueueRequestsFromMapFunc{
@@ -122,7 +123,7 @@ func (r *KubeadmConfigReconciler) SetupWithManager(mgr ctrl.Manager, option cont
 		&handler.EnqueueRequestsFromMapFunc{
 			ToRequests: handler.ToRequestsFunc(r.ClusterToKubeadmConfigs),
 		},
-		predicates.ClusterUnpausedAndInfrastructureReady(r.Log),
+		predicates.All(r.Log, predicates.ClusterUnpausedAndInfrastructureReady(r.Log),predicates.ResourceNotPausedAndHasFilterLabel(r.Log,r.WatchFilterValue)),
 	)
 	if err != nil {
 		return errors.Wrap(err, "failed adding Watch for Clusters to controller manager")

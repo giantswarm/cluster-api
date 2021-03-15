@@ -18,6 +18,7 @@ package main
 
 import (
 	"flag"
+	"fmt"
 	"math/rand"
 	"net/http"
 	_ "net/http/pprof"
@@ -63,6 +64,7 @@ var (
 	leaderElectionRenewDeadline    time.Duration
 	leaderElectionRetryPeriod      time.Duration
 	watchNamespace                 string
+	watchFilterValue               string
 	profilerAddress                string
 	kubeadmControlPlaneConcurrency int
 	syncPeriod                     time.Duration
@@ -88,6 +90,9 @@ func InitFlags(fs *pflag.FlagSet) {
 
 	fs.StringVar(&watchNamespace, "namespace", "",
 		"Namespace that the controller watches to reconcile cluster-api objects. If unspecified, the controller watches for cluster-api objects across all namespaces.")
+
+	fs.StringVar(&watchFilterValue, "watch-filter", "",
+		fmt.Sprintf("Label value that the controller watches to reconcile cluster-api objects. Label key is always %s. If unspecified, the controller watches for all cluster-api objects.", clusterv1alpha3.WatchLabel))
 
 	fs.StringVar(&profilerAddress, "profiler-address", "",
 		"Bind address to expose the pprof profiler (e.g. localhost:6060)")
@@ -159,6 +164,7 @@ func setupReconcilers(mgr ctrl.Manager) {
 	if err := (&kubeadmcontrolplanecontrollers.KubeadmControlPlaneReconciler{
 		Client: mgr.GetClient(),
 		Log:    ctrl.Log.WithName("controllers").WithName("KubeadmControlPlane"),
+		WatchFilterValue:   watchFilterValue,
 	}).SetupWithManager(mgr, concurrency(kubeadmControlPlaneConcurrency)); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "KubeadmControlPlane")
 		os.Exit(1)
