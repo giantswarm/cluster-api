@@ -66,10 +66,10 @@ type InitLocker interface {
 
 // KubeadmConfigReconciler reconciles a KubeadmConfig object
 type KubeadmConfigReconciler struct {
-	Client          client.Client
-	Log             logr.Logger
-	KubeadmInitLock InitLocker
-	scheme          *runtime.Scheme
+	Client           client.Client
+	Log              logr.Logger
+	KubeadmInitLock  InitLocker
+	scheme           *runtime.Scheme
 	WatchFilterValue string
 
 	remoteClientGetter remote.ClusterClientGetter
@@ -96,7 +96,7 @@ func (r *KubeadmConfigReconciler) SetupWithManager(mgr ctrl.Manager, option cont
 	b := ctrl.NewControllerManagedBy(mgr).
 		For(&bootstrapv1.KubeadmConfig{}).
 		WithOptions(option).
-		WithEventFilter(predicates.ResourceNotPausedAndHasFilterLabel(r.Log,r.WatchFilterValue)).
+		WithEventFilter(predicates.ResourceNotPausedAndHasFilterLabel(r.Log, r.WatchFilterValue)).
 		Watches(
 			&source.Kind{Type: &clusterv1.Machine{}},
 			&handler.EnqueueRequestsFromMapFunc{
@@ -110,7 +110,7 @@ func (r *KubeadmConfigReconciler) SetupWithManager(mgr ctrl.Manager, option cont
 			&handler.EnqueueRequestsFromMapFunc{
 				ToRequests: handler.ToRequestsFunc(r.MachinePoolToBootstrapMapFunc),
 			},
-		)
+		).WithEventFilter(predicates.ResourceNotPausedAndHasFilterLabel(r.Log, r.WatchFilterValue))
 	}
 
 	c, err := b.Build(r)
@@ -123,7 +123,7 @@ func (r *KubeadmConfigReconciler) SetupWithManager(mgr ctrl.Manager, option cont
 		&handler.EnqueueRequestsFromMapFunc{
 			ToRequests: handler.ToRequestsFunc(r.ClusterToKubeadmConfigs),
 		},
-		predicates.All(r.Log, predicates.ClusterUnpausedAndInfrastructureReady(r.Log),predicates.ResourceNotPausedAndHasFilterLabel(r.Log,r.WatchFilterValue)),
+		predicates.All(r.Log, predicates.ClusterUnpausedAndInfrastructureReady(r.Log), predicates.ResourceNotPausedAndHasFilterLabel(r.Log, r.WatchFilterValue)),
 	)
 	if err != nil {
 		return errors.Wrap(err, "failed adding Watch for Clusters to controller manager")
