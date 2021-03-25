@@ -23,6 +23,7 @@ import (
 	"github.com/pkg/errors"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1alpha3"
+	"sigs.k8s.io/cluster-api/util/predicates"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
@@ -32,7 +33,9 @@ import (
 // ClusterCacheReconciler is responsible for stopping remote cluster caches when
 // the cluster for the remote cache is being deleted.
 type ClusterCacheReconciler struct {
-	Log     logr.Logger
+	Log              logr.Logger
+	WatchFilterValue string
+
 	Client  client.Client
 	Tracker *ClusterCacheTracker
 }
@@ -41,6 +44,7 @@ func (r *ClusterCacheReconciler) SetupWithManager(mgr ctrl.Manager, options cont
 	_, err := ctrl.NewControllerManagedBy(mgr).
 		For(&clusterv1.Cluster{}).
 		WithOptions(options).
+		WithEventFilter(predicates.ResourceNotPausedAndHasFilterLabel(r.Log, r.WatchFilterValue)).
 		Build(r)
 
 	if err != nil {
