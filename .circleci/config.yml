@@ -12,15 +12,26 @@ jobs:
           command: |
             make docker-build
       - run:
-          name: Login to QUAY
+          name: Login to quay
           command: |
             docker login --username $QUAY_USERNAME --password $QUAY_PASSWORD quay.io
       - run:
-          name: Push images
+          name: Push images to quay
           command: |
             docker push quay.io/$CIRCLE_PROJECT_USERNAME/cluster-api-controller:$CIRCLE_SHA1
             docker push quay.io/$CIRCLE_PROJECT_USERNAME/kubeadm-control-plane-controller:$CIRCLE_SHA1
             docker push quay.io/$CIRCLE_PROJECT_USERNAME/kubeadm-bootstrap-controller:$CIRCLE_SHA1
+      - run:
+          name: Login to aliyun
+          command: |
+            docker login --username $ALIYUN_USERNAME --password $ALIYUN_PASSWORD registry-intl.cn-shanghai.aliyuncs.com
+      - run:
+          name: Push image to aliyun
+          command: |
+            docker push registry-intl.cn-shanghai.aliyuncs.com/$CIRCLE_PROJECT_USERNAME/cluster-api-controller:$CIRCLE_SHA1
+            docker push registry-intl.cn-shanghai.aliyuncs.com/$CIRCLE_PROJECT_USERNAME/kubeadm-control-plane-controller:$CIRCLE_SHA1
+            docker push registry-intl.cn-shanghai.aliyuncs.com/$CIRCLE_PROJECT_USERNAME/kubeadm-bootstrap-controller:$CIRCLE_SHA1
+
 
 workflows:
   version: 2
