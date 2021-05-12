@@ -71,6 +71,7 @@ var (
 type MachineSetReconciler struct {
 	Client  client.Client
 	Log     logr.Logger
+	WatchFilterValue string
 	Tracker *remote.ClusterCacheTracker
 
 	recorder   record.EventRecorder
@@ -92,7 +93,7 @@ func (r *MachineSetReconciler) SetupWithManager(mgr ctrl.Manager, options contro
 			&handler.EnqueueRequestsFromMapFunc{ToRequests: handler.ToRequestsFunc(r.MachineToMachineSets)},
 		).
 		WithOptions(options).
-		WithEventFilter(predicates.ResourceNotPaused(r.Log)).
+		WithEventFilter(predicates.ResourceNotPausedAndHasFilterLabel(r.Log,r.WatchFilterValue)).
 		Build(r)
 	if err != nil {
 		return errors.Wrap(err, "failed setting up with a controller manager")
@@ -102,7 +103,7 @@ func (r *MachineSetReconciler) SetupWithManager(mgr ctrl.Manager, options contro
 		&source.Kind{Type: &clusterv1.Cluster{}},
 		&handler.EnqueueRequestsFromMapFunc{ToRequests: clusterToMachineSets},
 		// TODO: should this wait for Cluster.Status.InfrastructureReady similar to Infra Machine resources?
-		predicates.ClusterUnpaused(r.Log),
+		predicates.ResourceNotPausedAndHasFilterLabel(r.Log,r.WatchFilterValue),
 	)
 	if err != nil {
 		return errors.Wrap(err, "failed to add Watch for Clusters to controller manager")

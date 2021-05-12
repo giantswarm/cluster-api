@@ -64,6 +64,7 @@ type ClusterResourceSetReconciler struct {
 	Client  client.Client
 	Log     logr.Logger
 	Tracker *remote.ClusterCacheTracker
+	WatchFilterValue string
 
 	scheme *runtime.Scheme
 }
@@ -86,7 +87,7 @@ func (r *ClusterResourceSetReconciler) SetupWithManager(mgr ctrl.Manager, option
 			},
 		).
 		WithOptions(options).
-		WithEventFilter(predicates.ResourceNotPaused(r.Log)).
+		WithEventFilter(predicates.ResourceNotPausedAndHasFilterLabel(r.Log,r.WatchFilterValue)).
 		Complete(r)
 	if err != nil {
 		return errors.Wrap(err, "failed setting up with a controller manager")

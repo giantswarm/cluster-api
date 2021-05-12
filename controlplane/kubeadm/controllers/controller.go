@@ -65,6 +65,7 @@ type KubeadmControlPlaneReconciler struct {
 	scheme     *runtime.Scheme
 	controller controller.Controller
 	recorder   record.EventRecorder
+	WatchFilterValue string
 
 	managementCluster         internal.ManagementCluster
 	managementClusterUncached internal.ManagementCluster
@@ -75,7 +76,7 @@ func (r *KubeadmControlPlaneReconciler) SetupWithManager(mgr ctrl.Manager, optio
 		For(&controlplanev1.KubeadmControlPlane{}).
 		Owns(&clusterv1.Machine{}).
 		WithOptions(options).
-		WithEventFilter(predicates.ResourceNotPaused(r.Log)).
+		WithEventFilter(predicates.ResourceNotPausedAndHasFilterLabel(r.Log,r.WatchFilterValue)).
 		Build(r)
 	if err != nil {
 		return errors.Wrap(err, "failed setting up with a controller manager")
@@ -86,7 +87,7 @@ func (r *KubeadmControlPlaneReconciler) SetupWithManager(mgr ctrl.Manager, optio
 		&handler.EnqueueRequestsFromMapFunc{
 			ToRequests: handler.ToRequestsFunc(r.ClusterToKubeadmControlPlane),
 		},
-		predicates.ClusterUnpausedAndInfrastructureReady(r.Log),
+		predicates.All(r.Log, predicates.ResourceNotPausedAndHasFilterLabel(r.Log,r.WatchFilterValue),predicates.ClusterUnpausedAndInfrastructureReady(r.Log)),
 	)
 	if err != nil {
 		return errors.Wrap(err, "failed adding Watch for Clusters to controller manager")
