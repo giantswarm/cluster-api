@@ -19,6 +19,7 @@ package internal
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -170,6 +171,12 @@ func TestUpdateKubeProxyImageInfo(t *testing.T) {
 	}
 }
 
+var kubernetesVersionWithClusterStatus = semver.Version{
+	Major: minKubernetesVersionWithoutClusterStatus.Major,
+	Minor: minKubernetesVersionWithoutClusterStatus.Minor - 1,
+	Patch: minKubernetesVersionWithoutClusterStatus.Patch,
+}
+
 func TestRemoveMachineFromKubeadmConfigMap(t *testing.T) {
 	machine := &clusterv1.Machine{
 		Status: clusterv1.MachineStatus{
@@ -184,29 +191,30 @@ func TestRemoveMachineFromKubeadmConfigMap(t *testing.T) {
 			Namespace: metav1.NamespaceSystem,
 		},
 		Data: map[string]string{
-			clusterStatusKey: `apiEndpoints:
-  ip-10-0-0-1.ec2.internal:
-    advertiseAddress: 10.0.0.1
-    bindPort: 6443
-  ip-10-0-0-2.ec2.internal:
-    advertiseAddress: 10.0.0.2
-    bindPort: 6443
-    someFieldThatIsAddedInTheFuture: bar
-apiVersion: kubeadm.k8s.io/vNbetaM
-kind: ClusterStatus`,
+			clusterStatusKey: "apiEndpoints:\n" +
+				"  ip-10-0-0-1.ec2.internal:\n" +
+				"    advertiseAddress: 10.0.0.1\n" +
+				"    bindPort: 6443\n" +
+				"  ip-10-0-0-2.ec2.internal:\n" +
+				"    advertiseAddress: 10.0.0.2\n" +
+				"    bindPort: 6443\n" +
+				"    someFieldThatIsAddedInTheFuture: bar\n" +
+				"apiVersion: kubeadm.k8s.io/vNbetaM\n" +
+				"kind: ClusterStatus\n",
 		},
 		BinaryData: map[string][]byte{
 			"": nil,
 		},
 	}
-	kconfWithoutKey := kubeadmConfig.DeepCopy()
-	delete(kconfWithoutKey.Data, clusterStatusKey)
+	kubeadmConfigWithoutClusterStatus := kubeadmConfig.DeepCopy()
+	delete(kubeadmConfigWithoutClusterStatus.Data, clusterStatusKey)
 
 	g := NewWithT(t)
 	scheme := runtime.NewScheme()
 	g.Expect(corev1.AddToScheme(scheme)).To(Succeed())
 	tests := []struct {
 		name              string
+		kubernetesVersion semver.Version
 		machine           *clusterv1.Machine
 		objs              []runtime.Object
 		expectErr         bool
@@ -226,29 +234,38 @@ kind: ClusterStatus`,
 			expectErr: false,
 		},
 		{
-			name:      "returns error if unable to find kubeadm-config",
-			machine:   machine,
-			expectErr: true,
+			name:              "returns error if unable to find kubeadm-config for Kubernetes version < 1.22.0",
+			kubernetesVersion: kubernetesVersionWithClusterStatus, // Kubernetes version < 1.22.0 has ClusterStatus
+			machine:           machine,
+			expectErr:         true,
 		},
 		{
-			name:      "returns error if unable to remove api endpoint",
-			machine:   machine,
-			objs:      []runtime.Object{kconfWithoutKey},
-			expectErr: true,
+			name:              "returns error if unable to remove api endpoint for Kubernetes version < 1.22.0",
+			kubernetesVersion: kubernetesVersionWithClusterStatus, // Kubernetes version < 1.22.0 has ClusterStatus
+			machine:           machine,
+			objs:              []runtime.Object{kubeadmConfigWithoutClusterStatus},
+			expectErr:         true,
 		},
 		{
-			name:      "removes the machine node ref from kubeadm config",
-			machine:   machine,
-			objs:      []runtime.Object{kubeadmConfig},
-			expectErr: false,
-			expectedEndpoints: `apiEndpoints:
-  ip-10-0-0-2.ec2.internal:
-    advertiseAddress: 10.0.0.2
-    bindPort: 6443
-    someFieldThatIsAddedInTheFuture: bar
-apiVersion: kubeadm.k8s.io/vNbetaM
-kind: ClusterStatus
-`,
+			name:              "removes the machine node ref from kubeadm config for Kubernetes version < 1.22.0",
+			kubernetesVersion: kubernetesVersionWithClusterStatus, // Kubernetes version < 1.22.0 has ClusterStatus
+			machine:           machine,
+			objs:              []runtime.Object{kubeadmConfig},
+			expectErr:         false,
+			expectedEndpoints: "apiEndpoints:\n" +
+				"  ip-10-0-0-2.ec2.internal:\n" +
+				"    advertiseAddress: 10.0.0.2\n" +
+				"    bindPort: 6443\n" +
+				"    someFieldThatIsAddedInTheFuture: bar\n" +
+				"apiVersion: kubeadm.k8s.io/vNbetaM\n" +
+				"kind: ClusterStatus\n",
+		},
+		{
+			name:              "no op for Kubernetes version >= 1.22.0",
+			kubernetesVersion: minKubernetesVersionWithoutClusterStatus, // Kubernetes version >= 1.22.0 should not manage ClusterStatus
+			machine:           machine,
+			objs:              []runtime.Object{kubeadmConfigWithoutClusterStatus},
+			expectErr:         false,
 		},
 	}
 
@@ -260,7 +277,7 @@ kind: ClusterStatus
 				Client: fakeClient,
 			}
 			ctx := context.TODO()
-			err := w.RemoveMachineFromKubeadmConfigMap(ctx, tt.machine)
+			err := w.RemoveMachineFromKubeadmConfigMap(ctx, tt.machine, tt.kubernetesVersion)
 			if tt.expectErr {
 				g.Expect(err).To(HaveOccurred())
 				return
@@ -280,33 +297,74 @@ kind: ClusterStatus
 }
 
 func TestUpdateKubeletConfigMap(t *testing.T) {
-	kubeletConfig := &corev1.ConfigMap{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:            "kubelet-config-1.1",
-			Namespace:       metav1.NamespaceSystem,
-			ResourceVersion: "some-resource-version",
-		},
-	}
-
 	g := NewWithT(t)
 	scheme := runtime.NewScheme()
 	g.Expect(corev1.AddToScheme(scheme)).To(Succeed())
 	tests := []struct {
-		name      string
-		version   semver.Version
-		objs      []runtime.Object
-		expectErr bool
+		name               string
+		version            semver.Version
+		objs               []runtime.Object
+		expectErr          bool
+		expectCgroupDriver string
 	}{
 		{
-			name:      "create new config map",
-			version:   semver.Version{Major: 1, Minor: 2},
-			objs:      []runtime.Object{kubeletConfig},
-			expectErr: false,
+			name:    "create new config map",
+			version: semver.Version{Major: 1, Minor: 20},
+			objs: []runtime.Object{&corev1.ConfigMap{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:            "kubelet-config-1.19",
+					Namespace:       metav1.NamespaceSystem,
+					ResourceVersion: "some-resource-version",
+				},
+				Data: map[string]string{
+					kubeletConfigKey: "apiVersion: kubelet.config.k8s.io/v1beta1\n" +
+						"kind: KubeletConfiguration\n",
+				},
+			}},
+			expectErr:          false,
+			expectCgroupDriver: "",
 		},
 		{
-			name:      "returns error if cannot find previous config map",
-			version:   semver.Version{Major: 1, Minor: 2},
-			expectErr: true,
+			name:    "KubeletConfig 1.21 gets the cgroupDriver set if empty",
+			version: semver.Version{Major: 1, Minor: 21},
+			objs: []runtime.Object{&corev1.ConfigMap{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:            "kubelet-config-1.20",
+					Namespace:       metav1.NamespaceSystem,
+					ResourceVersion: "some-resource-version",
+				},
+				Data: map[string]string{
+					kubeletConfigKey: "apiVersion: kubelet.config.k8s.io/v1beta1\n" +
+						"kind: KubeletConfiguration\n",
+				},
+			}},
+			expectErr:          false,
+			expectCgroupDriver: "systemd",
+		},
+		{
+			name:    "KubeletConfig 1.21 preserves cgroupDriver if already set",
+			version: semver.Version{Major: 1, Minor: 21},
+			objs: []runtime.Object{&corev1.ConfigMap{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:            "kubelet-config-1.20",
+					Namespace:       metav1.NamespaceSystem,
+					ResourceVersion: "some-resource-version",
+				},
+				Data: map[string]string{
+					kubeletConfigKey: "apiVersion: kubelet.config.k8s.io/v1beta1\n" +
+						"kind: KubeletConfiguration\n" +
+						"cgroupDriver: foo\n",
+				},
+			}},
+			expectErr:          false,
+			expectCgroupDriver: "foo",
+		},
+		{
+			name:               "returns error if cannot find previous config map",
+			version:            semver.Version{Major: 1, Minor: 21},
+			objs:               nil,
+			expectErr:          true,
+			expectCgroupDriver: "",
 		},
 	}
 
@@ -327,10 +385,11 @@ func TestUpdateKubeletConfigMap(t *testing.T) {
 			var actualConfig corev1.ConfigMap
 			g.Expect(w.Client.Get(
 				ctx,
-				ctrlclient.ObjectKey{Name: "kubelet-config-1.2", Namespace: metav1.NamespaceSystem},
+				ctrlclient.ObjectKey{Name: fmt.Sprintf("kubelet-config-%d.%d", tt.version.Major, tt.version.Minor), Namespace: metav1.NamespaceSystem},
 				&actualConfig,
 			)).To(Succeed())
-			g.Expect(actualConfig.ResourceVersion).ToNot(Equal(kubeletConfig.ResourceVersion))
+			g.Expect(actualConfig.ResourceVersion).ToNot(Equal("some-resource-version"))
+			g.Expect(actualConfig.Data[kubeletConfigKey]).To(ContainSubstring(tt.expectCgroupDriver))
 		})
 	}
 }

@@ -36,18 +36,18 @@ export KUBECONFIG=<...>
 
 [kind] is not designed for production use.
 
-**Minimum [kind] supported version**: v0.7.0
+**Minimum [kind] supported version**: v0.9.0
 
 </aside>
 
 [kind] can be used for creating a local Kubernetes cluster for development environments or for
 the creation of a temporary [bootstrap cluster] used to provision a target [management cluster] on the selected infrastructure provider.
 
-The installation procedure depends on the version of kind; if you are planning to user the docker infrastructure provider,
+The installation procedure depends on the version of kind; if you are planning to user the docker infrastructure provider (CAPD),
 please follow the additional instructions in the dedicated tab:
 
-{{#tabs name:"install-kind" tabs:"v0.7.x,v0.8.x,Docker"}}
-{{#tab v0.7.x}}
+{{#tabs name:"install-kind" tabs:">=v0.9.x, Docker infrastructure provider - CAPD"}}
+{{#tab >=v0.9.x}}
 
 Create the kind cluster:
 ```bash
@@ -59,23 +59,7 @@ kubectl cluster-info
 ```
 
 {{#/tab }}
-{{#tab v0.8.x}}
-
-Export the variable **KIND_EXPERIMENTAL_DOCKER_NETWORK=bridge** to let kind run in the default **bridge** network:
-```bash
-export KIND_EXPERIMENTAL_DOCKER_NETWORK=bridge
-```
-Create the kind cluster:
-```bash
-kind create cluster
-```
-Test to ensure the local kind cluster is ready:
-```
-kubectl cluster-info
-```
-
-{{#/tab }}
-{{#tab Docker}}
+{{#tab Docker infrastructure provider - CAPD}}
 
 Run the following command to create a kind config file for allowing the Docker provider to access Docker on the host:
 
@@ -89,6 +73,14 @@ nodes:
     - hostPath: /var/run/docker.sock
       containerPath: /var/run/docker.sock
 EOF
+```
+
+If you are planning to use a CAPD version v0.3.15 or older, export the variable 
+**KIND_EXPERIMENTAL_DOCKER_NETWORK=bridge** to let kind run in the **bridge** network, the same used
+by older versions of the Docker infrastructure provider:
+
+```bash
+export KIND_EXPERIMENTAL_DOCKER_NETWORK=bridge
 ```
 
 Then follow the instruction for your kind version using  `kind create cluster --config kind-cluster-with-extramounts.yaml` 
@@ -108,7 +100,7 @@ Download the latest release; for example, to download version v0.3.0 on linux, t
 ```
 curl -L {{#releaselink gomodule:"sigs.k8s.io/cluster-api" asset:"clusterctl-linux-amd64" version:"0.3.x"}} -o clusterctl
 ```
-Make the kubectl binary executable.
+Make the clusterctl binary executable.
 ```
 chmod +x ./clusterctl
 ```
@@ -129,7 +121,7 @@ Download the latest release; for example, to download version v0.3.0 on macOS, t
 ```
 curl -L {{#releaselink gomodule:"sigs.k8s.io/cluster-api" asset:"clusterctl-darwin-amd64" version:"0.3.x"}} -o clusterctl
 ```
-Make the kubectl binary executable.
+Make the clusterctl binary executable.
 ```
 chmod +x ./clusterctl
 ```
@@ -727,7 +719,7 @@ See the [clusterctl] documentation for more detail about clusterctl supported ac
 <!-- links -->
 [AWS provider prerequisites]: https://cluster-api-aws.sigs.k8s.io/topics/using-clusterawsadm-to-fulfill-prerequisites.html
 [AWS provider releases]: https://github.com/kubernetes-sigs/cluster-api-provider-aws/releases
-[Azure Provider Prerequisites]: https://github.com/kubernetes-sigs/cluster-api-provider-azure/blob/master/docs/getting-started.md#prerequisites
+[Azure Provider Prerequisites]: https://capz.sigs.k8s.io/topics/getting-started.html#prerequisites
 [bootstrap cluster]: ../reference/glossary.md#bootstrap-cluster
 [capv-upload-images]: https://github.com/kubernetes-sigs/cluster-api-provider-vsphere/blob/master/docs/getting_started.md#uploading-the-machine-images
 [clusterctl config cluster]: ../clusterctl/commands/config-cluster.md
