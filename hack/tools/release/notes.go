@@ -142,11 +142,6 @@ func run() int {
 			key = warning
 			body = strings.TrimPrefix(body, ":warning:")
 			body = strings.TrimPrefix(body, "⚠️")
-		case strings.HasPrefix(body, ":running:"), strings.HasPrefix(body, "🏃"):
-			// This has been deprecated in favor of :seedling:
-			key = other
-			body = strings.TrimPrefix(body, ":running:")
-			body = strings.TrimPrefix(body, "🏃")
 		default:
 			key = unknown
 		}
@@ -174,7 +169,6 @@ func run() int {
 		}
 	}
 
-	fmt.Println("The image for this release is: `<ADD_IMAGE_HERE>`.")
 	fmt.Println("")
 	fmt.Println("_Thanks to all our contributors!_ 😊")
 

@@ -21,104 +21,98 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/blang/semver"
+	"github.com/google/go-cmp/cmp"
 	. "github.com/onsi/gomega"
-
 	"go.etcd.io/etcd/clientv3"
 	pb "go.etcd.io/etcd/etcdserver/etcdserverpb"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
-	clusterv1 "sigs.k8s.io/cluster-api/api/v1alpha3"
+	clusterv1 "sigs.k8s.io/cluster-api/api/v1alpha4"
 	"sigs.k8s.io/cluster-api/controlplane/kubeadm/internal/etcd"
 	fake2 "sigs.k8s.io/cluster-api/controlplane/kubeadm/internal/etcd/fake"
+	"sigs.k8s.io/cluster-api/util/yaml"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
 
 func TestUpdateEtcdVersionInKubeadmConfigMap(t *testing.T) {
-	kubeadmConfig := &corev1.ConfigMap{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      kubeadmConfigKey,
-			Namespace: metav1.NamespaceSystem,
-		},
-		Data: map[string]string{
-			clusterConfigurationKey: `
-apiVersion: kubeadm.k8s.io/v1beta2
-kind: ClusterConfiguration
-etcd:
-  local:
-    dataDir: /var/lib/etcd
-    imageRepository: "gcr.io/k8s/etcd"
-    imageTag: "0.10.9"
-`,
-		},
-	}
-
-	g := NewWithT(t)
-	scheme := runtime.NewScheme()
-	g.Expect(corev1.AddToScheme(scheme)).To(Succeed())
-
 	tests := []struct {
-		name                  string
-		objs                  []runtime.Object
-		imageRepo             string
-		imageTag              string
-		expectErr             bool
-		expectedClusterConfig string
+		name                     string
+		clusterConfigurationData string
+		newImageRepository       string
+		newImageTag              string
+		wantClusterConfiguration string
 	}{
 		{
-			name:      "returns error if unable to find kubeadm-config",
-			objs:      nil,
-			expectErr: true,
+			name: "it should set etcd version when local etcd",
+			clusterConfigurationData: yaml.Raw(`
+				apiVersion: kubeadm.k8s.io/v1beta2
+				kind: ClusterConfiguration
+				etcd:
+				  local: {}
+				`),
+			newImageRepository: "example.com/k8s",
+			newImageTag:        "v1.6.0",
+			wantClusterConfiguration: yaml.Raw(`
+				apiServer: {}
+				apiVersion: kubeadm.k8s.io/v1beta2
+				controllerManager: {}
+				dns: {}
+				etcd:
+				  local:
+				    imageRepository: example.com/k8s
+				    imageTag: v1.6.0
+				kind: ClusterConfiguration
+				networking: {}
+				scheduler: {}
+				`),
 		},
 		{
-			name:      "updates the config map",
-			expectErr: false,
-			objs:      []runtime.Object{kubeadmConfig},
-			imageRepo: "gcr.io/imgRepo",
-			imageTag:  "v1.0.1-sometag.1",
-			expectedClusterConfig: `apiVersion: kubeadm.k8s.io/v1beta2
-etcd:
-  local:
-    dataDir: /var/lib/etcd
-    imageRepository: gcr.io/imgRepo
-    imageTag: v1.0.1-sometag.1
-kind: ClusterConfiguration
-`,
-		},
-		{
-			name:      "doesn't update the config map if there are no changes",
-			expectErr: false,
-			imageRepo: "gcr.io/k8s/etcd",
-			imageTag:  "0.10.9",
-			objs:      []runtime.Object{kubeadmConfig},
+			name: "no op when external etcd",
+			clusterConfigurationData: yaml.Raw(`
+				apiVersion: kubeadm.k8s.io/v1beta2
+				kind: ClusterConfiguration
+				etcd:
+				  external: {}
+				`),
+			newImageRepository: "example.com/k8s",
+			newImageTag:        "v1.6.0",
+			wantClusterConfiguration: yaml.Raw(`
+				apiVersion: kubeadm.k8s.io/v1beta2
+				kind: ClusterConfiguration
+				etcd:
+				  external: {}
+				`),
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			g := NewWithT(t)
-			fakeClient := fake.NewFakeClientWithScheme(scheme, tt.objs...)
+			fakeClient := fake.NewClientBuilder().WithObjects(&corev1.ConfigMap{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      kubeadmConfigKey,
+					Namespace: metav1.NamespaceSystem,
+				},
+				Data: map[string]string{
+					clusterConfigurationKey: tt.clusterConfigurationData,
+				},
+			}).Build()
+
 			w := &Workload{
 				Client: fakeClient,
 			}
-			ctx := context.TODO()
-			err := w.UpdateEtcdVersionInKubeadmConfigMap(ctx, tt.imageRepo, tt.imageTag)
-			if tt.expectErr {
-				g.Expect(err).To(HaveOccurred())
-				return
-			}
+			err := w.UpdateEtcdVersionInKubeadmConfigMap(ctx, tt.newImageRepository, tt.newImageTag, semver.MustParse("1.19.1"))
 			g.Expect(err).ToNot(HaveOccurred())
-			if tt.expectedClusterConfig != "" {
-				var actualConfig corev1.ConfigMap
-				g.Expect(w.Client.Get(
-					ctx,
-					ctrlclient.ObjectKey{Name: kubeadmConfigKey, Namespace: metav1.NamespaceSystem},
-					&actualConfig,
-				)).To(Succeed())
-				g.Expect(actualConfig.Data[clusterConfigurationKey]).To(Equal(tt.expectedClusterConfig))
-			}
+
+			var actualConfig corev1.ConfigMap
+			g.Expect(w.Client.Get(
+				ctx,
+				client.ObjectKey{Name: kubeadmConfigKey, Namespace: metav1.NamespaceSystem},
+				&actualConfig,
+			)).To(Succeed())
+			g.Expect(actualConfig.Data[clusterConfigurationKey]).Should(Equal(tt.wantClusterConfiguration), cmp.Diff(tt.wantClusterConfiguration, actualConfig.Data[clusterConfigurationKey]))
 		})
 	}
 }
@@ -147,14 +141,11 @@ func TestRemoveEtcdMemberForMachine(t *testing.T) {
 	cp2.Name = "cp2"
 	cp2.Namespace = "cp2"
 
-	g := NewWithT(t)
-	scheme := runtime.NewScheme()
-	g.Expect(corev1.AddToScheme(scheme)).To(Succeed())
 	tests := []struct {
 		name                string
 		machine             *clusterv1.Machine
 		etcdClientGenerator etcdClientFor
-		objs                []runtime.Object
+		objs                []client.Object
 		expectErr           bool
 	}{
 		{
@@ -174,20 +165,20 @@ func TestRemoveEtcdMemberForMachine(t *testing.T) {
 		{
 			name:      "returns an error if there are less than 2 control plane nodes",
 			machine:   machine,
-			objs:      []runtime.Object{cp1},
+			objs:      []client.Object{cp1},
 			expectErr: true,
 		},
 		{
 			name:                "returns an error if it fails to create the etcd client",
 			machine:             machine,
-			objs:                []runtime.Object{cp1, cp2},
+			objs:                []client.Object{cp1, cp2},
 			etcdClientGenerator: &fakeEtcdClientGenerator{forNodesErr: errors.New("no client")},
 			expectErr:           true,
 		},
 		{
 			name:    "returns an error if the client errors getting etcd members",
 			machine: machine,
-			objs:    []runtime.Object{cp1, cp2},
+			objs:    []client.Object{cp1, cp2},
 			etcdClientGenerator: &fakeEtcdClientGenerator{
 				forNodesClient: &etcd.Client{
 					EtcdClient: &fake2.FakeEtcdClient{
@@ -200,7 +191,7 @@ func TestRemoveEtcdMemberForMachine(t *testing.T) {
 		{
 			name:    "returns an error if the client errors removing the etcd member",
 			machine: machine,
-			objs:    []runtime.Object{cp1, cp2},
+			objs:    []client.Object{cp1, cp2},
 			etcdClientGenerator: &fakeEtcdClientGenerator{
 				forNodesClient: &etcd.Client{
 					EtcdClient: &fake2.FakeEtcdClient{
@@ -223,7 +214,7 @@ func TestRemoveEtcdMemberForMachine(t *testing.T) {
 		{
 			name:    "removes the member from etcd",
 			machine: machine,
-			objs:    []runtime.Object{cp1, cp2},
+			objs:    []client.Object{cp1, cp2},
 			etcdClientGenerator: &fakeEtcdClientGenerator{
 				forNodesClient: &etcd.Client{
 					EtcdClient: &fake2.FakeEtcdClient{
@@ -247,12 +238,11 @@ func TestRemoveEtcdMemberForMachine(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			g := NewWithT(t)
-			fakeClient := fake.NewFakeClientWithScheme(scheme, tt.objs...)
+			fakeClient := fake.NewClientBuilder().WithObjects(tt.objs...).Build()
 			w := &Workload{
 				Client:              fakeClient,
 				etcdClientGenerator: tt.etcdClientGenerator,
 			}
-			ctx := context.TODO()
 			err := w.RemoveEtcdMemberForMachine(ctx, tt.machine)
 			if tt.expectErr {
 				g.Expect(err).To(HaveOccurred())
@@ -265,7 +255,6 @@ func TestRemoveEtcdMemberForMachine(t *testing.T) {
 
 func TestForwardEtcdLeadership(t *testing.T) {
 	t.Run("handles errors correctly", func(t *testing.T) {
-
 		tests := []struct {
 			name                string
 			machine             *clusterv1.Machine
@@ -337,7 +326,6 @@ func TestForwardEtcdLeadership(t *testing.T) {
 					Client:              tt.k8sClient,
 					etcdClientGenerator: tt.etcdClientGenerator,
 				}
-				ctx := context.TODO()
 				err := w.ForwardEtcdLeadership(ctx, tt.machine, tt.leaderCandidate)
 				if tt.expectErr {
 					g.Expect(err).To(HaveOccurred())
@@ -373,11 +361,9 @@ func TestForwardEtcdLeadership(t *testing.T) {
 			}},
 			etcdClientGenerator: etcdClientGenerator,
 		}
-		ctx := context.TODO()
 		err := w.ForwardEtcdLeadership(ctx, defaultMachine(), defaultMachine())
 		g.Expect(err).ToNot(HaveOccurred())
 		g.Expect(fakeEtcdClient.MovedLeader).To(BeEquivalentTo(0))
-
 	})
 
 	t.Run("move etcd leader", func(t *testing.T) {
@@ -446,7 +432,6 @@ func TestForwardEtcdLeadership(t *testing.T) {
 						Items: []corev1.Node{nodeNamed("leader-node"), nodeNamed("other-node"), nodeNamed("candidate-node")},
 					}},
 				}
-				ctx := context.TODO()
 				err := w.ForwardEtcdLeadership(ctx, currentLeader, tt.leaderCandidate)
 				if tt.expectErr {
 					g.Expect(err).To(HaveOccurred())
@@ -466,21 +451,26 @@ func TestReconcileEtcdMembers(t *testing.T) {
 			Namespace: metav1.NamespaceSystem,
 		},
 		Data: map[string]string{
-			clusterStatusKey: `apiEndpoints:
-  ip-10-0-0-1.ec2.internal:
-    advertiseAddress: 10.0.0.1
-    bindPort: 6443
-  ip-10-0-0-2.ec2.internal:
-    advertiseAddress: 10.0.0.2
-    bindPort: 6443
-    someFieldThatIsAddedInTheFuture: bar
-  ip-10-0-0-3.ec2.internal:
-    advertiseAddress: 10.0.0.3
-    bindPort: 6443
-apiVersion: kubeadm.k8s.io/vNbetaM
-kind: ClusterStatus`,
+			clusterStatusKey: yaml.Raw(`
+				apiEndpoints:
+				  ip-10-0-0-1.ec2.internal:
+				    advertiseAddress: 10.0.0.1
+				    bindPort: 6443
+				  ip-10-0-0-2.ec2.internal:
+				    advertiseAddress: 10.0.0.2
+				    bindPort: 6443
+				    someFieldThatIsAddedInTheFuture: bar
+				  ip-10-0-0-3.ec2.internal:
+				    advertiseAddress: 10.0.0.3
+				    bindPort: 6443
+				apiVersion: kubeadm.k8s.io/v1beta2
+				kind: ClusterStatus
+				`),
 		},
 	}
+	kubeadmConfigWithoutClusterStatus := kubeadmConfig.DeepCopy()
+	delete(kubeadmConfigWithoutClusterStatus.Data, clusterStatusKey)
+
 	node1 := &corev1.Node{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "ip-10-0-0-1.ec2.internal",
@@ -508,31 +498,77 @@ kind: ClusterStatus`,
 
 	tests := []struct {
 		name                string
-		objs                []runtime.Object
+		kubernetesVersion   semver.Version
+		objs                []client.Object
 		nodes               []string
 		etcdClientGenerator etcdClientFor
 		expectErr           bool
-		assert              func(*WithT)
+		assert              func(*WithT, client.Client)
 	}{
 		{
 			// the node to be removed is ip-10-0-0-3.ec2.internal since the
 			// other two have nodes
-			name:  "successfully removes the etcd member without a node and removes the node from kubeadm config",
-			objs:  []runtime.Object{node1.DeepCopy(), node2.DeepCopy(), kubeadmConfig.DeepCopy()},
-			nodes: []string{node1.Name, node2.Name},
+			name:              "successfully removes the etcd member without a node and removes the node from kubeadm config for Kubernetes version < 1.22.0",
+			kubernetesVersion: semver.MustParse("1.19.1"), // Kubernetes version < 1.22.0 has ClusterStatus
+			objs:              []client.Object{node1.DeepCopy(), node2.DeepCopy(), kubeadmConfig.DeepCopy()},
+			nodes:             []string{node1.Name, node2.Name},
 			etcdClientGenerator: &fakeEtcdClientGenerator{
 				forNodesClient: &etcd.Client{
 					EtcdClient: fakeEtcdClient,
 				},
 			},
 			expectErr: false,
-			assert: func(g *WithT) {
+			assert: func(g *WithT, c client.Client) {
 				g.Expect(fakeEtcdClient.RemovedMember).To(Equal(uint64(3)))
+
+				var actualConfig corev1.ConfigMap
+				g.Expect(c.Get(
+					ctx,
+					client.ObjectKey{Name: kubeadmConfigKey, Namespace: metav1.NamespaceSystem},
+					&actualConfig,
+				)).To(Succeed())
+				expectedOutput := yaml.Raw(`
+					apiEndpoints:
+					  ip-10-0-0-1.ec2.internal:
+					    advertiseAddress: 10.0.0.1
+					    bindPort: 6443
+					  ip-10-0-0-2.ec2.internal:
+					    advertiseAddress: 10.0.0.2
+					    bindPort: 6443
+					apiVersion: kubeadm.k8s.io/v1beta2
+					kind: ClusterStatus
+					`)
+				g.Expect(actualConfig.Data[clusterStatusKey]).To(Equal(expectedOutput))
+			},
+		},
+		{
+			// the node to be removed is ip-10-0-0-3.ec2.internal since the
+			// other two have nodes
+			name:              "successfully removes the etcd member without a node for Kubernetes version >= 1.22.0",
+			kubernetesVersion: minKubernetesVersionWithoutClusterStatus, // Kubernetes version >= 1.22.0 does not have ClusterStatus
+			objs:              []client.Object{node1.DeepCopy(), node2.DeepCopy(), kubeadmConfigWithoutClusterStatus.DeepCopy()},
+			nodes:             []string{node1.Name, node2.Name},
+			etcdClientGenerator: &fakeEtcdClientGenerator{
+				forNodesClient: &etcd.Client{
+					EtcdClient: fakeEtcdClient,
+				},
+			},
+			expectErr: false,
+			assert: func(g *WithT, c client.Client) {
+				g.Expect(fakeEtcdClient.RemovedMember).To(Equal(uint64(3)))
+
+				var actualConfig corev1.ConfigMap
+				g.Expect(c.Get(
+					ctx,
+					client.ObjectKey{Name: kubeadmConfigKey, Namespace: metav1.NamespaceSystem},
+					&actualConfig,
+				)).To(Succeed())
+				g.Expect(actualConfig.Data).ToNot(HaveKey(clusterStatusKey))
 			},
 		},
 		{
 			name:  "return error if there aren't enough control plane nodes",
-			objs:  []runtime.Object{node1.DeepCopy(), kubeadmConfig.DeepCopy()},
+			objs:  []client.Object{node1.DeepCopy(), kubeadmConfig.DeepCopy()},
 			nodes: []string{node1.Name},
 			etcdClientGenerator: &fakeEtcdClientGenerator{
 				forNodesClient: &etcd.Client{
@@ -548,18 +584,18 @@ kind: ClusterStatus`,
 			g := NewWithT(t)
 
 			for _, o := range tt.objs {
-				g.Expect(testEnv.CreateObj(ctx, o)).To(Succeed())
-				defer func(do runtime.Object) {
-					g.Expect(testEnv.Cleanup(ctx, do)).To(Succeed())
+				g.Expect(env.CreateAndWait(ctx, o)).To(Succeed())
+				defer func(do client.Object) {
+					g.Expect(env.CleanupAndWait(ctx, do)).To(Succeed())
 				}(o)
 			}
 
 			w := &Workload{
-				Client:              testEnv,
+				Client:              env.Client,
 				etcdClientGenerator: tt.etcdClientGenerator,
 			}
 			ctx := context.TODO()
-			_, err := w.ReconcileEtcdMembers(ctx, tt.nodes)
+			_, err := w.ReconcileEtcdMembers(ctx, tt.nodes, tt.kubernetesVersion)
 			if tt.expectErr {
 				g.Expect(err).To(HaveOccurred())
 				return
@@ -567,11 +603,91 @@ kind: ClusterStatus`,
 			g.Expect(err).ToNot(HaveOccurred())
 
 			if tt.assert != nil {
-				tt.assert(g)
+				tt.assert(g, env.Client)
 			}
 		})
 	}
+}
 
+func TestRemoveNodeFromKubeadmConfigMap(t *testing.T) {
+	tests := []struct {
+		name              string
+		apiEndpoint       string
+		clusterStatusData string
+		wantClusterStatus string
+	}{
+		{
+			name:        "removes the api endpoint",
+			apiEndpoint: "ip-10-0-0-2.ec2.internal",
+			clusterStatusData: yaml.Raw(`
+				apiEndpoints:
+				  ip-10-0-0-1.ec2.internal:
+				    advertiseAddress: 10.0.0.1
+				    bindPort: 6443
+				  ip-10-0-0-2.ec2.internal:
+				    advertiseAddress: 10.0.0.2
+				    bindPort: 6443
+				apiVersion: kubeadm.k8s.io/v1beta2
+				kind: ClusterStatus
+				`),
+			wantClusterStatus: yaml.Raw(`
+				apiEndpoints:
+				  ip-10-0-0-1.ec2.internal:
+				    advertiseAddress: 10.0.0.1
+				    bindPort: 6443
+				apiVersion: kubeadm.k8s.io/v1beta2
+				kind: ClusterStatus
+				`),
+		},
+		{
+			name:        "no op if the api endpoint does not exists",
+			apiEndpoint: "ip-10-0-0-2.ec2.internal",
+			clusterStatusData: yaml.Raw(`
+				apiEndpoints:
+				  ip-10-0-0-1.ec2.internal:
+				    advertiseAddress: 10.0.0.1
+				    bindPort: 6443
+				apiVersion: kubeadm.k8s.io/v1beta2
+				kind: ClusterStatus
+				`),
+			wantClusterStatus: yaml.Raw(`
+				apiEndpoints:
+				  ip-10-0-0-1.ec2.internal:
+				    advertiseAddress: 10.0.0.1
+				    bindPort: 6443
+				apiVersion: kubeadm.k8s.io/v1beta2
+				kind: ClusterStatus
+				`),
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			g := NewWithT(t)
+			fakeClient := fake.NewClientBuilder().WithObjects(&corev1.ConfigMap{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      kubeadmConfigKey,
+					Namespace: metav1.NamespaceSystem,
+				},
+				Data: map[string]string{
+					clusterStatusKey: tt.clusterStatusData,
+				},
+			}).Build()
+
+			w := &Workload{
+				Client: fakeClient,
+			}
+			err := w.RemoveNodeFromKubeadmConfigMap(ctx, tt.apiEndpoint, semver.MustParse("1.19.1"))
+			g.Expect(err).ToNot(HaveOccurred())
+
+			var actualConfig corev1.ConfigMap
+			g.Expect(w.Client.Get(
+				ctx,
+				client.ObjectKey{Name: kubeadmConfigKey, Namespace: metav1.NamespaceSystem},
+				&actualConfig,
+			)).To(Succeed())
+			g.Expect(actualConfig.Data[clusterStatusKey]).Should(Equal(tt.wantClusterStatus), cmp.Diff(tt.wantClusterStatus, actualConfig.Data[clusterStatusKey]))
+		})
+	}
 }
 
 type fakeEtcdClientGenerator struct {
@@ -582,7 +698,7 @@ type fakeEtcdClientGenerator struct {
 	forLeaderErr       error
 }
 
-func (c *fakeEtcdClientGenerator) forNodes(_ context.Context, n []string) (*etcd.Client, error) {
+func (c *fakeEtcdClientGenerator) forFirstAvailableNode(_ context.Context, n []string) (*etcd.Client, error) {
 	if c.forNodesClientFunc != nil {
 		return c.forNodesClientFunc(n)
 	}

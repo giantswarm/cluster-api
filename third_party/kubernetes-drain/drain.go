@@ -215,14 +215,14 @@ func (d *Helper) DeleteOrEvictPods(ctx context.Context, pods []corev1.Pod) error
 		}
 
 		if len(policyGroupVersion) > 0 {
-			return d.evictPods(pods, policyGroupVersion, getPodFn)
+			return d.evictPods(ctx, pods, policyGroupVersion, getPodFn)
 		}
 	}
 
-	return d.deletePods(pods, getPodFn)
+	return d.deletePods(ctx, pods, getPodFn)
 }
 
-func (d *Helper) evictPods(pods []corev1.Pod, policyGroupVersion string, getPodFn func(namespace, name string) (*corev1.Pod, error)) error {
+func (d *Helper) evictPods(ctx context.Context, pods []corev1.Pod, policyGroupVersion string, getPodFn func(namespace, name string) (*corev1.Pod, error)) error {
 	returnCh := make(chan error, 1)
 	// 0 timeout means infinite, we use MaxInt64 to represent it.
 	var globalTimeout time.Duration
@@ -296,7 +296,7 @@ func (d *Helper) evictPods(pods []corev1.Pod, policyGroupVersion string, getPodF
 	return utilerrors.NewAggregate(errors)
 }
 
-func (d *Helper) deletePods(pods []corev1.Pod, getPodFn func(namespace, name string) (*corev1.Pod, error)) error {
+func (d *Helper) deletePods(ctx context.Context, pods []corev1.Pod, getPodFn func(namespace, name string) (*corev1.Pod, error)) error {
 	// 0 timeout means infinite, we use MaxInt64 to represent it.
 	var globalTimeout time.Duration
 	if d.Timeout == 0 {

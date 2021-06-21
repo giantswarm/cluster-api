@@ -17,6 +17,7 @@ limitations under the License.
 package config
 
 import (
+	"fmt"
 	"testing"
 
 	. "github.com/onsi/gomega"
@@ -46,19 +47,19 @@ func Test_imageMetaClient_AlterImage(t *testing.T) {
 			},
 			args: args{
 				component: "any",
-				image:     "quay.io/jetstack/cert-manager-cainjector:v0.11.0",
+				image:     "quay.io/jetstack/cert-manager-cainjector:v1.1.0",
 			},
-			want:    "quay.io/jetstack/cert-manager-cainjector:v0.11.0",
+			want:    "quay.io/jetstack/cert-manager-cainjector:v1.1.0",
 			wantErr: false,
 		},
 		{
 			name: "image config for cert-manager/cert-manager-cainjector: image for the cert-manager/cert-manager-cainjector should be changed",
 			fields: fields{
-				reader: test.NewFakeReader().WithImageMeta("cert-manager/cert-manager-cainjector", "foo-repository.io", "foo-tag"),
+				reader: test.NewFakeReader().WithImageMeta(fmt.Sprintf("%s/cert-manager-cainjector", CertManagerImageComponent), "foo-repository.io", "foo-tag"),
 			},
 			args: args{
-				component: "cert-manager",
-				image:     "quay.io/jetstack/cert-manager-cainjector:v0.11.0",
+				component: CertManagerImageComponent,
+				image:     "quay.io/jetstack/cert-manager-cainjector:v1.1.0",
 			},
 			want:    "foo-repository.io/cert-manager-cainjector:foo-tag",
 			wantErr: false,
@@ -66,23 +67,23 @@ func Test_imageMetaClient_AlterImage(t *testing.T) {
 		{
 			name: "image config for cert-manager/cert-manager-cainjector: image for the cert-manager/cert-manager-webhook should not be changed",
 			fields: fields{
-				reader: test.NewFakeReader().WithImageMeta("cert-manager/cert-manager-cainjector", "foo-repository.io", "foo-tag"),
+				reader: test.NewFakeReader().WithImageMeta(fmt.Sprintf("%s/cert-manager-cainjector", CertManagerImageComponent), "foo-repository.io", "foo-tag"),
 			},
 			args: args{
-				component: "cert-manager",
-				image:     "quay.io/jetstack/cert-manager-webhook:v0.11.0",
+				component: CertManagerImageComponent,
+				image:     "quay.io/jetstack/cert-manager-webhook:v1.1.0",
 			},
-			want:    "quay.io/jetstack/cert-manager-webhook:v0.11.0",
+			want:    "quay.io/jetstack/cert-manager-webhook:v1.1.0",
 			wantErr: false,
 		},
 		{
 			name: "image config for cert-manager: images for the cert-manager should be changed",
 			fields: fields{
-				reader: test.NewFakeReader().WithImageMeta("cert-manager", "foo-repository.io", "foo-tag"),
+				reader: test.NewFakeReader().WithImageMeta(CertManagerImageComponent, "foo-repository.io", "foo-tag"),
 			},
 			args: args{
-				component: "cert-manager",
-				image:     "quay.io/jetstack/cert-manager-cainjector:v0.11.0",
+				component: CertManagerImageComponent,
+				image:     "quay.io/jetstack/cert-manager-cainjector:v1.1.0",
 			},
 			want:    "foo-repository.io/cert-manager-cainjector:foo-tag",
 			wantErr: false,
@@ -91,12 +92,12 @@ func Test_imageMetaClient_AlterImage(t *testing.T) {
 			name: "image config for cert-manager/cert-manager-cainjector and for cert-manager: images for the cert-manager/cert-manager-cainjector should be changed according to the most specific",
 			fields: fields{
 				reader: test.NewFakeReader().
-					WithImageMeta("cert-manager/cert-manager-cainjector", "foo-repository.io", "foo-tag").
-					WithImageMeta("cert-manager", "bar-repository.io", "bar-tag"),
+					WithImageMeta(fmt.Sprintf("%s/cert-manager-cainjector", CertManagerImageComponent), "foo-repository.io", "foo-tag").
+					WithImageMeta(CertManagerImageComponent, "bar-repository.io", "bar-tag"),
 			},
 			args: args{
-				component: "cert-manager",
-				image:     "quay.io/jetstack/cert-manager-cainjector:v0.11.0",
+				component: CertManagerImageComponent,
+				image:     "quay.io/jetstack/cert-manager-cainjector:v1.1.0",
 			},
 			want:    "foo-repository.io/cert-manager-cainjector:foo-tag",
 			wantErr: false,
@@ -105,12 +106,12 @@ func Test_imageMetaClient_AlterImage(t *testing.T) {
 			name: "image config for cert-manager/cert-manager-cainjector and for cert-manager: images for the cert-manager/cert-manager-cainjector should be changed according to the most specific (mixed case)",
 			fields: fields{
 				reader: test.NewFakeReader().
-					WithImageMeta("cert-manager/cert-manager-cainjector", "foo-repository.io", "").
-					WithImageMeta("cert-manager", "", "bar-tag"),
+					WithImageMeta(fmt.Sprintf("%s/cert-manager-cainjector", CertManagerImageComponent), "foo-repository.io", "").
+					WithImageMeta(CertManagerImageComponent, "", "bar-tag"),
 			},
 			args: args{
-				component: "cert-manager",
-				image:     "quay.io/jetstack/cert-manager-cainjector:v0.11.0",
+				component: CertManagerImageComponent,
+				image:     "quay.io/jetstack/cert-manager-cainjector:v1.1.0",
 			},
 			want:    "foo-repository.io/cert-manager-cainjector:bar-tag",
 			wantErr: false,
@@ -119,12 +120,12 @@ func Test_imageMetaClient_AlterImage(t *testing.T) {
 			name: "image config for cert-manager/cert-manager-cainjector and for cert-manager: images for the cert-manager/cert-manager-webhook should be changed according to the most generic",
 			fields: fields{
 				reader: test.NewFakeReader().
-					WithImageMeta("cert-manager/cert-manager-cainjector", "foo-repository.io", "foo-tag").
-					WithImageMeta("cert-manager", "bar-repository.io", "bar-tag"),
+					WithImageMeta(fmt.Sprintf("%s/cert-manager-cainjector", CertManagerImageComponent), "foo-repository.io", "foo-tag").
+					WithImageMeta(CertManagerImageComponent, "bar-repository.io", "bar-tag"),
 			},
 			args: args{
-				component: "cert-manager",
-				image:     "quay.io/jetstack/cert-manager-webhook:v0.11.0",
+				component: CertManagerImageComponent,
+				image:     "quay.io/jetstack/cert-manager-webhook:v1.1.0",
 			},
 			want:    "bar-repository.io/cert-manager-webhook:bar-tag",
 			wantErr: false,
@@ -135,8 +136,8 @@ func Test_imageMetaClient_AlterImage(t *testing.T) {
 				reader: test.NewFakeReader().WithImageMeta(allImageConfig, "foo-repository.io", "foo-tag"),
 			},
 			args: args{
-				component: "cert-manager",
-				image:     "quay.io/jetstack/cert-manager-cainjector:v0.11.0",
+				component: CertManagerImageComponent,
+				image:     "quay.io/jetstack/cert-manager-cainjector:v1.1.0",
 			},
 			want:    "foo-repository.io/cert-manager-cainjector:foo-tag",
 			wantErr: false,
@@ -146,11 +147,11 @@ func Test_imageMetaClient_AlterImage(t *testing.T) {
 			fields: fields{
 				reader: test.NewFakeReader().
 					WithImageMeta(allImageConfig, "foo-repository.io", "foo-tag").
-					WithImageMeta("cert-manager", "bar-repository.io", "bar-tag"),
+					WithImageMeta(CertManagerImageComponent, "bar-repository.io", "bar-tag"),
 			},
 			args: args{
-				component: "cert-manager",
-				image:     "quay.io/jetstack/cert-manager-cainjector:v0.11.0",
+				component: CertManagerImageComponent,
+				image:     "quay.io/jetstack/cert-manager-cainjector:v1.1.0",
 			},
 			want:    "bar-repository.io/cert-manager-cainjector:bar-tag",
 			wantErr: false,
@@ -160,11 +161,11 @@ func Test_imageMetaClient_AlterImage(t *testing.T) {
 			fields: fields{
 				reader: test.NewFakeReader().
 					WithImageMeta(allImageConfig, "foo-repository.io", "").
-					WithImageMeta("cert-manager", "", "bar-tag"),
+					WithImageMeta(CertManagerImageComponent, "", "bar-tag"),
 			},
 			args: args{
-				component: "cert-manager",
-				image:     "quay.io/jetstack/cert-manager-cainjector:v0.11.0",
+				component: CertManagerImageComponent,
+				image:     "quay.io/jetstack/cert-manager-cainjector:v1.1.0",
 			},
 			want:    "foo-repository.io/cert-manager-cainjector:bar-tag",
 			wantErr: false,
@@ -173,13 +174,13 @@ func Test_imageMetaClient_AlterImage(t *testing.T) {
 			name: "image config for cert-manager/cert-manager-cainjector, for cert-manager and for all: images for the cert-manager/cert-manager-cainjector should be changed according to the most specific",
 			fields: fields{
 				reader: test.NewFakeReader().
-					WithImageMeta("cert-manager/cert-manager-cainjector", "foo-repository.io", "foo-tag").
-					WithImageMeta("cert-manager", "bar-repository.io", "bar-tag").
+					WithImageMeta(fmt.Sprintf("%s/cert-manager-cainjector", CertManagerImageComponent), "foo-repository.io", "foo-tag").
+					WithImageMeta(CertManagerImageComponent, "bar-repository.io", "bar-tag").
 					WithImageMeta(allImageConfig, "baz-repository.io", "baz-tag"),
 			},
 			args: args{
-				component: "cert-manager",
-				image:     "quay.io/jetstack/cert-manager-cainjector:v0.11.0",
+				component: CertManagerImageComponent,
+				image:     "quay.io/jetstack/cert-manager-cainjector:v1.1.0",
 			},
 			want:    "foo-repository.io/cert-manager-cainjector:foo-tag",
 			wantErr: false,
@@ -188,13 +189,13 @@ func Test_imageMetaClient_AlterImage(t *testing.T) {
 			name: "image config for cert-manager/cert-manager-cainjector, for cert-manager and for all: images for the cert-manager/cert-manager-cainjector should be changed according to the most specific (mixed case)",
 			fields: fields{
 				reader: test.NewFakeReader().
-					WithImageMeta("cert-manager/cert-manager-cainjector", "foo-repository.io", "").
-					WithImageMeta("cert-manager", "", "bar-tag").
+					WithImageMeta(fmt.Sprintf("%s/cert-manager-cainjector", CertManagerImageComponent), "foo-repository.io", "").
+					WithImageMeta(CertManagerImageComponent, "", "bar-tag").
 					WithImageMeta(allImageConfig, "baz-repository.io", "baz-tag"),
 			},
 			args: args{
-				component: "cert-manager",
-				image:     "quay.io/jetstack/cert-manager-cainjector:v0.11.0",
+				component: CertManagerImageComponent,
+				image:     "quay.io/jetstack/cert-manager-cainjector:v1.1.0",
 			},
 			want:    "foo-repository.io/cert-manager-cainjector:bar-tag",
 			wantErr: false,
@@ -203,13 +204,13 @@ func Test_imageMetaClient_AlterImage(t *testing.T) {
 			name: "image config for cert-manager/cert-manager-cainjector, for cert-manager and for all: images for the cert-manager/cert-manager-webhook should be changed according to the most generic",
 			fields: fields{
 				reader: test.NewFakeReader().
-					WithImageMeta("cert-manager/cert-manager-cainjector", "foo-repository.io", "foo-tag").
-					WithImageMeta("cert-manager", "bar-repository.io", "").
+					WithImageMeta(fmt.Sprintf("%s/cert-manager-cainjector", CertManagerImageComponent), "foo-repository.io", "foo-tag").
+					WithImageMeta(CertManagerImageComponent, "bar-repository.io", "").
 					WithImageMeta(allImageConfig, "baz-repository.io", "baz-tag"),
 			},
 			args: args{
-				component: "cert-manager",
-				image:     "quay.io/jetstack/cert-manager-webhook:v0.11.0",
+				component: CertManagerImageComponent,
+				image:     "quay.io/jetstack/cert-manager-webhook:v1.1.0",
 			},
 			want:    "bar-repository.io/cert-manager-webhook:baz-tag",
 			wantErr: false,

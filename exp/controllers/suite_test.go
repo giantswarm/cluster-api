@@ -17,58 +17,55 @@ limitations under the License.
 package controllers
 
 import (
-	"context"
+	"fmt"
+	"os"
 	"testing"
 
-	. "github.com/onsi/ginkgo"
-	. "github.com/onsi/gomega"
-
+	"sigs.k8s.io/cluster-api/controllers/noderefutil"
+	"sigs.k8s.io/cluster-api/internal/envtest"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
-	"sigs.k8s.io/controller-runtime/pkg/envtest/printer"
-	"sigs.k8s.io/controller-runtime/pkg/log"
-
-	"sigs.k8s.io/cluster-api/test/helpers"
 	// +kubebuilder:scaffold:imports
 )
 
-// These tests use Ginkgo (BDD-style Go testing framework). Refer to
-// http://onsi.github.io/ginkgo/ to learn more about Ginkgo.
-
 var (
-	testEnv *helpers.TestEnvironment
-	ctx     = context.Background()
+	env *envtest.Environment
+	ctx = ctrl.SetupSignalHandler()
 )
 
-func TestAPIs(t *testing.T) {
-	RegisterFailHandler(Fail)
+func TestMain(m *testing.M) {
+	fmt.Println("Creating new test environment")
+	env = envtest.New()
 
-	RunSpecsWithDefaultAndCustomReporters(t,
-		"Controller Suite",
-		[]Reporter{printer.NewlineReporter{}})
-}
-
-var _ = BeforeSuite(func(done Done) {
-	By("bootstrapping test environment")
-	testEnv = helpers.NewTestEnvironment()
-
-	Expect((&MachinePoolReconciler{
-		Client:   testEnv,
-		Log:      log.Log,
-		recorder: testEnv.GetEventRecorderFor("machinepool-controller"),
-	}).SetupWithManager(testEnv.Manager, controller.Options{MaxConcurrentReconciles: 1})).To(Succeed())
-
-	By("starting the manager")
-	go func() {
-		defer GinkgoRecover()
-		Expect(testEnv.StartManager()).To(Succeed())
-	}()
-
-	close(done)
-}, 60)
-
-var _ = AfterSuite(func() {
-	if testEnv != nil {
-		By("tearing down the test environment")
-		Expect(testEnv.Stop()).To(Succeed())
+	// Set up the MachineNodeIndex
+	if err := noderefutil.AddMachineNodeIndex(ctx, env.Manager); err != nil {
+		panic(fmt.Sprintf("undable to setup machine node index: %v", err))
 	}
-})
+
+	machinePoolReconciler := MachinePoolReconciler{
+		Client:   env,
+		recorder: env.GetEventRecorderFor("machinepool-controller"),
+	}
+	err := machinePoolReconciler.SetupWithManager(ctx, env.Manager, controller.Options{MaxConcurrentReconciles: 1})
+	if err != nil {
+		panic(fmt.Sprintf("Failed to set up machine pool reconciler: %v", err))
+	}
+
+	go func() {
+		fmt.Println("Starting the manager")
+		if err := env.Start(ctx); err != nil {
+			panic(fmt.Sprintf("Failed to start the envtest manager: %v", err))
+		}
+	}()
+	<-env.Manager.Elected()
+	env.WaitForWebhooks()
+
+	code := m.Run()
+
+	fmt.Println("Tearing down test suite")
+	if err := env.Stop(); err != nil {
+		panic(fmt.Sprintf("Failed to stop envtest: %v", err))
+	}
+
+	os.Exit(code)
+}

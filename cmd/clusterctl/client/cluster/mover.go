@@ -28,8 +28,9 @@ import (
 	kerrors "k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/version"
-	clusterv1 "sigs.k8s.io/cluster-api/api/v1alpha3"
+	clusterv1 "sigs.k8s.io/cluster-api/api/v1alpha4"
 	logf "sigs.k8s.io/cluster-api/cmd/clusterctl/log"
+	"sigs.k8s.io/cluster-api/util/conditions"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -59,26 +60,26 @@ func (o *objectMover) Move(namespace string, toCluster Client, dryRun bool) erro
 		log.Info("********************************************************")
 	}
 
-	objectGraph := newObjectGraph(o.fromProxy)
+	objectGraph := newObjectGraph(o.fromProxy, o.fromProviderInventory)
 
 	// checks that all the required providers in place in the target cluster.
 	if !o.dryRun {
-		if err := o.checkTargetProviders(namespace, toCluster.ProviderInventory()); err != nil {
-			return err
+		if err := o.checkTargetProviders(toCluster.ProviderInventory()); err != nil {
+			return errors.Wrap(err, "failed to check providers in target cluster")
 		}
 	}
 
 	// Gets all the types defines by the CRDs installed by clusterctl plus the ConfigMap/Secret core types.
 	err := objectGraph.getDiscoveryTypes()
 	if err != nil {
-		return err
+		return errors.Wrap(err, "failed to retrieve discovery types")
 	}
 
 	// Discovery the object graph for the selected types:
 	// - Nodes are defined the Kubernetes objects (Clusters, Machines etc.) identified during the discovery process.
 	// - Edges are derived by the OwnerReferences between nodes.
 	if err := objectGraph.Discovery(namespace); err != nil {
-		return err
+		return errors.Wrap(err, "failed to discover the object graph")
 	}
 
 	// Checks if Cluster API has already completed the provisioning of the infrastructure for the objects involved in the move operation.
@@ -86,7 +87,7 @@ func (o *objectMover) Move(namespace string, toCluster Client, dryRun bool) erro
 	// not currently waiting for long-running reconciliation loops, and so we can safely rely on the pause field on the Cluster object
 	// for blocking any further object reconciliation on the source objects.
 	if err := o.checkProvisioningCompleted(objectGraph); err != nil {
-		return err
+		return errors.Wrap(err, "failed to check for provisioned infrastructure")
 	}
 
 	// Check whether nodes are not included in GVK considered for move
@@ -98,11 +99,7 @@ func (o *objectMover) Move(namespace string, toCluster Client, dryRun bool) erro
 		proxy = toCluster.Proxy()
 	}
 
-	if err := o.move(objectGraph, proxy); err != nil {
-		return err
-	}
-
-	return nil
+	return o.move(objectGraph, proxy)
 }
 
 func newObjectMover(fromProxy Proxy, fromProviderInventory InventoryClient) *objectMover {
@@ -114,7 +111,6 @@ func newObjectMover(fromProxy Proxy, fromProviderInventory InventoryClient) *obj
 
 // checkProvisioningCompleted checks if Cluster API has already completed the provisioning of the infrastructure for the objects involved in the move operation.
 func (o *objectMover) checkProvisioningCompleted(graph *objectGraph) error {
-
 	if o.dryRun {
 		return nil
 	}
@@ -137,7 +133,8 @@ func (o *objectMover) checkProvisioningCompleted(graph *objectGraph) error {
 			continue
 		}
 
-		if !clusterObj.Status.ControlPlaneInitialized {
+		// Note: can't use IsFalse here because we need to handle the absence of the condition as well as false.
+		if !conditions.IsTrue(clusterObj, clusterv1.ControlPlaneInitializedCondition) {
 			errList = append(errList, errors.Errorf("cannot start the move operation while the control plane for %q %s/%s is not yet initialized", clusterObj.GroupVersionKind(), clusterObj.GetNamespace(), clusterObj.GetName()))
 			continue
 		}
@@ -181,8 +178,8 @@ func getClusterObj(proxy Proxy, cluster *node, clusterObj *clusterv1.Cluster) er
 	}
 
 	if err := c.Get(ctx, clusterObjKey, clusterObj); err != nil {
-		return errors.Wrapf(err, "error reading %q %s/%s",
-			clusterObj.GroupVersionKind(), clusterObj.GetNamespace(), clusterObj.GetName())
+		return errors.Wrapf(err, "error reading Cluster %s/%s",
+			clusterObj.GetNamespace(), clusterObj.GetName())
 	}
 	return nil
 }
@@ -199,13 +196,13 @@ func getMachineObj(proxy Proxy, machine *node, machineObj *clusterv1.Machine) er
 	}
 
 	if err := c.Get(ctx, machineObjKey, machineObj); err != nil {
-		return errors.Wrapf(err, "error reading %q %s/%s",
-			machineObj.GroupVersionKind(), machineObj.GetNamespace(), machineObj.GetName())
+		return errors.Wrapf(err, "error reading Machine %s/%s",
+			machineObj.GetNamespace(), machineObj.GetName())
 	}
 	return nil
 }
 
-// Move moves all the Cluster API objects existing in a namespace (or from all the namespaces if empty) to a target management cluster
+// Move moves all the Cluster API objects existing in a namespace (or from all the namespaces if empty) to a target management cluster.
 func (o *objectMover) move(graph *objectGraph, toProxy Proxy) error {
 	log := logf.Log
 
@@ -249,14 +246,10 @@ func (o *objectMover) move(graph *objectGraph, toProxy Proxy) error {
 
 	// Reset the pause field on the Cluster object in the target management cluster, so the controllers start reconciling it.
 	log.V(1).Info("Resuming the target cluster")
-	if err := setClusterPause(toProxy, clusters, false, o.dryRun); err != nil {
-		return err
-	}
-
-	return nil
+	return setClusterPause(toProxy, clusters, false, o.dryRun)
 }
 
-// moveSequence defines a list of group of moveGroups
+// moveSequence defines a list of group of moveGroups.
 type moveSequence struct {
 	groups   []moveGroup
 	nodesMap map[*node]empty
@@ -349,7 +342,7 @@ func setClusterPause(proxy Proxy, clusters []*node, value bool, dryRun bool) err
 		if err := retryWithExponentialBackoff(setClusterPauseBackoff, func() error {
 			return patchCluster(proxy, cluster, patch)
 		}); err != nil {
-			return err
+			return errors.Wrapf(err, "error setting Cluster.Spec.Paused=%t", value)
 		}
 	}
 	return nil
@@ -369,13 +362,13 @@ func patchCluster(proxy Proxy, cluster *node, patch client.Patch) error {
 	}
 
 	if err := cFrom.Get(ctx, clusterObjKey, clusterObj); err != nil {
-		return errors.Wrapf(err, "error reading %q %s/%s",
-			clusterObj.GroupVersionKind(), clusterObj.GetNamespace(), clusterObj.GetName())
+		return errors.Wrapf(err, "error reading Cluster %s/%s",
+			clusterObj.GetNamespace(), clusterObj.GetName())
 	}
 
 	if err := cFrom.Patch(ctx, clusterObj, patch); err != nil {
-		return errors.Wrapf(err, "error pausing reconciliation for %q %s/%s",
-			clusterObj.GroupVersionKind(), clusterObj.GetNamespace(), clusterObj.GetName())
+		return errors.Wrapf(err, "error patching Cluster %s/%s",
+			clusterObj.GetNamespace(), clusterObj.GetName())
 	}
 
 	return nil
@@ -383,7 +376,6 @@ func patchCluster(proxy Proxy, cluster *node, patch client.Patch) error {
 
 // ensureNamespaces ensures all the expected target namespaces are in place before creating objects.
 func (o *objectMover) ensureNamespaces(graph *objectGraph, toProxy Proxy) error {
-
 	if o.dryRun {
 		return nil
 	}
@@ -391,7 +383,6 @@ func (o *objectMover) ensureNamespaces(graph *objectGraph, toProxy Proxy) error 
 	ensureNamespaceBackoff := newWriteBackoff()
 	namespaces := sets.NewString()
 	for _, node := range graph.getMoveNodes() {
-
 		// ignore global/cluster-wide objects
 		if node.isGlobal {
 			continue
@@ -556,7 +547,6 @@ func (o *objectMover) createTargetObject(nodeToCreate *node, toProxy Proxy) erro
 			ownerRefs = append(ownerRefs, ownerRef)
 		}
 		obj.SetOwnerReferences(ownerRefs)
-
 	}
 
 	// Creates the targetObj into the target management cluster.
@@ -571,24 +561,28 @@ func (o *objectMover) createTargetObject(nodeToCreate *node, toProxy Proxy) erro
 				obj.GroupVersionKind(), obj.GetNamespace(), obj.GetName())
 		}
 
-		// If the object already exists, try to update it.
-		// Nb. This should not happen, but it is supported to make move more resilient to unexpected interrupt/restarts of the move process.
-		log.V(5).Info("Object already exists, updating", nodeToCreate.identity.Kind, nodeToCreate.identity.Name, "Namespace", nodeToCreate.identity.Namespace)
+		// If the object already exists, try to update it if it is node a global object / something belonging to a global object hierarchy (e.g. a secrets owned by a global identity object).
+		if nodeToCreate.isGlobal || nodeToCreate.isGlobalHierarchy {
+			log.V(5).Info("Object already exists, skipping upgrade because it is global/it is owned by a global object", nodeToCreate.identity.Kind, nodeToCreate.identity.Name, "Namespace", nodeToCreate.identity.Namespace)
+		} else {
+			// Nb. This should not happen, but it is supported to make move more resilient to unexpected interrupt/restarts of the move process.
+			log.V(5).Info("Object already exists, updating", nodeToCreate.identity.Kind, nodeToCreate.identity.Name, "Namespace", nodeToCreate.identity.Namespace)
 
-		// Retrieve the UID and the resource version for the update.
-		existingTargetObj := &unstructured.Unstructured{}
-		existingTargetObj.SetAPIVersion(obj.GetAPIVersion())
-		existingTargetObj.SetKind(obj.GetKind())
-		if err := cTo.Get(ctx, objKey, existingTargetObj); err != nil {
-			return errors.Wrapf(err, "error reading resource for %q %s/%s",
-				existingTargetObj.GroupVersionKind(), existingTargetObj.GetNamespace(), existingTargetObj.GetName())
-		}
+			// Retrieve the UID and the resource version for the update.
+			existingTargetObj := &unstructured.Unstructured{}
+			existingTargetObj.SetAPIVersion(obj.GetAPIVersion())
+			existingTargetObj.SetKind(obj.GetKind())
+			if err := cTo.Get(ctx, objKey, existingTargetObj); err != nil {
+				return errors.Wrapf(err, "error reading resource for %q %s/%s",
+					existingTargetObj.GroupVersionKind(), existingTargetObj.GetNamespace(), existingTargetObj.GetName())
+			}
 
-		obj.SetUID(existingTargetObj.GetUID())
-		obj.SetResourceVersion(existingTargetObj.GetResourceVersion())
-		if err := cTo.Update(ctx, obj); err != nil {
-			return errors.Wrapf(err, "error updating %q %s/%s",
-				obj.GroupVersionKind(), obj.GetNamespace(), obj.GetName())
+			obj.SetUID(existingTargetObj.GetUID())
+			obj.SetResourceVersion(existingTargetObj.GetResourceVersion())
+			if err := cTo.Update(ctx, obj); err != nil {
+				return errors.Wrapf(err, "error updating %q %s/%s",
+					obj.GroupVersionKind(), obj.GetNamespace(), obj.GetName())
+			}
 		}
 	}
 
@@ -604,11 +598,6 @@ func (o *objectMover) deleteGroup(group moveGroup) error {
 	errList := []error{}
 	for i := range group {
 		nodeToDelete := group[i]
-
-		// Don't delete cluster-wide nodes
-		if nodeToDelete.isGlobal {
-			continue
-		}
 
 		// Delete the Kubernetes object corresponding to the current node.
 		// Nb. The operation is wrapped in a retry loop to make move more resilient to unexpected conditions.
@@ -631,6 +620,11 @@ var (
 // deleteSourceObject deletes the Kubernetes object corresponding to the node from the source management cluster, taking care of removing all the finalizers so
 // the objects gets immediately deleted (force delete).
 func (o *objectMover) deleteSourceObject(nodeToDelete *node) error {
+	// Don't delete cluster-wide nodes or nodes that are below a hierarchy that starts with a global object (e.g. a secrets owned by a global identity object).
+	if nodeToDelete.isGlobal || nodeToDelete.isGlobalHierarchy {
+		return nil
+	}
+
 	log := logf.Log
 	log.V(1).Info("Deleting", nodeToDelete.identity.Kind, nodeToDelete.identity.Name, "Namespace", nodeToDelete.identity.Namespace)
 
@@ -654,7 +648,7 @@ func (o *objectMover) deleteSourceObject(nodeToDelete *node) error {
 
 	if err := cFrom.Get(ctx, sourceObjKey, sourceObj); err != nil {
 		if apierrors.IsNotFound(err) {
-			//If the object is already deleted, move on.
+			// If the object is already deleted, move on.
 			log.V(5).Info("Object already deleted, skipping delete for", nodeToDelete.identity.Kind, nodeToDelete.identity.Name, "Namespace", nodeToDelete.identity.Namespace)
 			return nil
 		}
@@ -678,7 +672,7 @@ func (o *objectMover) deleteSourceObject(nodeToDelete *node) error {
 }
 
 // checkTargetProviders checks that all the providers installed in the source cluster exists in the target cluster as well (with a version >= of the current version).
-func (o *objectMover) checkTargetProviders(namespace string, toInventory InventoryClient) error {
+func (o *objectMover) checkTargetProviders(toInventory InventoryClient) error {
 	if o.dryRun {
 		return nil
 	}
@@ -697,11 +691,6 @@ func (o *objectMover) checkTargetProviders(namespace string, toInventory Invento
 	// Checks all the providers installed in the source cluster
 	errList := []error{}
 	for _, sourceProvider := range fromProviders.Items {
-		// If we are moving objects in a namespace only, skip all the providers not watching such namespace.
-		if namespace != "" && !(sourceProvider.WatchedNamespace == "" || sourceProvider.WatchedNamespace == namespace) {
-			continue
-		}
-
 		sourceVersion, err := version.ParseSemantic(sourceProvider.Version)
 		if err != nil {
 			return errors.Wrapf(err, "unable to parse version %q for the %s provider in the source cluster", sourceProvider.Version, sourceProvider.InstanceName())
@@ -715,19 +704,6 @@ func (o *objectMover) checkTargetProviders(namespace string, toInventory Invento
 				continue
 			}
 
-			// If we are moving objects in all the namespaces, skip all the providers with a different watching namespace.
-			// NB. This introduces a constraints for move all namespaces, that the configuration of source and target provider MUST match (except for the version);
-			// however this is acceptable because clusterctl supports only two models of multi-tenancy (n-Infra, n-Core).
-			if namespace == "" && !(targetProvider.WatchedNamespace == sourceProvider.WatchedNamespace) {
-				continue
-			}
-
-			// If we are moving objects in a namespace only, skip all the providers not watching such namespace.
-			// NB. This means that when moving a single namespace, we use a lazy matching (the watching namespace MUST overlap; exact match is not required).
-			if namespace != "" && !(targetProvider.WatchedNamespace == "" || targetProvider.WatchedNamespace == namespace) {
-				continue
-			}
-
 			targetVersion, err := version.ParseSemantic(targetProvider.Version)
 			if err != nil {
 				return errors.Wrapf(err, "unable to parse version %q for the %s provider in the target cluster", targetProvider.Version, targetProvider.InstanceName())
@@ -737,11 +713,7 @@ func (o *objectMover) checkTargetProviders(namespace string, toInventory Invento
 			}
 		}
 		if maxTargetVersion == nil {
-			watching := sourceProvider.WatchedNamespace
-			if namespace != "" {
-				watching = namespace
-			}
-			errList = append(errList, errors.Errorf("provider %s watching namespace %s not found in the target cluster", sourceProvider.Name, watching))
+			errList = append(errList, errors.Errorf("provider %s not found in the target cluster", sourceProvider.Name))
 			continue
 		}
 

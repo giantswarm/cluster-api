@@ -17,7 +17,6 @@ limitations under the License.
 package repository
 
 import (
-	"io/ioutil"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -27,6 +26,10 @@ import (
 	"github.com/pkg/errors"
 	"k8s.io/apimachinery/pkg/util/version"
 	"sigs.k8s.io/cluster-api/cmd/clusterctl/client/config"
+)
+
+const (
+	latestVersionTag = "latest"
 )
 
 // localRepository provides support for providers located on the local filesystem.
@@ -53,7 +56,7 @@ import (
 // basepath: C:\cluster-api\out\repo
 // provider-label: infrastructure-docker
 // version: v0.3.0 (whatever latest resolve to)
-// components.yaml: infrastructure-components.yaml
+// components.yaml: infrastructure-components.yaml.
 type localRepository struct {
 	providerConfig        config.Provider
 	configVariablesClient config.VariablesClient
@@ -84,7 +87,7 @@ func (r *localRepository) ComponentsPath() string {
 func (r *localRepository) GetFile(version, fileName string) ([]byte, error) {
 	var err error
 
-	if version == "latest" {
+	if version == latestVersionTag {
 		version, err = r.getLatestRelease()
 		if err != nil {
 			return nil, errors.Wrapf(err, "failed to get the latest release")
@@ -102,19 +105,18 @@ func (r *localRepository) GetFile(version, fileName string) ([]byte, error) {
 	if f.IsDir() {
 		return nil, errors.Errorf("invalid path: file %q is actually a directory %q", fileName, absolutePath)
 	}
-	content, err := ioutil.ReadFile(absolutePath)
+	content, err := os.ReadFile(absolutePath)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to read file %q from local release %s", absolutePath, version)
 	}
 	return content, nil
-
 }
 
 // GetVersions returns the list of versions that are available for a local repository.
 func (r *localRepository) GetVersions() ([]string, error) {
 	// get all the sub-directories under {basepath}/{provider-id}/
 	releasesPath := filepath.Join(r.basepath, r.providerLabel)
-	files, err := ioutil.ReadDir(releasesPath)
+	files, err := os.ReadDir(releasesPath)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to list release directories")
 	}
@@ -164,7 +166,7 @@ func newLocalRepository(providerConfig config.Provider, configVariablesClient co
 
 	componentsPath := urlSplit[len(urlSplit)-1]
 	defaultVersion := urlSplit[len(urlSplit)-2]
-	if defaultVersion != "latest" {
+	if defaultVersion != latestVersionTag {
 		_, err = version.ParseSemantic(defaultVersion)
 		if err != nil {
 			return nil, errors.Errorf("invalid version: %q. Version must obey the syntax and semantics of the \"Semantic Versioning\" specification (http://semver.org/) and path format {basepath}/{provider-name}/{version}/{components.yaml}", defaultVersion)
@@ -189,7 +191,7 @@ func newLocalRepository(providerConfig config.Provider, configVariablesClient co
 		componentsPath:        componentsPath,
 	}
 
-	if defaultVersion == "latest" {
+	if defaultVersion == latestVersionTag {
 		repo.defaultVersion, err = repo.getLatestRelease()
 		if err != nil {
 			return nil, errors.Wrap(err, "failed to get latest version")
