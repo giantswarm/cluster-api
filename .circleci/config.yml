@@ -10,7 +10,7 @@ jobs:
       - run:
           name: Build the CAPI docker images
           command: |
-            make docker-build
+            make -E REGISTRY=quay.io/$CIRCLE_PROJECT_USERNAME docker-build
       - run:
           name: Login to quay
           command: |
