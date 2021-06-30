@@ -14,31 +14,20 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-// Package kubernetesversions implements kubernetes version functions.
 package kubernetesversions
 
 import (
-	_ "embed"
 	"errors"
+	"io/ioutil"
 	"os"
 	"os/exec"
 	"path"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	cabpkv1 "sigs.k8s.io/cluster-api/bootstrap/kubeadm/api/v1alpha4"
-	kcpv1 "sigs.k8s.io/cluster-api/controlplane/kubeadm/api/v1alpha4"
+	cabpkv1 "sigs.k8s.io/cluster-api/bootstrap/kubeadm/api/v1alpha3"
+	kcpv1 "sigs.k8s.io/cluster-api/controlplane/kubeadm/api/v1alpha3"
 	"sigs.k8s.io/cluster-api/test/framework"
 	"sigs.k8s.io/yaml"
-)
-
-const yamlSeparator = "\n---\n"
-
-var (
-	//go:embed data/kustomization.yaml
-	kustomizationYamlBytes []byte
-
-	//go:embed data/debian_injection_script.envsubst.sh
-	debianInjectionScriptBytes string
 )
 
 type GenerateCIArtifactsInjectedTemplateForDebianInput struct {
@@ -57,8 +46,6 @@ type GenerateCIArtifactsInjectedTemplateForDebianInput struct {
 	// KubeadmControlPlaneName is the name of the KubeadmControlPlane resource
 	// that needs to have the Debian install script injected. Defaults to "${CLUSTER_NAME}-control-plane".
 	KubeadmControlPlaneName string
-	// KubeadmConfigName is the name of a KubeadmConfig that needs kustomizing. To be used in conjunction with MachinePools. Optional.
-	KubeadmConfigName string
 }
 
 // GenerateCIArtifactsInjectedTemplateForDebian takes a source clusterctl template
@@ -88,22 +75,27 @@ func GenerateCIArtifactsInjectedTemplateForDebian(input GenerateCIArtifactsInjec
 
 	kustomizedTemplate := path.Join(templateDir, "cluster-template-conformance-ci-artifacts.yaml")
 
-	if err := os.WriteFile(path.Join(overlayDir, "kustomization.yaml"), kustomizationYamlBytes, 0o600); err != nil {
-		return "", err
-	}
-
-	kustomizeVersions, err := generateKustomizeVersionsYaml(input.KubeadmControlPlaneName, input.KubeadmConfigTemplateName, input.KubeadmConfigName)
+	kustomization, err := dataKustomizationYamlBytes()
 	if err != nil {
 		return "", err
 	}
 
-	if err := os.WriteFile(path.Join(overlayDir, "kustomizeversions.yaml"), kustomizeVersions, 0o600); err != nil {
+	if err := ioutil.WriteFile(path.Join(overlayDir, "kustomization.yaml"), kustomization, 0o600); err != nil {
 		return "", err
 	}
-	if err := os.WriteFile(path.Join(overlayDir, "ci-artifacts-source-template.yaml"), input.SourceTemplate, 0o600); err != nil {
+
+	kustomizeVersions, err := generateKustomizeVersionsYaml(input.KubeadmControlPlaneName, input.KubeadmConfigTemplateName)
+	if err != nil {
 		return "", err
 	}
-	if err := os.WriteFile(path.Join(overlayDir, "platform-kustomization.yaml"), input.PlatformKustomization, 0o600); err != nil {
+
+	if err := ioutil.WriteFile(path.Join(overlayDir, "kustomizeversions.yaml"), kustomizeVersions, 0o600); err != nil {
+		return "", err
+	}
+	if err := ioutil.WriteFile(path.Join(overlayDir, "ci-artifacts-source-template.yaml"), input.SourceTemplate, 0o600); err != nil {
+		return "", err
+	}
+	if err := ioutil.WriteFile(path.Join(overlayDir, "platform-kustomization.yaml"), input.PlatformKustomization, 0o600); err != nil {
 		return "", err
 	}
 	cmd := exec.Command("kustomize", "build", overlayDir)
@@ -111,15 +103,21 @@ func GenerateCIArtifactsInjectedTemplateForDebian(input GenerateCIArtifactsInjec
 	if err != nil {
 		return "", err
 	}
-	if err := os.WriteFile(kustomizedTemplate, data, 0o600); err != nil {
+	if err := ioutil.WriteFile(kustomizedTemplate, data, 0o600); err != nil {
 		return "", err
 	}
 	return kustomizedTemplate, nil
 }
 
-func generateKustomizeVersionsYaml(kcpName, kubeadmTemplateName, kubeadmConfigName string) ([]byte, error) {
-	kcp := generateKubeadmControlPlane(kcpName)
-	kubeadm := generateKubeadmConfigTemplate(kubeadmTemplateName)
+func generateKustomizeVersionsYaml(kcpName, kubeadmName string) ([]byte, error) {
+	kcp, err := generateKubeadmControlPlane(kcpName)
+	if err != nil {
+		return nil, err
+	}
+	kubeadm, err := generateKubeadmConfigTemplate(kubeadmName)
+	if err != nil {
+		return nil, err
+	}
 	kcpYaml, err := yaml.Marshal(kcp)
 	if err != nil {
 		return nil, err
@@ -128,23 +126,15 @@ func generateKustomizeVersionsYaml(kcpName, kubeadmTemplateName, kubeadmConfigNa
 	if err != nil {
 		return nil, err
 	}
-	fileStr := string(kcpYaml) + yamlSeparator + string(kubeadmYaml)
-	if kubeadmConfigName == "" {
-		return []byte(fileStr), nil
-	}
-
-	kubeadmConfig := generateKubeadmConfig(kubeadmConfigName)
-	kubeadmConfigYaml, err := yaml.Marshal(kubeadmConfig)
-	if err != nil {
-		return nil, err
-	}
-	fileStr = fileStr + yamlSeparator + string(kubeadmConfigYaml)
-
+	fileStr := string(kcpYaml) + "\n---\n" + string(kubeadmYaml)
 	return []byte(fileStr), nil
 }
 
-func generateKubeadmConfigTemplate(name string) *cabpkv1.KubeadmConfigTemplate {
-	kubeadmSpec := generateKubeadmConfigSpec()
+func generateKubeadmConfigTemplate(name string) (*cabpkv1.KubeadmConfigTemplate, error) {
+	kubeadmSpec, err := generateKubeadmConfigSpec()
+	if err != nil {
+		return nil, err
+	}
 	return &cabpkv1.KubeadmConfigTemplate{
 		TypeMeta: metav1.TypeMeta{
 			Kind:       "KubeadmConfigTemplate",
@@ -158,25 +148,14 @@ func generateKubeadmConfigTemplate(name string) *cabpkv1.KubeadmConfigTemplate {
 				Spec: *kubeadmSpec,
 			},
 		},
-	}
+	}, nil
 }
 
-func generateKubeadmConfig(name string) *cabpkv1.KubeadmConfig {
-	kubeadmSpec := generateKubeadmConfigSpec()
-	return &cabpkv1.KubeadmConfig{
-		TypeMeta: metav1.TypeMeta{
-			Kind:       "KubeadmConfig",
-			APIVersion: kcpv1.GroupVersion.String(),
-		},
-		ObjectMeta: metav1.ObjectMeta{
-			Name: name,
-		},
-		Spec: *kubeadmSpec,
+func generateKubeadmControlPlane(name string) (*kcpv1.KubeadmControlPlane, error) {
+	kubeadmSpec, err := generateKubeadmConfigSpec()
+	if err != nil {
+		return nil, err
 	}
-}
-
-func generateKubeadmControlPlane(name string) *kcpv1.KubeadmControlPlane {
-	kubeadmSpec := generateKubeadmConfigSpec()
 	return &kcpv1.KubeadmControlPlane{
 		TypeMeta: metav1.TypeMeta{
 			Kind:       "KubeadmControlPlane",
@@ -189,19 +168,23 @@ func generateKubeadmControlPlane(name string) *kcpv1.KubeadmControlPlane {
 			KubeadmConfigSpec: *kubeadmSpec,
 			Version:           "${KUBERNETES_VERSION}",
 		},
-	}
+	}, nil
 }
 
-func generateKubeadmConfigSpec() *cabpkv1.KubeadmConfigSpec {
+func generateKubeadmConfigSpec() (*cabpkv1.KubeadmConfigSpec, error) {
+	data, err := dataDebian_injection_scriptEnvsubstShBytes()
+	if err != nil {
+		return nil, err
+	}
 	return &cabpkv1.KubeadmConfigSpec{
 		Files: []cabpkv1.File{
 			{
 				Path:        "/usr/local/bin/ci-artifacts.sh",
-				Content:     debianInjectionScriptBytes,
+				Content:     string(data),
 				Owner:       "root:root",
 				Permissions: "0750",
 			},
 		},
 		PreKubeadmCommands: []string{"/usr/local/bin/ci-artifacts.sh"},
-	}
+	}, nil
 }

@@ -18,25 +18,25 @@ package framework
 
 import (
 	"context"
-	"errors"
 	"fmt"
+	"io/ioutil"
 	"net/url"
 	"os"
 	"path"
 	goruntime "runtime"
+	"strings"
 
 	. "github.com/onsi/gomega"
+
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/client-go/tools/clientcmd/api"
-	clusterv1 "sigs.k8s.io/cluster-api/api/v1alpha4"
-	expv1 "sigs.k8s.io/cluster-api/exp/api/v1alpha4"
+	clusterv1 "sigs.k8s.io/cluster-api/api/v1alpha3"
 	"sigs.k8s.io/cluster-api/test/framework/exec"
 	"sigs.k8s.io/cluster-api/test/framework/internal/log"
-	"sigs.k8s.io/cluster-api/test/infrastructure/container"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -63,11 +63,8 @@ type ClusterProxy interface {
 	// GetRESTConfig returns the REST config for direct use with client-go if needed.
 	GetRESTConfig() *rest.Config
 
-	// GetLogCollector returns the machine log collector for the Kubernetes cluster.
-	GetLogCollector() ClusterLogCollector
-
 	// Apply to apply YAML to the Kubernetes cluster, `kubectl apply`.
-	Apply(ctx context.Context, resources []byte, args ...string) error
+	Apply(context.Context, []byte) error
 
 	// GetWorkloadCluster returns a proxy to a workload cluster defined in the Kubernetes cluster.
 	GetWorkloadCluster(ctx context.Context, namespace, name string) ClusterProxy
@@ -85,10 +82,9 @@ type ClusterLogCollector interface {
 	// CollectMachineLog collects log from a machine.
 	// TODO: describe output folder struct
 	CollectMachineLog(ctx context.Context, managementClusterClient client.Client, m *clusterv1.Machine, outputPath string) error
-	CollectMachinePoolLog(ctx context.Context, managementClusterClient client.Client, m *expv1.MachinePool, outputPath string) error
 }
 
-// Option is a configuration option supplied to NewClusterProxy.
+// Option is a configuration option supplied to NewClusterProxy
 type Option func(*clusterProxy)
 
 // WithMachineLogCollector allows to define the machine log collector to be used with this Cluster.
@@ -133,7 +129,7 @@ func NewClusterProxy(name string, kubeconfigPath string, scheme *runtime.Scheme,
 // newFromAPIConfig returns a clusterProxy given a api.Config and the scheme defining the types hosted in the cluster.
 func newFromAPIConfig(name string, config *api.Config, scheme *runtime.Scheme) ClusterProxy {
 	// NB. the ClusterProvider is responsible for the cleanup of this file
-	f, err := os.CreateTemp("", "e2e-kubeconfig")
+	f, err := ioutil.TempFile("", "e2e-kubeconfig")
 	Expect(err).ToNot(HaveOccurred(), "Failed to create kubeconfig file for the kind cluster %q")
 	kubeconfigPath := f.Name()
 
@@ -183,12 +179,20 @@ func (p *clusterProxy) GetClientSet() *kubernetes.Clientset {
 	return cs
 }
 
-// Apply wraps `kubectl apply ...` and prints the output so we can see what gets applied to the cluster.
-func (p *clusterProxy) Apply(ctx context.Context, resources []byte, args ...string) error {
+// Apply wraps `kubectl apply` and prints the output so we can see what gets applied to the cluster.
+func (p *clusterProxy) Apply(ctx context.Context, resources []byte) error {
 	Expect(ctx).NotTo(BeNil(), "ctx is required for Apply")
 	Expect(resources).NotTo(BeNil(), "resources is required for Apply")
 
-	return exec.KubectlApply(ctx, p.kubeconfigPath, resources, args...)
+	return exec.KubectlApply(ctx, p.kubeconfigPath, resources)
+}
+
+// Apply wraps `kubectl apply ...` and prints the output so we can see what gets applied to the cluster.
+func (p *clusterProxy) ApplyWithArgs(ctx context.Context, resources []byte, args ...string) error {
+	Expect(ctx).NotTo(BeNil(), "ctx is required for Apply")
+	Expect(resources).NotTo(BeNil(), "resources is required for Apply")
+
+	return exec.KubectlApplyWithArgs(ctx, p.kubeconfigPath, resources, args...)
 }
 
 func (p *clusterProxy) GetRESTConfig() *rest.Config {
@@ -200,10 +204,6 @@ func (p *clusterProxy) GetRESTConfig() *rest.Config {
 
 	restConfig.UserAgent = "cluster-api-e2e"
 	return restConfig
-}
-
-func (p *clusterProxy) GetLogCollector() ClusterLogCollector {
-	return p.logCollector
 }
 
 // GetWorkloadCluster returns ClusterProxy for the workload cluster.
@@ -235,52 +235,27 @@ func (p *clusterProxy) CollectWorkloadClusterLogs(ctx context.Context, namespace
 
 	for i := range machines.Items {
 		m := &machines.Items[i]
-		err := p.logCollector.CollectMachineLog(ctx, p.GetClient(), m, path.Join(outputPath, "machines", m.GetName()))
+		err := p.logCollector.CollectMachineLog(ctx, p.GetClient(), m, path.Join(outputPath, m.GetName()))
 		if err != nil {
 			// NB. we are treating failures in collecting logs as a non blocking operation (best effort)
 			fmt.Printf("Failed to get logs for machine %s, cluster %s/%s: %v\n", m.GetName(), namespace, name, err)
-		}
-	}
-
-	machinePools, err := getMachinePoolsInCluster(ctx, p.GetClient(), namespace, name)
-	Expect(err).ToNot(HaveOccurred(), "Failed to get machine pools for the %s/%s cluster", namespace, name)
-
-	for i := range machinePools.Items {
-		mp := &machinePools.Items[i]
-		err := p.logCollector.CollectMachinePoolLog(ctx, p.GetClient(), mp, path.Join(outputPath, "machine-pools", mp.GetName()))
-		if err != nil {
-			// NB. we are treating failures in collecting logs as a non blocking operation (best effort)
-			fmt.Printf("Failed to get logs for machine pool %s, cluster %s/%s: %v\n", mp.GetName(), namespace, name, err)
 		}
 	}
 }
 
 func getMachinesInCluster(ctx context.Context, c client.Client, namespace, name string) (*clusterv1.MachineList, error) {
 	if name == "" {
-		return nil, errors.New("cluster name should not be empty")
+		return nil, nil
 	}
 
 	machineList := &clusterv1.MachineList{}
 	labels := map[string]string{clusterv1.ClusterLabelName: name}
+
 	if err := c.List(ctx, machineList, client.InNamespace(namespace), client.MatchingLabels(labels)); err != nil {
 		return nil, err
 	}
 
 	return machineList, nil
-}
-
-func getMachinePoolsInCluster(ctx context.Context, c client.Client, namespace, name string) (*expv1.MachinePoolList, error) {
-	if name == "" {
-		return nil, errors.New("cluster name should not be empty")
-	}
-
-	machinePoolList := &expv1.MachinePoolList{}
-	labels := map[string]string{clusterv1.ClusterLabelName: name}
-	if err := c.List(ctx, machinePoolList, client.InNamespace(namespace), client.MatchingLabels(labels)); err != nil {
-		return nil, err
-	}
-
-	return machinePoolList, nil
 }
 
 func (p *clusterProxy) getKubeconfig(ctx context.Context, namespace string, name string) *api.Config {
@@ -314,10 +289,7 @@ func (p *clusterProxy) isDockerCluster(ctx context.Context, namespace string, na
 }
 
 func (p *clusterProxy) fixConfig(ctx context.Context, name string, config *api.Config) {
-	containerRuntime, err := container.NewDockerClient()
-	Expect(err).ToNot(HaveOccurred(), "Failed to get Docker runtime client")
-
-	port, err := containerRuntime.GetHostPort(ctx, name, "6443/tcp")
+	port, err := findLoadBalancerPort(ctx, name)
 	Expect(err).ToNot(HaveOccurred(), "Failed to get load balancer port")
 
 	controlPlaneURL := &url.URL{
@@ -326,6 +298,21 @@ func (p *clusterProxy) fixConfig(ctx context.Context, name string, config *api.C
 	}
 	currentCluster := config.Contexts[config.CurrentContext].Cluster
 	config.Clusters[currentCluster].Server = controlPlaneURL.String()
+}
+
+func findLoadBalancerPort(ctx context.Context, name string) (string, error) {
+	loadBalancerName := name + "-lb"
+	portFormat := `{{index (index (index .NetworkSettings.Ports "6443/tcp") 0) "HostPort"}}`
+	getPathCmd := exec.NewCommand(
+		exec.WithCommand("docker"),
+		exec.WithArgs("inspect", loadBalancerName, "--format", portFormat),
+	)
+	stdout, _, err := getPathCmd.Run(ctx)
+	if err != nil {
+		return "", err
+	}
+
+	return strings.TrimSpace(string(stdout)), nil
 }
 
 // Dispose clusterProxy internal resources (the operation does not affects the Kubernetes cluster).

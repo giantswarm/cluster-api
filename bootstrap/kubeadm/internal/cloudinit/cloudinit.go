@@ -18,19 +18,15 @@ package cloudinit
 
 import (
 	"bytes"
-	_ "embed"
 	"fmt"
 	"text/template"
 
 	"github.com/pkg/errors"
-	bootstrapv1 "sigs.k8s.io/cluster-api/bootstrap/kubeadm/api/v1alpha4"
+	bootstrapv1 "sigs.k8s.io/cluster-api/bootstrap/kubeadm/api/v1alpha3"
 )
 
 const (
-	standardJoinCommand = "kubeadm join --config /run/kubeadm/kubeadm-join-config.yaml %s"
-	// sentinelFileCommand writes a file to /run/cluster-api to signal successful Kubernetes bootstrapping in a way that
-	// works both for Linux and Windows OS.
-	sentinelFileCommand            = "echo success > /run/cluster-api/bootstrap-success.complete"
+	standardJoinCommand            = "kubeadm join --config /tmp/kubeadm-join-config.yaml %s"
 	retriableJoinScriptName        = "/usr/local/bin/kubeadm-bootstrap-script"
 	retriableJoinScriptOwner       = "root"
 	retriableJoinScriptPermissions = "0755"
@@ -54,7 +50,6 @@ type BaseUserData struct {
 	UseExperimentalRetry bool
 	KubeadmCommand       string
 	KubeadmVerbosity     string
-	SentinelFileCommand  string
 }
 
 func (input *BaseUserData) prepare() error {
@@ -69,7 +64,6 @@ func (input *BaseUserData) prepare() error {
 		}
 		input.WriteFiles = append(input.WriteFiles, *joinScriptFile)
 	}
-	input.SentinelFileCommand = sentinelFileCommand
 	return nil
 }
 
@@ -92,15 +86,15 @@ func generate(kind string, tpl string, data interface{}) ([]byte, error) {
 	}
 
 	if _, err := tm.Parse(diskSetupTemplate); err != nil {
-		return nil, errors.Wrap(err, "failed to parse disk setup template")
+		return nil, errors.Wrap(err, "failed to parse users template")
 	}
 
 	if _, err := tm.Parse(fsSetupTemplate); err != nil {
-		return nil, errors.Wrap(err, "failed to parse fs setup template")
+		return nil, errors.Wrap(err, "failed to parse users template")
 	}
 
 	if _, err := tm.Parse(mountsTemplate); err != nil {
-		return nil, errors.Wrap(err, "failed to parse mounts template")
+		return nil, errors.Wrap(err, "failed to parse users template")
 	}
 
 	t, err := tm.Parse(tpl)
@@ -116,13 +110,12 @@ func generate(kind string, tpl string, data interface{}) ([]byte, error) {
 	return out.Bytes(), nil
 }
 
-var (
-	//go:embed kubeadm-bootstrap-script.sh
-	kubeadmBootstrapScript string
-)
-
 func generateBootstrapScript(input interface{}) (*bootstrapv1.File, error) {
-	joinScript, err := generate("JoinScript", kubeadmBootstrapScript, input)
+	scriptBytes, err := bootstrapKubeadmInternalCloudinitKubeadmBootstrapScriptShBytes()
+	if err != nil {
+		return nil, errors.Wrap(err, "couldn't read bootstrap script")
+	}
+	joinScript, err := generate("JoinScript", string(scriptBytes), input)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to bootstrap script for machine joins")
 	}

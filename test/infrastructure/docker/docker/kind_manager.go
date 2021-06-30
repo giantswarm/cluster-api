@@ -23,8 +23,6 @@ import (
 	"strings"
 
 	"github.com/pkg/errors"
-
-	clusterv1 "sigs.k8s.io/cluster-api/api/v1alpha4"
 	"sigs.k8s.io/cluster-api/test/infrastructure/docker/docker/types"
 	"sigs.k8s.io/kind/pkg/apis/config/v1alpha4"
 	"sigs.k8s.io/kind/pkg/cluster/constants"
@@ -36,7 +34,7 @@ const ControlPlanePort = 6443
 
 type Manager struct{}
 
-func (m *Manager) CreateControlPlaneNode(name, image, clusterLabel, listenAddress string, port int32, mounts []v1alpha4.Mount, portMappings []v1alpha4.PortMapping, labels map[string]string, ipFamily clusterv1.ClusterIPFamily) (*types.Node, error) {
+func (m *Manager) CreateControlPlaneNode(name, image, clusterLabel, listenAddress string, port int32, mounts []v1alpha4.Mount, portMappings []v1alpha4.PortMapping, labels map[string]string) (*types.Node, error) {
 	// gets a random host port for the API server
 	if port == 0 {
 		p, err := getPort()
@@ -53,7 +51,7 @@ func (m *Manager) CreateControlPlaneNode(name, image, clusterLabel, listenAddres
 		ContainerPort: KubeadmContainerPort,
 	})
 	node, err := createNode(
-		name, image, clusterLabel, constants.ControlPlaneNodeRoleValue, mounts, portMappingsWithAPIServer, ipFamily,
+		name, image, clusterLabel, constants.ControlPlaneNodeRoleValue, mounts, portMappingsWithAPIServer,
 		// publish selected port for the API server
 		append([]string{"--expose", fmt.Sprintf("%d", port)}, labelsAsArgs(labels)...)...,
 	)
@@ -64,11 +62,11 @@ func (m *Manager) CreateControlPlaneNode(name, image, clusterLabel, listenAddres
 	return node, nil
 }
 
-func (m *Manager) CreateWorkerNode(name, image, clusterLabel string, mounts []v1alpha4.Mount, portMappings []v1alpha4.PortMapping, labels map[string]string, ipFamily clusterv1.ClusterIPFamily) (*types.Node, error) {
-	return createNode(name, image, clusterLabel, constants.WorkerNodeRoleValue, mounts, portMappings, ipFamily, labelsAsArgs(labels)...)
+func (m *Manager) CreateWorkerNode(name, image, clusterLabel string, mounts []v1alpha4.Mount, portMappings []v1alpha4.PortMapping, labels map[string]string) (*types.Node, error) {
+	return createNode(name, image, clusterLabel, constants.WorkerNodeRoleValue, mounts, portMappings, labelsAsArgs(labels)...)
 }
 
-func (m *Manager) CreateExternalLoadBalancerNode(name, image, clusterLabel, listenAddress string, port int32, ipFamily clusterv1.ClusterIPFamily) (*types.Node, error) {
+func (m *Manager) CreateExternalLoadBalancerNode(name, image, clusterLabel, listenAddress string, port int32) (*types.Node, error) {
 	// gets a random host port for control-plane load balancer
 	// gets a random host port for the API server
 	if port == 0 {
@@ -86,7 +84,7 @@ func (m *Manager) CreateExternalLoadBalancerNode(name, image, clusterLabel, list
 		ContainerPort: ControlPlanePort,
 	}}
 	node, err := createNode(name, image, clusterLabel, constants.ExternalLoadBalancerNodeRoleValue,
-		nil, portMappings, ipFamily,
+		nil, portMappings,
 		// publish selected port for the control plane
 		"--expose", fmt.Sprintf("%d", port),
 	)
@@ -97,7 +95,7 @@ func (m *Manager) CreateExternalLoadBalancerNode(name, image, clusterLabel, list
 	return node, nil
 }
 
-func createNode(name, image, clusterLabel, role string, mounts []v1alpha4.Mount, portMappings []v1alpha4.PortMapping, ipFamily clusterv1.ClusterIPFamily, extraArgs ...string) (*types.Node, error) {
+func createNode(name, image, clusterLabel, role string, mounts []v1alpha4.Mount, portMappings []v1alpha4.PortMapping, extraArgs ...string) (*types.Node, error) {
 	runArgs := []string{
 		"--detach", // run the container detached
 		"--tty",    // allocate a tty for entrypoint logs
@@ -120,25 +118,11 @@ func createNode(name, image, clusterLabel, role string, mounts []v1alpha4.Mount,
 		// some k8s things want to read /lib/modules
 		"--volume", "/lib/modules:/lib/modules:ro",
 		"--hostname", name, // make hostname match container name
-		"--network", defaultNetwork,
 		"--name", name, // ... and set the container name
 		// label the node with the cluster ID
 		"--label", clusterLabel,
 		// label the node with the role ID
 		"--label", fmt.Sprintf("%s=%s", nodeRoleLabelKey, role),
-	}
-
-	if ipFamily == clusterv1.IPv6IPFamily {
-		runArgs = append(runArgs,
-			"--sysctl=net.ipv6.conf.all.disable_ipv6=0",
-			"--sysctl=net.ipv6.conf.all.forwarding=1",
-		)
-	}
-
-	// mount /dev/mapper if docker storage driver if Btrfs or ZFS
-	// https://github.com/kubernetes-sigs/kind/pull/1464
-	if needsDevMapper() {
-		runArgs = append(runArgs, "--volume", "/dev/mapper:/dev/mapper:ro")
 	}
 
 	// pass proxy environment variables to be used by node's docker daemon
@@ -171,7 +155,7 @@ func createNode(name, image, clusterLabel, role string, mounts []v1alpha4.Mount,
 	return types.NewNode(name, image, role), nil
 }
 
-// labelsAsArgs transforms a map of labels into extraArgs.
+// labelsAsArgs transforms a map of labels into extraArgs
 func labelsAsArgs(labels map[string]string) []string {
 	args := make([]string, len(labels)*2)
 	i := 0
@@ -183,7 +167,7 @@ func labelsAsArgs(labels map[string]string) []string {
 	return args
 }
 
-// helper used to get a free TCP port for the API server.
+// helper used to get a free TCP port for the API server
 func getPort() (int32, error) {
 	listener, err := net.Listen("tcp", ":0") //nolint:gosec
 	if err != nil {
@@ -196,19 +180,20 @@ func getPort() (int32, error) {
 	return int32(port), nil
 }
 
-// proxyDetails contains proxy settings discovered on the host.
+// proxyDetails contains proxy settings discovered on the host
 type proxyDetails struct {
 	Envs map[string]string
 }
 
 const (
-	defaultNetwork = "kind"
+	// Docker default bridge network is named "bridge" (https://docs.docker.com/network/bridge/#use-the-default-bridge-network)
+	defaultNetwork = "bridge"
 	httpProxy      = "HTTP_PROXY"
 	httpsProxy     = "HTTPS_PROXY"
 	noProxy        = "NO_PROXY"
 )
 
-// networkInspect displays detailed information on one or more networks.
+// networkInspect displays detailed information on one or more networks
 func networkInspect(networkNames []string, format string) ([]string, error) {
 	cmd := exec.Command("docker", "network", "inspect",
 		"-f", format,
@@ -217,7 +202,7 @@ func networkInspect(networkNames []string, format string) ([]string, error) {
 	return exec.CombinedOutputLines(cmd)
 }
 
-// getSubnets returns a slice of subnets for a specified network.
+// getSubnets returns a slice of subnets for a specified network
 func getSubnets(networkName string) ([]string, error) {
 	format := `{{range (index (index . "IPAM") "Config")}}{{index . "Subnet"}} {{end}}`
 	lines, err := networkInspect([]string{networkName}, format)
@@ -228,7 +213,7 @@ func getSubnets(networkName string) ([]string, error) {
 }
 
 // getProxyDetails returns a struct with the host environment proxy settings
-// that should be passed to the nodes.
+// that should be passed to the nodes
 func getProxyDetails() (*proxyDetails, error) {
 	var val string
 	details := proxyDetails{Envs: make(map[string]string)}
@@ -265,7 +250,7 @@ func getProxyDetails() (*proxyDetails, error) {
 	return &details, nil
 }
 
-// usernsRemap checks if userns-remap is enabled in dockerd.
+// usernsRemap checks if userns-remap is enabled in dockerd
 func usernsRemap() bool {
 	cmd := exec.Command("docker", "info", "--format", "'{{json .SecurityOptions}}'")
 	lines, err := exec.CombinedOutputLines(cmd)
@@ -310,10 +295,10 @@ func run(image string, opts ...RunOpt) error {
 	return nil
 }
 
-// RunOpt is an option for run.
+// RunOpt is an option for run
 type RunOpt func(*runOpts) *runOpts
 
-// actual options struct.
+// actual options struct
 type runOpts struct {
 	RunArgs       []string
 	ContainerArgs []string
@@ -322,7 +307,7 @@ type runOpts struct {
 }
 
 // withRunArgs sets the args for docker run
-// as in the args portion of `docker run args... image containerArgs...`.
+// as in the args portion of `docker run args... image containerArgs...`
 func withRunArgs(args ...string) RunOpt {
 	return func(r *runOpts) *runOpts {
 		r.RunArgs = args
@@ -330,7 +315,7 @@ func withRunArgs(args ...string) RunOpt {
 	}
 }
 
-// withMounts sets the container mounts.
+// withMounts sets the container mounts
 func withMounts(mounts []v1alpha4.Mount) RunOpt {
 	return func(r *runOpts) *runOpts {
 		r.Mounts = mounts
@@ -338,7 +323,7 @@ func withMounts(mounts []v1alpha4.Mount) RunOpt {
 	}
 }
 
-// withPortMappings sets the container port mappings to the host.
+// withPortMappings sets the container port mappings to the host
 func withPortMappings(portMappings []v1alpha4.PortMapping) RunOpt {
 	return func(r *runOpts) *runOpts {
 		r.PortMappings = portMappings
@@ -406,20 +391,4 @@ func generatePortMappings(portMappings ...v1alpha4.PortMapping) []string {
 		result = append(result, publish)
 	}
 	return result
-}
-
-// needsDevMapper checks whether we need to mount /dev/mapper.
-// This is required when the docker storage driver is Btrfs or ZFS.
-// https://github.com/kubernetes-sigs/kind/pull/1464
-func needsDevMapper() bool {
-	storage := ""
-	cmd := exec.Command("docker", "info", "-f", "{{.Driver}}")
-	lines, err := exec.CombinedOutputLines(cmd)
-	if err != nil {
-		return false
-	}
-	if len(lines) > 0 {
-		storage = strings.ToLower(strings.TrimSpace(lines[0]))
-	}
-	return storage == "btrfs" || storage == "zfs"
 }

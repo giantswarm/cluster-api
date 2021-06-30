@@ -1,6 +1,6 @@
 # Experimental Feature: ClusterResourceSet (alpha)
 
-The `ClusterResourceSet` feature is introduced to provide a way to automatically apply a set of resources (such as CNI/CSI) defined by users to matching newly-created/existing clusters.
+`ClusterResourceSet` feature is introduced to provide a way to automatically apply a set of resources (such as CNI/CSI) defined by users to matching newly-created/existing clusters.
 
 **Feature gate name**: `ClusterResourceSet`
 

@@ -19,12 +19,14 @@ limitations under the License.
 package e2e
 
 import (
+	"context"
+
 	. "github.com/onsi/ginkgo"
 )
 
 var _ = Describe("When following the Cluster API quick-start [PR-Blocking]", func() {
 
-	QuickStartSpec(ctx, func() QuickStartSpecInput {
+	QuickStartSpec(context.TODO(), func() QuickStartSpecInput {
 		return QuickStartSpecInput{
 			E2EConfig:             e2eConfig,
 			ClusterctlConfigPath:  clusterctlConfigPath,

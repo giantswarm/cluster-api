@@ -17,6 +17,7 @@ limitations under the License.
 package internal
 
 import (
+	"context"
 	"errors"
 	"testing"
 
@@ -54,6 +55,7 @@ func TestCluster_ReconcileKubeletRBACBinding_NoError(t *testing.T) {
 			},
 		},
 	}
+	ctx := context.Background()
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -80,6 +82,7 @@ func TestCluster_ReconcileKubeletRBACBinding_Error(t *testing.T) {
 			},
 		},
 	}
+	ctx := context.Background()
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -118,6 +121,7 @@ func TestCluster_AllowBootstrapTokensToGetNodes_NoError(t *testing.T) {
 			},
 		},
 	}
+	ctx := context.Background()
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -143,6 +147,7 @@ func TestCluster_AllowBootstrapTokensToGetNodes_Error(t *testing.T) {
 			},
 		},
 	}
+	ctx := context.Background()
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

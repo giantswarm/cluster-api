@@ -20,13 +20,9 @@ import (
 	"context"
 	"fmt"
 
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"sigs.k8s.io/cluster-api/util/annotations"
-	"sigs.k8s.io/cluster-api/util/patch"
-
 	"github.com/pkg/errors"
 	corev1 "k8s.io/api/core/v1"
-	clusterv1 "sigs.k8s.io/cluster-api/api/v1alpha4"
+	clusterv1 "sigs.k8s.io/cluster-api/api/v1alpha3"
 	"sigs.k8s.io/cluster-api/controllers/noderefutil"
 	"sigs.k8s.io/cluster-api/util"
 	"sigs.k8s.io/cluster-api/util/conditions"
@@ -35,17 +31,15 @@ import (
 )
 
 var (
-	// ErrNodeNotFound signals that a corev1.Node could not be found for the given provider id.
 	ErrNodeNotFound = errors.New("cannot find node with matching ProviderID")
 )
 
 func (r *MachineReconciler) reconcileNode(ctx context.Context, cluster *clusterv1.Cluster, machine *clusterv1.Machine) (ctrl.Result, error) {
-	log := ctrl.LoggerFrom(ctx, "machine", machine.Name, "namespace", machine.Namespace)
-	log = log.WithValues("cluster", cluster.Name)
+	logger := r.Log.WithValues("machine", machine.Name, "namespace", machine.Namespace)
 
 	// Check that the Machine has a valid ProviderID.
 	if machine.Spec.ProviderID == nil || *machine.Spec.ProviderID == "" {
-		log.Info("Cannot reconcile Machine's Node, no valid ProviderID yet")
+		logger.Info("Cannot reconcile Machine's Node, no valid ProviderID yet")
 		conditions.MarkFalse(machine, clusterv1.MachineNodeHealthyCondition, clusterv1.WaitingForNodeRefReason, clusterv1.ConditionSeverityInfo, "")
 		return ctrl.Result{}, nil
 	}
@@ -61,7 +55,7 @@ func (r *MachineReconciler) reconcileNode(ctx context.Context, cluster *clusterv
 	}
 
 	// Even if Status.NodeRef exists, continue to do the following checks to make sure Node is healthy
-	node, err := r.getNode(ctx, remoteClient, providerID)
+	node, err := r.getNode(remoteClient, providerID)
 	if err != nil {
 		if err == ErrNodeNotFound {
 			// While a NodeRef is set in the status, failing to get that node means the node is deleted.
@@ -73,7 +67,7 @@ func (r *MachineReconciler) reconcileNode(ctx context.Context, cluster *clusterv
 			conditions.MarkFalse(machine, clusterv1.MachineNodeHealthyCondition, clusterv1.NodeProvisioningReason, clusterv1.ConditionSeverityWarning, "")
 			return ctrl.Result{Requeue: true}, nil
 		}
-		log.Error(err, "Failed to retrieve Node by ProviderID")
+		logger.Error(err, "Failed to retrieve Node by ProviderID")
 		r.recorder.Event(machine, corev1.EventTypeWarning, "Failed to retrieve Node by ProviderID", err.Error())
 		return ctrl.Result{}, err
 	}
@@ -86,39 +80,14 @@ func (r *MachineReconciler) reconcileNode(ctx context.Context, cluster *clusterv
 			Name:       node.Name,
 			UID:        node.UID,
 		}
-		log.Info("Set Machine's NodeRef", "noderef", machine.Status.NodeRef.Name)
+		logger.Info("Set Machine's NodeRef", "noderef", machine.Status.NodeRef.Name)
 		r.recorder.Event(machine, corev1.EventTypeNormal, "SuccessfulSetNodeRef", machine.Status.NodeRef.Name)
-	}
-
-	// Reconcile node annotations.
-	patchHelper, err := patch.NewHelper(node, remoteClient)
-	if err != nil {
-		return ctrl.Result{}, err
-	}
-	desired := map[string]string{
-		clusterv1.ClusterNameAnnotation:      machine.Spec.ClusterName,
-		clusterv1.ClusterNamespaceAnnotation: machine.GetNamespace(),
-		clusterv1.MachineAnnotation:          machine.Name,
-	}
-	if owner := metav1.GetControllerOfNoCopy(machine); owner != nil {
-		desired[clusterv1.OwnerKindAnnotation] = owner.Kind
-		desired[clusterv1.OwnerNameAnnotation] = owner.Name
-	}
-	if annotations.AddAnnotations(node, desired) {
-		if err := patchHelper.Patch(ctx, node); err != nil {
-			log.V(2).Info("Failed patch node to set annotations", "err", err, "node name", node.Name)
-			return ctrl.Result{}, err
-		}
 	}
 
 	// Do the remaining node health checks, then set the node health to true if all checks pass.
 	status, message := summarizeNodeConditions(node)
 	if status == corev1.ConditionFalse {
 		conditions.MarkFalse(machine, clusterv1.MachineNodeHealthyCondition, clusterv1.NodeConditionsFailedReason, clusterv1.ConditionSeverityWarning, message)
-		return ctrl.Result{}, nil
-	}
-	if status == corev1.ConditionUnknown {
-		conditions.MarkUnknown(machine, clusterv1.MachineNodeHealthyCondition, clusterv1.NodeConditionsFailedReason, message)
 		return ctrl.Result{}, nil
 	}
 
@@ -132,7 +101,7 @@ func (r *MachineReconciler) reconcileNode(ctx context.Context, cluster *clusterv
 // if all conditions are unknown,  summarized status = Unknown.
 // (semantically true conditions: NodeMemoryPressure/NodeDiskPressure/NodePIDPressure == false or Ready == true.)
 func summarizeNodeConditions(node *corev1.Node) (corev1.ConditionStatus, string) {
-	// totalNumOfConditionsChecked := 4
+	totalNumOfConditionsChecked := 4
 	semanticallyFalseStatus := 0
 	unknownStatus := 0
 
@@ -162,25 +131,25 @@ func summarizeNodeConditions(node *corev1.Node) (corev1.ConditionStatus, string)
 	if semanticallyFalseStatus > 0 {
 		return corev1.ConditionFalse, message
 	}
-	if semanticallyFalseStatus+unknownStatus < 4 {
+	if semanticallyFalseStatus+unknownStatus < totalNumOfConditionsChecked {
 		return corev1.ConditionTrue, message
 	}
 	return corev1.ConditionUnknown, message
 }
 
-func (r *MachineReconciler) getNode(ctx context.Context, c client.Reader, providerID *noderefutil.ProviderID) (*corev1.Node, error) {
-	log := ctrl.LoggerFrom(ctx, "providerID", providerID)
+func (r *MachineReconciler) getNode(c client.Reader, providerID *noderefutil.ProviderID) (*corev1.Node, error) {
+	logger := r.Log.WithValues("providerID", providerID)
 
 	nodeList := corev1.NodeList{}
 	for {
-		if err := c.List(ctx, &nodeList, client.Continue(nodeList.Continue)); err != nil {
+		if err := c.List(context.TODO(), &nodeList, client.Continue(nodeList.Continue)); err != nil {
 			return nil, err
 		}
 
 		for _, node := range nodeList.Items {
 			nodeProviderID, err := noderefutil.NewProviderID(node.Spec.ProviderID)
 			if err != nil {
-				log.Error(err, "Failed to parse ProviderID", "node", node.Name)
+				logger.Error(err, "Failed to parse ProviderID", "node", node.Name)
 				continue
 			}
 

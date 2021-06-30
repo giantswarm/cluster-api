@@ -19,12 +19,14 @@ limitations under the License.
 package e2e
 
 import (
+	"context"
+
 	. "github.com/onsi/ginkgo"
 )
 
 var _ = Describe("When testing unhealthy machines remediation", func() {
 
-	MachineRemediationSpec(ctx, func() MachineRemediationSpecInput {
+	MachineRemediationSpec(context.TODO(), func() MachineRemediationSpecInput {
 		return MachineRemediationSpecInput{
 			E2EConfig:             e2eConfig,
 			ClusterctlConfigPath:  clusterctlConfigPath,

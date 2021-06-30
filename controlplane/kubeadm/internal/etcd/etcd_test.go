@@ -17,24 +17,22 @@ limitations under the License.
 package etcd
 
 import (
+	"context"
 	"testing"
 
 	. "github.com/onsi/gomega"
-
 	"github.com/pkg/errors"
-	"go.etcd.io/etcd/api/v3/etcdserverpb"
-	clientv3 "go.etcd.io/etcd/client/v3"
-	etcdfake "sigs.k8s.io/cluster-api/controlplane/kubeadm/internal/etcd/fake"
-	ctrl "sigs.k8s.io/controller-runtime"
-)
 
-var (
-	ctx = ctrl.SetupSignalHandler()
+	"go.etcd.io/etcd/clientv3"
+	"go.etcd.io/etcd/etcdserver/etcdserverpb"
+
+	etcdfake "sigs.k8s.io/cluster-api/controlplane/kubeadm/internal/etcd/fake"
 )
 
 func TestEtcdMembers_WithErrors(t *testing.T) {
 	g := NewWithT(t)
 
+	ctx := context.Background()
 	fakeEtcdClient := &etcdfake.FakeEtcdClient{
 		EtcdEndpoints: []string{"https://etcd-instance:2379"},
 		MemberListResponse: &clientv3.MemberListResponse{
@@ -61,11 +59,13 @@ func TestEtcdMembers_WithErrors(t *testing.T) {
 
 	err = client.RemoveMember(ctx, 1234)
 	g.Expect(err).To(HaveOccurred())
+
 }
 
 func TestEtcdMembers_WithSuccess(t *testing.T) {
 	g := NewWithT(t)
 
+	ctx := context.Background()
 	fakeEtcdClient := &etcdfake.FakeEtcdClient{
 		EtcdEndpoints: []string{"https://etcd-instance:2379"},
 		MemberListResponse: &clientv3.MemberListResponse{

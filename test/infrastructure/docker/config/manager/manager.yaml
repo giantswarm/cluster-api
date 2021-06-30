@@ -17,8 +17,7 @@ spec:
     spec:
       containers:
       - args:
-        - "--leader-elect"
-        - "--feature-gates=MachinePool=${EXP_MACHINE_POOL:=false}"
+        - --enable-leader-election
         image: controller:latest
         name: manager
         ports:
@@ -39,7 +38,6 @@ spec:
         securityContext:
           privileged: true
       terminationGracePeriodSeconds: 10
-      serviceAccountName: manager
       tolerations:
       - effect: NoSchedule
         key: node-role.kubernetes.io/master

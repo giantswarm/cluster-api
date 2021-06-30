@@ -14,7 +14,6 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-// Package util implements etcd utility functions.
 package util
 
 import (
@@ -32,7 +31,6 @@ func MemberForName(members []*etcd.Member, name string) *etcd.Member {
 	return nil
 }
 
-// MemberNames returns a list of all the etcd member names.
 func MemberNames(members []*etcd.Member) []string {
 	names := make([]string, 0, len(members))
 	for _, m := range members {
@@ -41,10 +39,6 @@ func MemberNames(members []*etcd.Member) []string {
 	return names
 }
 
-// MemberEqual returns true if the lists of members match.
-//
-// This function only checks that set of names of each member
-// within the lists is the same.
 func MemberEqual(members1, members2 []*etcd.Member) bool {
 	names1 := sets.NewString(MemberNames(members1)...)
 	names2 := sets.NewString(MemberNames(members2)...)

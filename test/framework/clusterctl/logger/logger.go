@@ -14,7 +14,6 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-// Package logger implements clusterctl logging functionality.
 package logger
 
 import (
@@ -54,7 +53,7 @@ func (l *logger) Error(err error, msg string, kvs ...interface{}) {
 	panic("using log.Error is deprecated in clusterctl")
 }
 
-func (l *logger) V(level int) logr.Logger {
+func (l *logger) V(level int) logr.InfoLogger {
 	nl := l.clone()
 	return nl
 }

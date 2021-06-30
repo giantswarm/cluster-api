@@ -48,7 +48,7 @@ The `ImplementationControlPlane` *must* rely on the existence of
 
 * `replicas` - is an integer representing the number of desired
   replicas. In the KubeadmControlPlane, this represents the desired
-  number of control plane machines.
+  number of desired control plane machines.
 
 * `scale` subresource with the following signature:
 
@@ -77,7 +77,7 @@ The `status` object **must** have the following fields defined:
     <th> Implementation in Kubeadm Control Plane Controller </th>
   </tr>
   <tr>
-    <td><code>initialized</code></td>
+    <td><code>initialized</code>
     <td>Boolean</td>
     <td>
       a boolean field that is true when the target cluster has
@@ -95,8 +95,9 @@ The `status` object **must** have the following fields defined:
     <td>
       Ready denotes that the target API Server is ready to receive requests.
     </td>
-    <td></td>
+    <td />
   </tr>
+  <tr>
 </table>
 
 #### Required `status` fields for implementations using replicas
@@ -117,6 +118,7 @@ following fields defined:
     <td>Integer</td>
     <td>Total number of fully running and ready control plane instances.</td>
     <td>Is equal to the number of fully running and ready control plane machines</td>
+    <td />
   </tr>
   <tr>
     <td><code>replicas</code></td>
@@ -125,6 +127,7 @@ following fields defined:
       i.e. the state machine for this instance
       of the control plane is able to transition to ready.</td>
     <td>Is equal to the number of non-terminated control plane machines</td>
+    <td />
   </tr>
   <tr>
     <td><code>selector</code></td>
@@ -135,7 +138,7 @@ following fields defined:
       kubectl describe. The string will be in the same format as the query-param
       syntax. More info about label selectors: http://kubernetes.io/docs/user-guide/labels#label-selectors
     </td>
-    <td></td>
+    <td />
   </tr>
   <tr>
     <td><code>unavailableReplicas</code></td>
@@ -165,6 +168,7 @@ following fields defined:
       Total number of non-terminated machines targeted by this
       control plane that have the desired template spec.
     </td>
+  </tr>
   </tr>
 </table>
 

@@ -19,23 +19,10 @@ spec:
       - command:
         - /manager
         args:
-        - "--leader-elect"
+        - --enable-leader-election
         image: controller:latest
         name: manager
-        ports:
-        - containerPort: 9440
-          name: healthz
-          protocol: TCP
-        readinessProbe:
-          httpGet:
-            path: /readyz
-            port: healthz
-        livenessProbe:
-          httpGet:
-            path: /healthz
-            port: healthz
       terminationGracePeriodSeconds: 10
-      serviceAccountName: manager
       tolerations:
         - effect: NoSchedule
           key: node-role.kubernetes.io/master

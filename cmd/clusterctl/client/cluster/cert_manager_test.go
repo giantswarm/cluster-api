@@ -17,6 +17,7 @@ limitations under the License.
 package cluster
 
 import (
+	"crypto/sha256"
 	"fmt"
 	"testing"
 	"time"
@@ -30,137 +31,121 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/wait"
 	clusterctlv1 "sigs.k8s.io/cluster-api/cmd/clusterctl/api/v1alpha3"
 	"sigs.k8s.io/cluster-api/cmd/clusterctl/client/config"
-	"sigs.k8s.io/cluster-api/cmd/clusterctl/client/repository"
+	manifests "sigs.k8s.io/cluster-api/cmd/clusterctl/config"
 	"sigs.k8s.io/cluster-api/cmd/clusterctl/internal/scheme"
 	"sigs.k8s.io/cluster-api/cmd/clusterctl/internal/test"
-	utilyaml "sigs.k8s.io/cluster-api/util/yaml"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-var certManagerDeploymentYaml = []byte("apiVersion: apps/v1\n" +
-	"kind: Deployment\n" +
-	"metadata:\n" +
-	"  name: cert-manager\n" +
-	"spec:\n" +
-	"  template:\n" +
-	"    spec:\n" +
-	"      containers:\n" +
-	"      - name: manager\n" +
-	"        image: quay.io/jetstack/cert-manager:v1.1.0\n")
-
-var certManagerNamespaceYaml = []byte("apiVersion: v1\n" +
-	"kind: Namespace\n" +
-	"metadata:\n" +
-	"  name: cert-manager\n")
-
-func Test_getManifestObjs(t *testing.T) {
-	g := NewWithT(t)
-
-	defaultConfigClient, err := config.New("", config.InjectReader(test.NewFakeReader().WithImageMeta(config.CertManagerImageComponent, "bar-repository.io", "")))
-	g.Expect(err).NotTo(HaveOccurred())
-
-	type fields struct {
-		configClient config.Client
-		repository   repository.Repository
+func Test_VersionMarkerUpToDate(t *testing.T) {
+	yaml, err := manifests.Asset(embeddedCertManagerManifestPath)
+	if err != nil {
+		t.Fatalf("Failed to get cert-manager.yaml asset data: %v", err)
 	}
+
+	actualHash := fmt.Sprintf("%x", sha256.Sum256(yaml))
+	g := NewWithT(t)
+	g.Expect(actualHash).To(Equal(embeddedCertManagerManifestHash), "The cert-manager.yaml asset data has changed, but embeddedCertManagerManifestVersion and embeddedCertManagerManifestHash has not been updated.")
+}
+
+func Test_certManagerClient_getManifestObjects(t *testing.T) {
 	tests := []struct {
-		name    string
-		fields  fields
-		wantErr bool
+		name      string
+		expectErr bool
+		assert    func(*testing.T, []unstructured.Unstructured)
 	}{
 		{
-			name: "successfully gets the cert-manager components",
-			fields: fields{
-				configClient: defaultConfigClient,
-				repository: test.NewFakeRepository().
-					WithPaths("root", "components.yaml").
-					WithDefaultVersion(config.CertManagerDefaultVersion).
-					WithFile(config.CertManagerDefaultVersion, "components.yaml", utilyaml.JoinYaml(certManagerNamespaceYaml, certManagerDeploymentYaml)),
+			name:      "it should not contain the cert-manager-leaderelection ClusterRoleBinding",
+			expectErr: false,
+			assert: func(t *testing.T, objs []unstructured.Unstructured) {
+				for _, o := range objs {
+					if o.GetKind() == "ClusterRoleBinding" && o.GetName() == "cert-manager-leaderelection" {
+						t.Error("should not find cert-manager-leaderelection ClusterRoleBinding")
+					}
+				}
 			},
-			wantErr: false,
 		},
 		{
-			name: "fails if the file does not exists",
-			fields: fields{
-				configClient: defaultConfigClient,
-				repository: test.NewFakeRepository().
-					WithPaths("root", "components.yaml").
-					WithDefaultVersion("v1.0.0"),
+			name:      "the MutatingWebhookConfiguration should have sideEffects set to None ",
+			expectErr: false,
+			assert: func(t *testing.T, objs []unstructured.Unstructured) {
+				found := false
+				for i := range objs {
+					o := objs[i]
+					if o.GetKind() == "MutatingWebhookConfiguration" && o.GetName() == "cert-manager-webhook" {
+						w := &admissionregistration.MutatingWebhookConfiguration{}
+						err := scheme.Scheme.Convert(&o, w, nil)
+						if err != nil {
+							t.Errorf("did not expect err, got %s", err)
+						}
+						if len(w.Webhooks) != 1 {
+							t.Error("expected 1 webhook to be configured")
+						}
+						wh := w.Webhooks[0]
+						if wh.SideEffects != nil && *wh.SideEffects == admissionregistration.SideEffectClassNone {
+							found = true
+						}
+					}
+				}
+				if !found {
+					t.Error("Expected to find cert-manager-webhook MutatingWebhookConfiguration with sideEffects=None")
+				}
 			},
-			wantErr: true,
 		},
 		{
-			name: "fails if the file does not exists for the desired version",
-			fields: fields{
-				configClient: defaultConfigClient,
-				repository: test.NewFakeRepository().
-					WithPaths("root", "components.yaml").
-					WithDefaultVersion("v99.0.0").
-					WithFile("v99.0.0", "components.yaml", utilyaml.JoinYaml(certManagerNamespaceYaml, certManagerDeploymentYaml)),
+			name:      "the ValidatingWebhookConfiguration should have sideEffects set to None ",
+			expectErr: false,
+			assert: func(t *testing.T, objs []unstructured.Unstructured) {
+				found := false
+				for i := range objs {
+					o := objs[i]
+					if o.GetKind() == "ValidatingWebhookConfiguration" && o.GetName() == "cert-manager-webhook" {
+						w := &admissionregistration.ValidatingWebhookConfiguration{}
+						err := scheme.Scheme.Convert(&o, w, nil)
+						if err != nil {
+							t.Errorf("did not expect err, got %s", err)
+						}
+						if len(w.Webhooks) != 1 {
+							t.Error("expected 1 webhook to be configured")
+						}
+						wh := w.Webhooks[0]
+						if wh.SideEffects != nil && *wh.SideEffects == admissionregistration.SideEffectClassNone {
+							found = true
+						}
+					}
+				}
+				if !found {
+					t.Error("Expected to find cert-manager-webhook ValidatingWebhookConfiguration with sideEffects=None")
+				}
 			},
-			wantErr: true,
-		},
-		{
-			name: "successfully gets the cert-manager components for a custom release",
-			fields: fields{
-				configClient: func() config.Client {
-					configClient, err := config.New("", config.InjectReader(test.NewFakeReader().WithImageMeta(config.CertManagerImageComponent, "bar-repository.io", "").WithCertManager("", "v1.0.0", "")))
-					g.Expect(err).ToNot(HaveOccurred())
-					return configClient
-				}(),
-				repository: test.NewFakeRepository().
-					WithPaths("root", "components.yaml").
-					WithDefaultVersion(config.CertManagerDefaultVersion).
-					WithFile(config.CertManagerDefaultVersion, "components.yaml", utilyaml.JoinYaml(certManagerNamespaceYaml, certManagerDeploymentYaml)),
-			},
-			wantErr: false,
 		},
 	}
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			g := NewWithT(t)
 
-			cm := &certManagerClient{
-				configClient: defaultConfigClient,
-				repositoryClientFactory: func(provider config.Provider, configClient config.Client, options ...repository.Option) (repository.Client, error) {
-					return repository.New(provider, configClient, repository.InjectRepository(tt.fields.repository))
-				},
+			pollImmediateWaiter := func(interval, timeout time.Duration, condition wait.ConditionFunc) error {
+				return nil
 			}
+			fakeConfigClient := newFakeConfig("")
 
-			certManagerConfig, err := cm.configClient.CertManager().Get()
-			g.Expect(err).ToNot(HaveOccurred())
+			cm := newCertMangerClient(fakeConfigClient, nil, pollImmediateWaiter)
+			objs, err := cm.getManifestObjs()
 
-			got, err := cm.getManifestObjs(certManagerConfig)
-			if tt.wantErr {
+			if tt.expectErr {
 				g.Expect(err).To(HaveOccurred())
 				return
 			}
-			g.Expect(err).NotTo(HaveOccurred())
-
-			for i := range got {
-				o := &got[i]
-				// Assert Get adds clusterctl labels.
-				g.Expect(o.GetLabels()).To(HaveKey(clusterctlv1.ClusterctlLabelName))
-				g.Expect(o.GetLabels()).To(HaveKey(clusterctlv1.ClusterctlCoreLabelName))
-				g.Expect(o.GetLabels()[clusterctlv1.ClusterctlCoreLabelName]).To(Equal(clusterctlv1.ClusterctlCoreLabelCertManagerValue))
-
-				// Assert Get adds clusterctl annotations.
-				g.Expect(o.GetAnnotations()).To(HaveKey(clusterctlv1.CertManagerVersionAnnotation))
-				g.Expect(o.GetAnnotations()[clusterctlv1.CertManagerVersionAnnotation]).To(Equal(certManagerConfig.Version()))
-
-				// Assert Get fixes images.
-				if o.GetKind() == "Deployment" {
-					// Convert Unstructured into a typed object
-					d := &appsv1.Deployment{}
-					g.Expect(scheme.Scheme.Convert(o, d, nil)).To(Succeed())
-					g.Expect(d.Spec.Template.Spec.Containers[0].Image).To(Equal("bar-repository.io/cert-manager:v1.1.0"))
-				}
-			}
+			g.Expect(err).ToNot(HaveOccurred())
+			tt.assert(t, objs)
 		})
 	}
+
 }
 
 func Test_GetTimeout(t *testing.T) {
@@ -169,36 +154,39 @@ func Test_GetTimeout(t *testing.T) {
 	}
 
 	tests := []struct {
-		name   string
-		config *fakeConfigClient
-		want   time.Duration
+		name    string
+		timeout string
+		want    time.Duration
 	}{
 		{
-			name:   "no custom value set for timeout",
-			config: newFakeConfig(),
-			want:   10 * time.Minute,
+			name:    "no custom value set for timeout",
+			timeout: "",
+			want:    10 * time.Minute,
 		},
 		{
-			name:   "a custom value of timeout is set",
-			config: newFakeConfig().WithCertManager("", "", "5m"),
-			want:   5 * time.Minute,
+			name:    "a custom value of timeout is set",
+			timeout: "5m",
+			want:    5 * time.Minute,
 		},
 		{
-			name:   "invalid custom value of timeout is set",
-			config: newFakeConfig().WithCertManager("", "", "foo"),
-			want:   10 * time.Minute,
+			name:    "invalid custom value of timeout is set",
+			timeout: "5",
+			want:    10 * time.Minute,
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			g := NewWithT(t)
-			cm := newCertManagerClient(tt.config, nil, nil, pollImmediateWaiter)
 
+			fakeConfigClient := newFakeConfig(tt.timeout)
+
+			cm := newCertMangerClient(fakeConfigClient, nil, pollImmediateWaiter)
 			tm := cm.getWaitTimeout()
 
 			g.Expect(tm).To(Equal(tt.want))
 		})
 	}
+
 }
 
 func Test_shouldUpgrade(t *testing.T) {
@@ -206,12 +194,11 @@ func Test_shouldUpgrade(t *testing.T) {
 		objs []unstructured.Unstructured
 	}
 	tests := []struct {
-		name            string
-		args            args
-		wantFromVersion string
-		wantToVersion   string
-		want            bool
-		wantErr         bool
+		name        string
+		args        args
+		wantVersion string
+		want        bool
+		wantErr     bool
 	}{
 		{
 			name: "Version is not defined (e.g. cluster created with clusterctl < v0.3.9), should upgrade",
@@ -222,30 +209,49 @@ func Test_shouldUpgrade(t *testing.T) {
 					},
 				},
 			},
-			wantFromVersion: "v0.11.0",
-			wantToVersion:   config.CertManagerDefaultVersion,
-			want:            true,
-			wantErr:         false,
+			wantVersion: "v0.11.0",
+			want:        true,
+			wantErr:     false,
 		},
 		{
-			name: "Version is equal, should not upgrade",
+			name: "Version & hash are equal, should not upgrade",
 			args: args{
 				objs: []unstructured.Unstructured{
 					{
 						Object: map[string]interface{}{
 							"metadata": map[string]interface{}{
 								"annotations": map[string]interface{}{
-									clusterctlv1.CertManagerVersionAnnotation: config.CertManagerDefaultVersion,
+									certmanagerVersionAnnotation: embeddedCertManagerManifestVersion,
+									certmanagerHashAnnotation:    embeddedCertManagerManifestHash,
 								},
 							},
 						},
 					},
 				},
 			},
-			wantFromVersion: config.CertManagerDefaultVersion,
-			wantToVersion:   config.CertManagerDefaultVersion,
-			want:            false,
-			wantErr:         false,
+			wantVersion: embeddedCertManagerManifestVersion,
+			want:        false,
+			wantErr:     false,
+		},
+		{
+			name: "Version is equal, hash is different, should upgrade",
+			args: args{
+				objs: []unstructured.Unstructured{
+					{
+						Object: map[string]interface{}{
+							"metadata": map[string]interface{}{
+								"annotations": map[string]interface{}{
+									certmanagerVersionAnnotation: embeddedCertManagerManifestVersion,
+									certmanagerHashAnnotation:    "foo",
+								},
+							},
+						},
+					},
+				},
+			},
+			wantVersion: fmt.Sprintf("%s (%s)", embeddedCertManagerManifestVersion, "foo"),
+			want:        true,
+			wantErr:     false,
 		},
 		{
 			name: "Version is older, should upgrade",
@@ -255,17 +261,16 @@ func Test_shouldUpgrade(t *testing.T) {
 						Object: map[string]interface{}{
 							"metadata": map[string]interface{}{
 								"annotations": map[string]interface{}{
-									clusterctlv1.CertManagerVersionAnnotation: "v0.11.0",
+									certmanagerVersionAnnotation: "v0.11.0",
 								},
 							},
 						},
 					},
 				},
 			},
-			wantFromVersion: "v0.11.0",
-			wantToVersion:   config.CertManagerDefaultVersion,
-			want:            true,
-			wantErr:         false,
+			wantVersion: "v0.11.0",
+			want:        true,
+			wantErr:     false,
 		},
 		{
 			name: "Version is newer, should not upgrade",
@@ -275,17 +280,16 @@ func Test_shouldUpgrade(t *testing.T) {
 						Object: map[string]interface{}{
 							"metadata": map[string]interface{}{
 								"annotations": map[string]interface{}{
-									clusterctlv1.CertManagerVersionAnnotation: "v100.0.0",
+									certmanagerVersionAnnotation: "v100.0.0",
 								},
 							},
 						},
 					},
 				},
 			},
-			wantFromVersion: "v100.0.0",
-			wantToVersion:   config.CertManagerDefaultVersion,
-			want:            false,
-			wantErr:         false,
+			wantVersion: "v100.0.0",
+			want:        false,
+			wantErr:     false,
 		},
 		{
 			name: "Endpoint are ignored",
@@ -296,30 +300,23 @@ func Test_shouldUpgrade(t *testing.T) {
 							"kind": "Endpoints",
 							"metadata": map[string]interface{}{
 								"annotations": map[string]interface{}{
-									clusterctlv1.CertManagerVersionAnnotation: config.CertManagerDefaultVersion,
+									certmanagerVersionAnnotation: "v0.11.0",
 								},
 							},
 						},
 					},
 				},
 			},
-			wantFromVersion: "",
-			wantToVersion:   config.CertManagerDefaultVersion,
-			want:            false,
-			wantErr:         false,
+			wantVersion: "",
+			want:        false,
+			wantErr:     false,
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			g := NewWithT(t)
-			proxy := test.NewFakeProxy()
-			fakeConfigClient := newFakeConfig()
-			pollImmediateWaiter := func(interval, timeout time.Duration, condition wait.ConditionFunc) error {
-				return nil
-			}
-			cm := newCertManagerClient(fakeConfigClient, nil, proxy, pollImmediateWaiter)
 
-			fromVersion, toVersion, got, err := cm.shouldUpgrade(tt.args.objs)
+			gotVersion, got, err := shouldUpgrade(tt.args.objs)
 			if tt.wantErr {
 				g.Expect(err).To(HaveOccurred())
 				return
@@ -327,15 +324,14 @@ func Test_shouldUpgrade(t *testing.T) {
 			g.Expect(err).ToNot(HaveOccurred())
 
 			g.Expect(got).To(Equal(tt.want))
-			g.Expect(fromVersion).To(Equal(tt.wantFromVersion))
-			g.Expect(toVersion).To(Equal(tt.wantToVersion))
+			g.Expect(gotVersion).To(Equal(tt.wantVersion))
 		})
 	}
 }
 
 func Test_certManagerClient_deleteObjs(t *testing.T) {
 	type fields struct {
-		objs []client.Object
+		objs []runtime.Object
 	}
 	tests := []struct {
 		name    string
@@ -346,7 +342,7 @@ func Test_certManagerClient_deleteObjs(t *testing.T) {
 		{
 			name: "CRD should not be deleted",
 			fields: fields{
-				objs: []client.Object{
+				objs: []runtime.Object{
 					&apiextensionsv1.CustomResourceDefinition{
 						TypeMeta: metav1.TypeMeta{
 							Kind:       "CustomResourceDefinition",
@@ -354,7 +350,7 @@ func Test_certManagerClient_deleteObjs(t *testing.T) {
 						},
 						ObjectMeta: metav1.ObjectMeta{
 							Name:   "foo",
-							Labels: map[string]string{clusterctlv1.ClusterctlCoreLabelName: clusterctlv1.ClusterctlCoreLabelCertManagerValue},
+							Labels: map[string]string{clusterctlv1.ClusterctlCoreLabelName: "cert-manager"},
 						},
 					},
 				},
@@ -365,7 +361,7 @@ func Test_certManagerClient_deleteObjs(t *testing.T) {
 		{
 			name: "Namespace should not be deleted",
 			fields: fields{
-				objs: []client.Object{
+				objs: []runtime.Object{
 					&corev1.Namespace{
 						TypeMeta: metav1.TypeMeta{
 							Kind:       "Namespace",
@@ -373,7 +369,7 @@ func Test_certManagerClient_deleteObjs(t *testing.T) {
 						},
 						ObjectMeta: metav1.ObjectMeta{
 							Name:   "foo",
-							Labels: map[string]string{clusterctlv1.ClusterctlCoreLabelName: clusterctlv1.ClusterctlCoreLabelCertManagerValue},
+							Labels: map[string]string{clusterctlv1.ClusterctlCoreLabelName: "cert-manager"},
 						},
 					},
 				},
@@ -384,7 +380,7 @@ func Test_certManagerClient_deleteObjs(t *testing.T) {
 		{
 			name: "MutatingWebhookConfiguration should not be deleted",
 			fields: fields{
-				objs: []client.Object{
+				objs: []runtime.Object{
 					&admissionregistration.MutatingWebhookConfiguration{
 						TypeMeta: metav1.TypeMeta{
 							Kind:       "MutatingWebhookConfiguration",
@@ -392,7 +388,7 @@ func Test_certManagerClient_deleteObjs(t *testing.T) {
 						},
 						ObjectMeta: metav1.ObjectMeta{
 							Name:   "foo",
-							Labels: map[string]string{clusterctlv1.ClusterctlCoreLabelName: clusterctlv1.ClusterctlCoreLabelCertManagerValue},
+							Labels: map[string]string{clusterctlv1.ClusterctlCoreLabelName: "cert-manager"},
 						},
 					},
 				},
@@ -403,7 +399,7 @@ func Test_certManagerClient_deleteObjs(t *testing.T) {
 		{
 			name: "ValidatingWebhookConfiguration should not be deleted",
 			fields: fields{
-				objs: []client.Object{
+				objs: []runtime.Object{
 					&admissionregistration.ValidatingWebhookConfiguration{
 						TypeMeta: metav1.TypeMeta{
 							Kind:       "ValidatingWebhookConfiguration",
@@ -411,7 +407,7 @@ func Test_certManagerClient_deleteObjs(t *testing.T) {
 						},
 						ObjectMeta: metav1.ObjectMeta{
 							Name:   "foo",
-							Labels: map[string]string{clusterctlv1.ClusterctlCoreLabelName: clusterctlv1.ClusterctlCoreLabelCertManagerValue},
+							Labels: map[string]string{clusterctlv1.ClusterctlCoreLabelName: "cert-manager"},
 						},
 					},
 				},
@@ -422,7 +418,7 @@ func Test_certManagerClient_deleteObjs(t *testing.T) {
 		{
 			name: "Other resources should be deleted",
 			fields: fields{
-				objs: []client.Object{
+				objs: []runtime.Object{
 					&corev1.ServiceAccount{
 						TypeMeta: metav1.TypeMeta{
 							Kind:       "ServiceAccount",
@@ -430,7 +426,7 @@ func Test_certManagerClient_deleteObjs(t *testing.T) {
 						},
 						ObjectMeta: metav1.ObjectMeta{
 							Name:   "foo",
-							Labels: map[string]string{clusterctlv1.ClusterctlCoreLabelName: clusterctlv1.ClusterctlCoreLabelCertManagerValue},
+							Labels: map[string]string{clusterctlv1.ClusterctlCoreLabelName: "cert-manager"},
 						},
 					},
 					&appsv1.Deployment{
@@ -440,7 +436,7 @@ func Test_certManagerClient_deleteObjs(t *testing.T) {
 						},
 						ObjectMeta: metav1.ObjectMeta{
 							Name:   "bar",
-							Labels: map[string]string{clusterctlv1.ClusterctlCoreLabelName: clusterctlv1.ClusterctlCoreLabelCertManagerValue},
+							Labels: map[string]string{clusterctlv1.ClusterctlCoreLabelName: "cert-manager"},
 						},
 					},
 				},
@@ -459,7 +455,7 @@ func Test_certManagerClient_deleteObjs(t *testing.T) {
 				proxy:               proxy,
 			}
 
-			objBefore, err := proxy.ListResources(map[string]string{clusterctlv1.ClusterctlCoreLabelName: clusterctlv1.ClusterctlCoreLabelCertManagerValue})
+			objBefore, err := proxy.ListResources(map[string]string{clusterctlv1.ClusterctlCoreLabelName: "cert-manager"})
 			g.Expect(err).ToNot(HaveOccurred())
 
 			err = cm.deleteObjs(objBefore)
@@ -483,7 +479,10 @@ func Test_certManagerClient_deleteObjs(t *testing.T) {
 				cl, err := proxy.NewClient()
 				g.Expect(err).ToNot(HaveOccurred())
 
-				err = cl.Get(ctx, client.ObjectKeyFromObject(obj), obj)
+				key, err := client.ObjectKeyFromObject(obj)
+				g.Expect(err).ToNot(HaveOccurred())
+
+				err = cl.Get(ctx, key, obj)
 				switch objShouldStillExist {
 				case true:
 					g.Expect(err).ToNot(HaveOccurred())
@@ -496,9 +495,10 @@ func Test_certManagerClient_deleteObjs(t *testing.T) {
 }
 
 func Test_certManagerClient_PlanUpgrade(t *testing.T) {
+
 	tests := []struct {
 		name         string
-		objs         []client.Object
+		objs         []runtime.Object
 		expectErr    bool
 		expectedPlan CertManagerUpgradePlan
 	}{
@@ -506,7 +506,7 @@ func Test_certManagerClient_PlanUpgrade(t *testing.T) {
 			name: "returns the upgrade plan for cert-manager if v0.11.0 is installed",
 			// Cert-manager deployment without annotation, this must be from
 			// v0.11.0
-			objs: []client.Object{
+			objs: []runtime.Object{
 				&appsv1.Deployment{
 					TypeMeta: metav1.TypeMeta{
 						Kind:       "Deployment",
@@ -514,20 +514,20 @@ func Test_certManagerClient_PlanUpgrade(t *testing.T) {
 					},
 					ObjectMeta: metav1.ObjectMeta{
 						Name:   "cert-manager",
-						Labels: map[string]string{clusterctlv1.ClusterctlCoreLabelName: clusterctlv1.ClusterctlCoreLabelCertManagerValue},
+						Labels: map[string]string{clusterctlv1.ClusterctlCoreLabelName: "cert-manager"},
 					},
 				},
 			},
 			expectErr: false,
 			expectedPlan: CertManagerUpgradePlan{
 				From:          "v0.11.0",
-				To:            config.CertManagerDefaultVersion,
+				To:            embeddedCertManagerManifestVersion,
 				ShouldUpgrade: true,
 			},
 		},
 		{
 			name: "returns the upgrade plan for cert-manager if an older version is installed",
-			objs: []client.Object{
+			objs: []runtime.Object{
 				&appsv1.Deployment{
 					TypeMeta: metav1.TypeMeta{
 						Kind:       "Deployment",
@@ -535,21 +535,43 @@ func Test_certManagerClient_PlanUpgrade(t *testing.T) {
 					},
 					ObjectMeta: metav1.ObjectMeta{
 						Name:        "cert-manager",
-						Labels:      map[string]string{clusterctlv1.ClusterctlCoreLabelName: clusterctlv1.ClusterctlCoreLabelCertManagerValue},
-						Annotations: map[string]string{clusterctlv1.CertManagerVersionAnnotation: "v0.10.2"},
+						Labels:      map[string]string{clusterctlv1.ClusterctlCoreLabelName: "cert-manager"},
+						Annotations: map[string]string{certmanagerVersionAnnotation: "v0.16.0", certmanagerHashAnnotation: "some-hash"},
 					},
 				},
 			},
 			expectErr: false,
 			expectedPlan: CertManagerUpgradePlan{
-				From:          "v0.10.2",
-				To:            config.CertManagerDefaultVersion,
+				From:          "v0.16.0",
+				To:            embeddedCertManagerManifestVersion,
+				ShouldUpgrade: true,
+			},
+		},
+		{
+			name: "returns the upgrade plan for cert-manager if same version but different hash",
+			objs: []runtime.Object{
+				&appsv1.Deployment{
+					TypeMeta: metav1.TypeMeta{
+						Kind:       "Deployment",
+						APIVersion: appsv1.SchemeGroupVersion.String(),
+					},
+					ObjectMeta: metav1.ObjectMeta{
+						Name:        "cert-manager",
+						Labels:      map[string]string{clusterctlv1.ClusterctlCoreLabelName: "cert-manager"},
+						Annotations: map[string]string{certmanagerVersionAnnotation: embeddedCertManagerManifestVersion, certmanagerHashAnnotation: "some-other-hash"},
+					},
+				},
+			},
+			expectErr: false,
+			expectedPlan: CertManagerUpgradePlan{
+				From:          "v0.16.1 (some-other-hash)",
+				To:            embeddedCertManagerManifestVersion,
 				ShouldUpgrade: true,
 			},
 		},
 		{
 			name: "returns plan if shouldn't upgrade",
-			objs: []client.Object{
+			objs: []runtime.Object{
 				&appsv1.Deployment{
 					TypeMeta: metav1.TypeMeta{
 						Kind:       "Deployment",
@@ -557,21 +579,21 @@ func Test_certManagerClient_PlanUpgrade(t *testing.T) {
 					},
 					ObjectMeta: metav1.ObjectMeta{
 						Name:        "cert-manager",
-						Labels:      map[string]string{clusterctlv1.ClusterctlCoreLabelName: clusterctlv1.ClusterctlCoreLabelCertManagerValue},
-						Annotations: map[string]string{clusterctlv1.CertManagerVersionAnnotation: config.CertManagerDefaultVersion},
+						Labels:      map[string]string{clusterctlv1.ClusterctlCoreLabelName: "cert-manager"},
+						Annotations: map[string]string{certmanagerVersionAnnotation: embeddedCertManagerManifestVersion, certmanagerHashAnnotation: embeddedCertManagerManifestHash},
 					},
 				},
 			},
 			expectErr: false,
 			expectedPlan: CertManagerUpgradePlan{
-				From:          config.CertManagerDefaultVersion,
-				To:            config.CertManagerDefaultVersion,
+				From:          embeddedCertManagerManifestVersion,
+				To:            embeddedCertManagerManifestVersion,
 				ShouldUpgrade: false,
 			},
 		},
 		{
 			name: "returns empty plan and error if cannot parse semver",
-			objs: []client.Object{
+			objs: []runtime.Object{
 				&appsv1.Deployment{
 					TypeMeta: metav1.TypeMeta{
 						Kind:       "Deployment",
@@ -579,8 +601,8 @@ func Test_certManagerClient_PlanUpgrade(t *testing.T) {
 					},
 					ObjectMeta: metav1.ObjectMeta{
 						Name:        "cert-manager",
-						Labels:      map[string]string{clusterctlv1.ClusterctlCoreLabelName: clusterctlv1.ClusterctlCoreLabelCertManagerValue},
-						Annotations: map[string]string{clusterctlv1.CertManagerVersionAnnotation: "bad-sem-ver"},
+						Labels:      map[string]string{clusterctlv1.ClusterctlCoreLabelName: "cert-manager"},
+						Annotations: map[string]string{certmanagerVersionAnnotation: "bad-sem-ver"},
 					},
 				},
 			},
@@ -597,13 +619,9 @@ func Test_certManagerClient_PlanUpgrade(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			g := NewWithT(t)
 
-			proxy := test.NewFakeProxy().WithObjs(tt.objs...)
-			fakeConfigClient := newFakeConfig()
-			pollImmediateWaiter := func(interval, timeout time.Duration, condition wait.ConditionFunc) error {
-				return nil
+			cm := &certManagerClient{
+				proxy: test.NewFakeProxy().WithObjs(tt.objs...),
 			}
-			cm := newCertManagerClient(fakeConfigClient, nil, proxy, pollImmediateWaiter)
-
 			actualPlan, err := cm.PlanUpgrade()
 			if tt.expectErr {
 				g.Expect(err).To(HaveOccurred())
@@ -614,6 +632,7 @@ func Test_certManagerClient_PlanUpgrade(t *testing.T) {
 			g.Expect(actualPlan).To(Equal(tt.expectedPlan))
 		})
 	}
+
 }
 
 func Test_certManagerClient_EnsureLatestVersion(t *testing.T) {
@@ -657,26 +676,24 @@ func Test_certManagerClient_EnsureLatestVersion(t *testing.T) {
 	}
 }
 
-func newFakeConfig() *fakeConfigClient {
-	fakeReader := test.NewFakeReader()
+func newFakeConfig(timeout string) fakeConfigClient {
+	fakeReader := test.NewFakeReader().WithVar("cert-manager-timeout", timeout)
 
 	client, _ := config.New("fake-config", config.InjectReader(fakeReader))
-	return &fakeConfigClient{
-		fakeReader:     fakeReader,
-		internalclient: client,
+	return fakeConfigClient{
+		fakeReader:         fakeReader,
+		internalclient:     client,
+		certManagerTimeout: timeout,
 	}
 }
 
 type fakeConfigClient struct {
-	fakeReader     *test.FakeReader
-	internalclient config.Client
+	fakeReader         *test.FakeReader
+	internalclient     config.Client
+	certManagerTimeout string
 }
 
 var _ config.Client = &fakeConfigClient{}
-
-func (f fakeConfigClient) CertManager() config.CertManagerClient {
-	return f.internalclient.CertManager()
-}
 
 func (f fakeConfigClient) Providers() config.ProvidersClient {
 	return f.internalclient.Providers()
@@ -697,10 +714,5 @@ func (f *fakeConfigClient) WithVar(key, value string) *fakeConfigClient {
 
 func (f *fakeConfigClient) WithProvider(provider config.Provider) *fakeConfigClient {
 	f.fakeReader.WithProvider(provider.Name(), provider.Type(), provider.URL())
-	return f
-}
-
-func (f *fakeConfigClient) WithCertManager(url, version, timeout string) *fakeConfigClient {
-	f.fakeReader.WithCertManager(url, version, timeout)
 	return f
 }

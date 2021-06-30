@@ -20,27 +20,26 @@ import (
 	"context"
 
 	"github.com/blang/semver"
-	clusterv1 "sigs.k8s.io/cluster-api/api/v1alpha4"
+	"k8s.io/apimachinery/pkg/runtime"
+	clusterv1 "sigs.k8s.io/cluster-api/api/v1alpha3"
 	"sigs.k8s.io/cluster-api/controlplane/kubeadm/internal"
-	expv1 "sigs.k8s.io/cluster-api/exp/api/v1alpha4"
-	"sigs.k8s.io/cluster-api/util/collections"
+	"sigs.k8s.io/cluster-api/controlplane/kubeadm/internal/machinefilters"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 type fakeManagementCluster struct {
 	// TODO: once all client interactions are moved to the Management cluster this can go away
-	Management   *internal.Management
-	Machines     collections.Machines
-	MachinePools *expv1.MachinePoolList
-	Workload     fakeWorkloadCluster
-	Reader       client.Reader
+	Management *internal.Management
+	Machines   internal.FilterableMachineCollection
+	Workload   fakeWorkloadCluster
+	Reader     client.Reader
 }
 
-func (f *fakeManagementCluster) Get(ctx context.Context, key client.ObjectKey, obj client.Object) error {
+func (f *fakeManagementCluster) Get(ctx context.Context, key client.ObjectKey, obj runtime.Object) error {
 	return f.Reader.Get(ctx, key, obj)
 }
 
-func (f *fakeManagementCluster) List(ctx context.Context, list client.ObjectList, opts ...client.ListOption) error {
+func (f *fakeManagementCluster) List(ctx context.Context, list runtime.Object, opts ...client.ListOption) error {
 	return f.Reader.List(ctx, list, opts...)
 }
 
@@ -48,18 +47,11 @@ func (f *fakeManagementCluster) GetWorkloadCluster(_ context.Context, _ client.O
 	return f.Workload, nil
 }
 
-func (f *fakeManagementCluster) GetMachinesForCluster(c context.Context, cluster *clusterv1.Cluster, filters ...collections.Func) (collections.Machines, error) {
+func (f *fakeManagementCluster) GetMachinesForCluster(c context.Context, n client.ObjectKey, filters ...machinefilters.Func) (internal.FilterableMachineCollection, error) {
 	if f.Management != nil {
-		return f.Management.GetMachinesForCluster(c, cluster, filters...)
+		return f.Management.GetMachinesForCluster(c, n, filters...)
 	}
 	return f.Machines, nil
-}
-
-func (f *fakeManagementCluster) GetMachinePoolsForCluster(c context.Context, cluster *clusterv1.Cluster) (*expv1.MachinePoolList, error) {
-	if f.Management != nil {
-		return f.Management.GetMachinePoolsForCluster(c, cluster)
-	}
-	return f.MachinePools, nil
 }
 
 type fakeWorkloadCluster struct {
@@ -72,7 +64,7 @@ func (f fakeWorkloadCluster) ForwardEtcdLeadership(_ context.Context, _ *cluster
 	return nil
 }
 
-func (f fakeWorkloadCluster) ReconcileEtcdMembers(ctx context.Context, nodeNames []string, version semver.Version) ([]string, error) {
+func (f fakeWorkloadCluster) ReconcileEtcdMembers(ctx context.Context, nodeNames []string) ([]string, error) {
 	return nil, nil
 }
 
@@ -96,7 +88,7 @@ func (f fakeWorkloadCluster) UpdateKubernetesVersionInKubeadmConfigMap(ctx conte
 	return nil
 }
 
-func (f fakeWorkloadCluster) UpdateEtcdVersionInKubeadmConfigMap(ctx context.Context, imageRepository, imageTag string, version semver.Version) error {
+func (f fakeWorkloadCluster) UpdateEtcdVersionInKubeadmConfigMap(ctx context.Context, imageRepository, imageTag string) error {
 	return nil
 }
 
@@ -108,7 +100,7 @@ func (f fakeWorkloadCluster) RemoveEtcdMemberForMachine(ctx context.Context, mac
 	return nil
 }
 
-func (f fakeWorkloadCluster) RemoveMachineFromKubeadmConfigMap(ctx context.Context, machine *clusterv1.Machine, version semver.Version) error {
+func (f fakeWorkloadCluster) RemoveMachineFromKubeadmConfigMap(ctx context.Context, machine *clusterv1.Machine) error {
 	return nil
 }
 

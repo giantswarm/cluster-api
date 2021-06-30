@@ -22,11 +22,11 @@ import (
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 
-	controlplanev1 "sigs.k8s.io/cluster-api/controlplane/kubeadm/api/v1alpha4"
+	controlplanev1 "sigs.k8s.io/cluster-api/controlplane/kubeadm/api/v1alpha3"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-// WaitForControlPlaneToBeUpToDateInput is the input for WaitForControlPlaneToBeUpToDate.
+// WaitForControlPlaneToBeReadyInput is the input for WaitForControlPlaneToBeReady.
 type WaitForControlPlaneToBeUpToDateInput struct {
 	Getter       Getter
 	ControlPlane *controlplanev1.KubeadmControlPlane

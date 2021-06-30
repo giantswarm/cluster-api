@@ -25,7 +25,6 @@ type KubeadmControlPlaneError struct {
 	Message string
 }
 
-// Error satisfies the error interface.
 func (e *KubeadmControlPlaneError) Error() string {
 	return e.Message
 }

@@ -152,13 +152,14 @@ def file_extension(filename):
     return os.path.splitext(filename)[1].split(".")[-1].lower()
 
 skipped_dirs = ['Godeps', 'third_party', '_gopath', '_output', '.git', 'cluster/env.sh',
-                "vendor", "hack/boilerplate/test", "tilt_modules"]
+                "vendor", "test/e2e/generated/bindata.go", "hack/boilerplate/test",
+                "pkg/kubectl/generated/bindata.go"]
 
 # list all the files contain 'DO NOT EDIT', but are not generated
 skipped_ungenerated_files = ['hack/lib/swagger.sh', 'hack/boilerplate/boilerplate.py']
 
 # list all the files that does not contain 'DO NOT EDIT', but are generated
-generated_files = []
+generated_files = ['cmd/clusterctl/config/zz_generated.bindata.go']
 
 def normalize_files(files):
     newfiles = []

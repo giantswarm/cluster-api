@@ -25,6 +25,7 @@ import (
 )
 
 func Test_newClusterClient_YamlProcessor(t *testing.T) {
+
 	tests := []struct {
 		name   string
 		opts   []Option

@@ -22,17 +22,19 @@ import (
 
 	"github.com/blang/semver"
 	"github.com/pkg/errors"
+	rbac "k8s.io/api/rbac/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"sigs.k8s.io/controller-runtime/pkg/client"
+	"k8s.io/apimachinery/pkg/runtime"
+	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 const (
-	// NodeBootstrapTokenAuthGroup specifies which group a Node Bootstrap Token should be authenticated in.
+	// NodeBootstrapTokenAuthGroup specifies which group a Node Bootstrap Token should be authenticated in
 	NodeBootstrapTokenAuthGroup = "system:bootstrappers:kubeadm:default-node-token"
 
-	// GetNodesClusterRoleName defines the name of the ClusterRole and ClusterRoleBinding to get nodes.
+	// GetNodesClusterRoleName defines the name of the ClusterRole and ClusterRoleBinding to get nodes
 	GetNodesClusterRoleName = "kubeadm:get-nodes"
 
 	// NodesGroup defines the well-known group for all nodes.
@@ -46,9 +48,12 @@ const (
 )
 
 // EnsureResource creates a resoutce if the target resource doesn't exist. If the resource exists already, this function will ignore the resource instead.
-func (w *Workload) EnsureResource(ctx context.Context, obj client.Object) error {
-	testObj := obj.DeepCopyObject().(client.Object)
-	key := client.ObjectKeyFromObject(obj)
+func (w *Workload) EnsureResource(ctx context.Context, obj runtime.Object) error {
+	testObj := obj.DeepCopyObject()
+	key, err := ctrlclient.ObjectKeyFromObject(obj)
+	if err != nil {
+		return errors.Wrap(err, "unable to derive key for resource")
+	}
 	if err := w.Client.Get(ctx, key, testObj); err != nil && !apierrors.IsNotFound(err) {
 		return errors.Wrapf(err, "failed to determine if resource %s/%s already exists", key.Namespace, key.Name)
 	} else if err == nil {
@@ -63,14 +68,14 @@ func (w *Workload) EnsureResource(ctx context.Context, obj client.Object) error 
 	return nil
 }
 
-// AllowBootstrapTokensToGetNodes creates RBAC rules to allow Node Bootstrap Tokens to list nodes.
+// AllowBootstrapTokensToGetNodes creates RBAC rules to allow Node Bootstrap Tokens to list nodes
 func (w *Workload) AllowBootstrapTokensToGetNodes(ctx context.Context) error {
-	if err := w.EnsureResource(ctx, &rbacv1.ClusterRole{
+	if err := w.EnsureResource(ctx, &rbac.ClusterRole{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      GetNodesClusterRoleName,
 			Namespace: metav1.NamespaceSystem,
 		},
-		Rules: []rbacv1.PolicyRule{
+		Rules: []rbac.PolicyRule{
 			{
 				Verbs:     []string{"get"},
 				APIGroups: []string{""},
@@ -81,19 +86,19 @@ func (w *Workload) AllowBootstrapTokensToGetNodes(ctx context.Context) error {
 		return err
 	}
 
-	return w.EnsureResource(ctx, &rbacv1.ClusterRoleBinding{
+	return w.EnsureResource(ctx, &rbac.ClusterRoleBinding{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      GetNodesClusterRoleName,
 			Namespace: metav1.NamespaceSystem,
 		},
-		RoleRef: rbacv1.RoleRef{
-			APIGroup: rbacv1.GroupName,
+		RoleRef: rbac.RoleRef{
+			APIGroup: rbac.GroupName,
 			Kind:     "ClusterRole",
 			Name:     GetNodesClusterRoleName,
 		},
-		Subjects: []rbacv1.Subject{
+		Subjects: []rbac.Subject{
 			{
-				Kind: rbacv1.GroupKind,
+				Kind: rbac.GroupKind,
 				Name: NodeBootstrapTokenAuthGroup,
 			},
 		},
@@ -112,29 +117,30 @@ func generateKubeletConfigRoleName(version semver.Version) string {
 // If the role binding already exists this function is a no-op.
 func (w *Workload) ReconcileKubeletRBACBinding(ctx context.Context, version semver.Version) error {
 	roleName := generateKubeletConfigRoleName(version)
-	return w.EnsureResource(ctx, &rbacv1.RoleBinding{
+	return w.EnsureResource(ctx, &rbac.RoleBinding{
 		ObjectMeta: metav1.ObjectMeta{
 			Namespace: metav1.NamespaceSystem,
 			Name:      roleName,
 		},
 		Subjects: []rbacv1.Subject{
 			{
-				APIGroup: rbacv1.GroupName,
-				Kind:     rbacv1.GroupKind,
+				APIGroup: rbac.GroupName,
+				Kind:     rbac.GroupKind,
 				Name:     NodesGroup,
 			},
 			{
-				APIGroup: rbacv1.GroupName,
-				Kind:     rbacv1.GroupKind,
+				APIGroup: rbac.GroupName,
+				Kind:     rbac.GroupKind,
 				Name:     NodeBootstrapTokenAuthGroup,
 			},
 		},
 		RoleRef: rbacv1.RoleRef{
-			APIGroup: rbacv1.GroupName,
+			APIGroup: rbac.GroupName,
 			Kind:     "Role",
 			Name:     roleName,
 		},
 	})
+
 }
 
 // ReconcileKubeletRBACRole will create a Role for the new kubelet version during upgrades.

@@ -17,51 +17,54 @@ limitations under the License.
 package controllers
 
 import (
+	"context"
 	"testing"
 	"time"
 
+	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/tools/record"
-	clusterv1 "sigs.k8s.io/cluster-api/api/v1alpha4"
-	"sigs.k8s.io/cluster-api/controllers/external"
-	"sigs.k8s.io/cluster-api/util"
+	"k8s.io/klog/klogr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
+	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+
+	clusterv1 "sigs.k8s.io/cluster-api/api/v1alpha3"
+	"sigs.k8s.io/cluster-api/controllers/external"
+	"sigs.k8s.io/cluster-api/util"
 )
 
 var _ reconcile.Reconciler = &MachineSetReconciler{}
 
-func TestMachineSetReconciler(t *testing.T) {
+var _ = Describe("MachineSet Reconciler", func() {
 	namespace := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "ms-test"}}
 	testCluster := &clusterv1.Cluster{ObjectMeta: metav1.ObjectMeta{Namespace: namespace.Name, Name: "test-cluster"}}
 
-	setup := func(t *testing.T, g *WithT) {
-		t.Log("Creating the namespace")
-		g.Expect(env.Create(ctx, namespace)).To(Succeed())
-		t.Log("Creating the Cluster")
-		g.Expect(env.Create(ctx, testCluster)).To(Succeed())
-		t.Log("Creating the Cluster Kubeconfig Secret")
-		g.Expect(env.CreateKubeconfigSecret(ctx, testCluster)).To(Succeed())
-	}
+	BeforeEach(func() {
+		By("Creating the namespace")
+		Expect(testEnv.Create(ctx, namespace)).To(Succeed())
+		By("Creating the Cluster")
+		Expect(testEnv.Create(ctx, testCluster)).To(Succeed())
+		By("Creating the Cluster Kubeconfig Secret")
+		Expect(testEnv.CreateKubeconfigSecret(testCluster)).To(Succeed())
+	})
 
-	teardown := func(t *testing.T, g *WithT) {
-		t.Log("Deleting the Cluster")
-		g.Expect(env.Delete(ctx, testCluster)).To(Succeed())
-		t.Log("Deleting the namespace")
-		g.Expect(env.Delete(ctx, namespace)).To(Succeed())
-	}
+	AfterEach(func() {
+		By("Deleting the Cluster")
+		Expect(testEnv.Delete(ctx, testCluster)).To(Succeed())
+		By("Deleting the namespace")
+		Expect(testEnv.Delete(ctx, namespace)).To(Succeed())
+	})
 
-	t.Run("Should reconcile a MachineSet", func(t *testing.T) {
-		g := NewWithT(t)
-		setup(t, g)
-		defer teardown(t, g)
-
+	It("Should reconcile a MachineSet", func() {
 		replicas := int32(2)
 		version := "v1.14.2"
 		instance := &clusterv1.MachineSet{
@@ -85,23 +88,19 @@ func TestMachineSetReconciler(t *testing.T) {
 						Labels: map[string]string{
 							"label-1": "true",
 						},
-						Annotations: map[string]string{
-							"annotation-1": "true",
-							"precedence":   "MachineSet",
-						},
 					},
 					Spec: clusterv1.MachineSpec{
 						ClusterName: testCluster.Name,
 						Version:     &version,
 						Bootstrap: clusterv1.Bootstrap{
 							ConfigRef: &corev1.ObjectReference{
-								APIVersion: "bootstrap.cluster.x-k8s.io/v1alpha4",
+								APIVersion: "bootstrap.cluster.x-k8s.io/v1alpha3",
 								Kind:       "BootstrapMachineTemplate",
 								Name:       "ms-template",
 							},
 						},
 						InfrastructureRef: corev1.ObjectReference{
-							APIVersion: "infrastructure.cluster.x-k8s.io/v1alpha4",
+							APIVersion: "infrastructure.cluster.x-k8s.io/v1alpha3",
 							Kind:       "InfrastructureMachineTemplate",
 							Name:       "ms-template",
 						},
@@ -113,7 +112,7 @@ func TestMachineSetReconciler(t *testing.T) {
 		// Create bootstrap template resource.
 		bootstrapResource := map[string]interface{}{
 			"kind":       "BootstrapMachine",
-			"apiVersion": "bootstrap.cluster.x-k8s.io/v1alpha4",
+			"apiVersion": "bootstrap.cluster.x-k8s.io/v1alpha3",
 			"metadata":   map[string]interface{}{},
 		}
 		bootstrapTmpl := &unstructured.Unstructured{
@@ -124,20 +123,16 @@ func TestMachineSetReconciler(t *testing.T) {
 			},
 		}
 		bootstrapTmpl.SetKind("BootstrapMachineTemplate")
-		bootstrapTmpl.SetAPIVersion("bootstrap.cluster.x-k8s.io/v1alpha4")
+		bootstrapTmpl.SetAPIVersion("bootstrap.cluster.x-k8s.io/v1alpha3")
 		bootstrapTmpl.SetName("ms-template")
 		bootstrapTmpl.SetNamespace(namespace.Name)
-		g.Expect(env.Create(ctx, bootstrapTmpl)).To(Succeed())
+		Expect(testEnv.Create(ctx, bootstrapTmpl)).To(Succeed())
 
 		// Create infrastructure template resource.
 		infraResource := map[string]interface{}{
 			"kind":       "InfrastructureMachine",
-			"apiVersion": "infrastructure.cluster.x-k8s.io/v1alpha4",
-			"metadata": map[string]interface{}{
-				"annotations": map[string]interface{}{
-					"precedence": "InfrastructureMachineTemplate",
-				},
-			},
+			"apiVersion": "infrastructure.cluster.x-k8s.io/v1alpha3",
+			"metadata":   map[string]interface{}{},
 			"spec": map[string]interface{}{
 				"size": "3xlarge",
 			},
@@ -150,20 +145,20 @@ func TestMachineSetReconciler(t *testing.T) {
 			},
 		}
 		infraTmpl.SetKind("InfrastructureMachineTemplate")
-		infraTmpl.SetAPIVersion("infrastructure.cluster.x-k8s.io/v1alpha4")
+		infraTmpl.SetAPIVersion("infrastructure.cluster.x-k8s.io/v1alpha3")
 		infraTmpl.SetName("ms-template")
 		infraTmpl.SetNamespace(namespace.Name)
-		g.Expect(env.Create(ctx, infraTmpl)).To(Succeed())
+		Expect(testEnv.Create(ctx, infraTmpl)).To(Succeed())
 
 		// Create the MachineSet.
-		g.Expect(env.Create(ctx, instance)).To(Succeed())
+		Expect(testEnv.Create(ctx, instance)).To(Succeed())
 		defer func() {
-			g.Expect(env.Delete(ctx, instance)).To(Succeed())
+			Expect(testEnv.Delete(ctx, instance)).To(Succeed())
 		}()
 
-		t.Log("Verifying the linked bootstrap template has a cluster owner reference")
-		g.Eventually(func() bool {
-			obj, err := external.Get(ctx, env, instance.Spec.Template.Spec.Bootstrap.ConfigRef, instance.Namespace)
+		By("Verifying the linked bootstrap template has a cluster owner reference")
+		Eventually(func() bool {
+			obj, err := external.Get(ctx, testEnv, instance.Spec.Template.Spec.Bootstrap.ConfigRef, instance.Namespace)
 			if err != nil {
 				return false
 			}
@@ -176,9 +171,9 @@ func TestMachineSetReconciler(t *testing.T) {
 			})
 		}, timeout).Should(BeTrue())
 
-		t.Log("Verifying the linked infrastructure template has a cluster owner reference")
-		g.Eventually(func() bool {
-			obj, err := external.Get(ctx, env, &instance.Spec.Template.Spec.InfrastructureRef, instance.Namespace)
+		By("Verifying the linked infrastructure template has a cluster owner reference")
+		Eventually(func() bool {
+			obj, err := external.Get(ctx, testEnv, &instance.Spec.Template.Spec.InfrastructureRef, instance.Namespace)
 			if err != nil {
 				return false
 			}
@@ -194,51 +189,35 @@ func TestMachineSetReconciler(t *testing.T) {
 		machines := &clusterv1.MachineList{}
 
 		// Verify that we have 2 replicas.
-		g.Eventually(func() int {
-			if err := env.List(ctx, machines, client.InNamespace(namespace.Name)); err != nil {
+		Eventually(func() int {
+			if err := testEnv.List(ctx, machines, client.InNamespace(namespace.Name)); err != nil {
 				return -1
 			}
 			return len(machines.Items)
 		}, timeout).Should(BeEquivalentTo(replicas))
-
-		t.Log("Creating a InfrastructureMachine for each Machine")
-		infraMachines := &unstructured.UnstructuredList{}
-		infraMachines.SetAPIVersion("infrastructure.cluster.x-k8s.io/v1alpha4")
-		infraMachines.SetKind("InfrastructureMachine")
-		g.Eventually(func() int {
-			if err := env.List(ctx, infraMachines, client.InNamespace(namespace.Name)); err != nil {
-				return -1
-			}
-			return len(machines.Items)
-		}, timeout).Should(BeEquivalentTo(replicas))
-		for _, im := range infraMachines.Items {
-			g.Expect(im.GetAnnotations()).To(HaveKeyWithValue("annotation-1", "true"), "have annotations of MachineTemplate applied")
-			g.Expect(im.GetAnnotations()).To(HaveKeyWithValue("precedence", "MachineSet"), "the annotations from the MachineSpec template to overwrite the infrastructure template ones")
-			g.Expect(im.GetLabels()).To(HaveKeyWithValue("label-1", "true"), "have labels of MachineTemplate applied")
-		}
 
 		// Set the infrastructure reference as ready.
 		for _, m := range machines.Items {
-			fakeBootstrapRefReady(*m.Spec.Bootstrap.ConfigRef, bootstrapResource, g)
-			fakeInfrastructureRefReady(m.Spec.InfrastructureRef, infraResource, g)
+			fakeBootstrapRefReady(*m.Spec.Bootstrap.ConfigRef, bootstrapResource)
+			fakeInfrastructureRefReady(m.Spec.InfrastructureRef, infraResource)
 		}
 
 		// Try to delete 1 machine and check the MachineSet scales back up.
 		machineToBeDeleted := machines.Items[0]
-		g.Expect(env.Delete(ctx, &machineToBeDeleted)).To(Succeed())
+		Expect(testEnv.Delete(ctx, &machineToBeDeleted)).To(Succeed())
 
 		// Verify that the Machine has been deleted.
-		g.Eventually(func() bool {
+		Eventually(func() bool {
 			key := client.ObjectKey{Name: machineToBeDeleted.Name, Namespace: machineToBeDeleted.Namespace}
-			if err := env.Get(ctx, key, &machineToBeDeleted); apierrors.IsNotFound(err) || !machineToBeDeleted.DeletionTimestamp.IsZero() {
+			if err := testEnv.Get(ctx, key, &machineToBeDeleted); apierrors.IsNotFound(err) || !machineToBeDeleted.DeletionTimestamp.IsZero() {
 				return true
 			}
 			return false
 		}, timeout).Should(BeTrue())
 
 		// Verify that we have 2 replicas.
-		g.Eventually(func() (ready int) {
-			if err := env.List(ctx, machines, client.InNamespace(namespace.Name)); err != nil {
+		Eventually(func() (ready int) {
+			if err := testEnv.List(ctx, machines, client.InNamespace(namespace.Name)); err != nil {
 				return -1
 			}
 			for _, m := range machines.Items {
@@ -259,28 +238,30 @@ func TestMachineSetReconciler(t *testing.T) {
 				continue
 			}
 
-			g.Expect(m.Spec.Version).ToNot(BeNil())
-			g.Expect(*m.Spec.Version).To(BeEquivalentTo("v1.14.2"))
-			fakeBootstrapRefReady(*m.Spec.Bootstrap.ConfigRef, bootstrapResource, g)
-			providerID := fakeInfrastructureRefReady(m.Spec.InfrastructureRef, infraResource, g)
-			fakeMachineNodeRef(&m, providerID, g)
+			Expect(m.Spec.Version).ToNot(BeNil())
+			Expect(*m.Spec.Version).To(BeEquivalentTo("v1.14.2"))
+			fakeBootstrapRefReady(*m.Spec.Bootstrap.ConfigRef, bootstrapResource)
+			providerID := fakeInfrastructureRefReady(m.Spec.InfrastructureRef, infraResource)
+			fakeMachineNodeRef(&m, providerID)
 		}
 
 		// Verify that all Machines are Ready.
-		g.Eventually(func() int32 {
+		Eventually(func() int32 {
 			key := client.ObjectKey{Name: instance.Name, Namespace: instance.Namespace}
-			if err := env.Get(ctx, key, instance); err != nil {
+			if err := testEnv.Get(ctx, key, instance); err != nil {
 				return -1
 			}
 			return instance.Status.AvailableReplicas
 		}, timeout).Should(BeEquivalentTo(replicas))
 
 		// Validate that the controller set the cluster name label in selector.
-		g.Expect(instance.Status.Selector).To(ContainSubstring(testCluster.Name))
+		Expect(instance.Status.Selector).To(ContainSubstring(testCluster.Name))
 	})
-}
+})
 
 func TestMachineSetOwnerReference(t *testing.T) {
+	ml := &clusterv1.MachineList{}
+
 	testCluster := &clusterv1.Cluster{
 		TypeMeta:   metav1.TypeMeta{Kind: "Cluster", APIVersion: clusterv1.GroupVersion.String()},
 		ObjectMeta: metav1.ObjectMeta{Namespace: "default", Name: "test-cluster"},
@@ -339,17 +320,22 @@ func TestMachineSetOwnerReference(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			g := NewWithT(t)
 
+			g.Expect(clusterv1.AddToScheme(scheme.Scheme)).To(Succeed())
+
 			msr := &MachineSetReconciler{
-				Client: fake.NewClientBuilder().WithObjects(
+				Client: fake.NewFakeClientWithScheme(
+					scheme.Scheme,
 					testCluster,
+					ml,
 					ms1,
 					ms2,
 					ms3,
-				).Build(),
+				),
+				Log:      log.Log,
 				recorder: record.NewFakeRecorder(32),
 			}
 
-			_, err := msr.Reconcile(ctx, tc.request)
+			_, err := msr.Reconcile(tc.request)
 			if tc.expectReconcileErr {
 				g.Expect(err).To(HaveOccurred())
 			} else {
@@ -389,11 +375,14 @@ func TestMachineSetReconcile(t *testing.T) {
 			NamespacedName: util.ObjectKey(ms),
 		}
 
+		g.Expect(clusterv1.AddToScheme(scheme.Scheme)).To(Succeed())
+
 		msr := &MachineSetReconciler{
-			Client:   fake.NewClientBuilder().WithObjects(testCluster, ms).Build(),
+			Client:   fake.NewFakeClientWithScheme(scheme.Scheme, testCluster, ms),
+			Log:      log.Log,
 			recorder: record.NewFakeRecorder(32),
 		}
-		result, err := msr.Reconcile(ctx, request)
+		result, err := msr.Reconcile(request)
 		g.Expect(err).NotTo(HaveOccurred())
 		g.Expect(result).To(Equal(reconcile.Result{}))
 	})
@@ -410,49 +399,38 @@ func TestMachineSetReconcile(t *testing.T) {
 			NamespacedName: util.ObjectKey(ms),
 		}
 
+		g.Expect(clusterv1.AddToScheme(scheme.Scheme)).To(Succeed())
+
 		rec := record.NewFakeRecorder(32)
 		msr := &MachineSetReconciler{
-			Client:   fake.NewClientBuilder().WithObjects(testCluster, ms).Build(),
+			Client:   fake.NewFakeClientWithScheme(scheme.Scheme, testCluster, ms),
+			Log:      log.Log,
 			recorder: rec,
 		}
-		_, _ = msr.Reconcile(ctx, request)
+		_, _ = msr.Reconcile(request)
 		g.Eventually(rec.Events).Should(Receive())
-	})
-
-	t.Run("reconcile successfully when labels are missing", func(t *testing.T) {
-		g := NewWithT(t)
-
-		ms := newMachineSet("machineset1", "test-cluster")
-		ms.Labels = nil
-		ms.Spec.Selector.MatchLabels = nil
-		ms.Spec.Template.Labels = nil
-
-		request := reconcile.Request{
-			NamespacedName: util.ObjectKey(ms),
-		}
-
-		rec := record.NewFakeRecorder(32)
-		msr := &MachineSetReconciler{
-			Client:   fake.NewClientBuilder().WithObjects(testCluster, ms).Build(),
-			recorder: rec,
-		}
-		_, err := msr.Reconcile(ctx, request)
-		g.Expect(err).NotTo(HaveOccurred())
 	})
 }
 
 func TestMachineSetToMachines(t *testing.T) {
-	machineSetList := []client.Object{
-		&clusterv1.MachineSet{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "withMatchingLabels",
-				Namespace: "test",
-			},
-			Spec: clusterv1.MachineSetSpec{
-				Selector: metav1.LabelSelector{
-					MatchLabels: map[string]string{
-						"foo":                      "bar",
-						clusterv1.ClusterLabelName: "test-cluster",
+	g := NewWithT(t)
+
+	machineSetList := &clusterv1.MachineSetList{
+		TypeMeta: metav1.TypeMeta{
+			Kind: "MachineSetList",
+		},
+		Items: []clusterv1.MachineSet{
+			{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "withMatchingLabels",
+					Namespace: "test",
+				},
+				Spec: clusterv1.MachineSetSpec{
+					Selector: metav1.LabelSelector{
+						MatchLabels: map[string]string{
+							"foo":                      "bar",
+							clusterv1.ClusterLabelName: "test-cluster",
+						},
 					},
 				},
 			},
@@ -496,30 +474,42 @@ func TestMachineSetToMachines(t *testing.T) {
 	}
 	testsCases := []struct {
 		name      string
-		mapObject client.Object
+		mapObject handler.MapObject
 		expected  []reconcile.Request
 	}{
 		{
-			name:      "should return empty request when controller is set",
-			mapObject: &m,
-			expected:  []reconcile.Request{},
+			name: "should return empty request when controller is set",
+			mapObject: handler.MapObject{
+				Meta:   m.GetObjectMeta(),
+				Object: &m,
+			},
+			expected: []reconcile.Request{},
 		},
 		{
-			name:      "should return nil if machine has no owner reference",
-			mapObject: &m2,
-			expected:  nil,
+			name: "should return nil if machine has no owner reference",
+			mapObject: handler.MapObject{
+				Meta:   m2.GetObjectMeta(),
+				Object: &m2,
+			},
+			expected: nil,
 		},
 		{
-			name:      "should return request if machine set's labels matches machine's labels",
-			mapObject: &m3,
+			name: "should return request if machine set's labels matches machine's labels",
+			mapObject: handler.MapObject{
+				Meta:   m3.GetObjectMeta(),
+				Object: &m3,
+			},
 			expected: []reconcile.Request{
 				{NamespacedName: client.ObjectKey{Namespace: "test", Name: "withMatchingLabels"}},
 			},
 		},
 	}
 
+	g.Expect(clusterv1.AddToScheme(scheme.Scheme)).To(Succeed())
+
 	r := &MachineSetReconciler{
-		Client: fake.NewClientBuilder().WithObjects(append(machineSetList, &m, &m2, &m3)...).Build(),
+		Client: fake.NewFakeClientWithScheme(scheme.Scheme, &m, &m2, &m3, machineSetList),
+		Log:    log.Log,
 	}
 
 	for _, tc := range testsCases {
@@ -612,14 +602,15 @@ func TestShouldExcludeMachine(t *testing.T) {
 					},
 				},
 			},
-			expected: false,
+			expected: true,
 		},
 	}
 
+	logger := klogr.New()
 	for _, tc := range testCases {
 		g := NewWithT(t)
 
-		got := shouldExcludeMachine(&tc.machineSet, &tc.machine)
+		got := shouldExcludeMachine(&tc.machineSet, &tc.machine, logger)
 
 		g.Expect(got).To(Equal(tc.expected))
 	}
@@ -628,6 +619,7 @@ func TestShouldExcludeMachine(t *testing.T) {
 func TestAdoptOrphan(t *testing.T) {
 	g := NewWithT(t)
 
+	ctx := context.Background()
 	m := clusterv1.Machine{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "orphanMachine",
@@ -661,8 +653,11 @@ func TestAdoptOrphan(t *testing.T) {
 		},
 	}
 
+	g.Expect(clusterv1.AddToScheme(scheme.Scheme)).To(Succeed())
+
 	r := &MachineSetReconciler{
-		Client: fake.NewClientBuilder().WithObjects(&m).Build(),
+		Client: fake.NewFakeClientWithScheme(scheme.Scheme, &m),
+		Log:    log.Log,
 	}
 	for _, tc := range testCases {
 		g.Expect(r.adoptOrphan(ctx, tc.machineSet.DeepCopy(), tc.machine.DeepCopy())).To(Succeed())
@@ -672,6 +667,110 @@ func TestAdoptOrphan(t *testing.T) {
 
 		got := tc.machine.GetOwnerReferences()
 		g.Expect(got).To(Equal(tc.expected))
+	}
+}
+
+func TestHasMatchingLabels(t *testing.T) {
+	r := &MachineSetReconciler{
+		Log: klogr.New(),
+	}
+
+	testCases := []struct {
+		name       string
+		machineSet clusterv1.MachineSet
+		machine    clusterv1.Machine
+		expected   bool
+	}{
+		{
+			name: "machine set and machine have matching labels",
+			machineSet: clusterv1.MachineSet{
+				Spec: clusterv1.MachineSetSpec{
+					Selector: metav1.LabelSelector{
+						MatchLabels: map[string]string{
+							"foo": "bar",
+						},
+					},
+				},
+			},
+			machine: clusterv1.Machine{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "matchSelector",
+					Labels: map[string]string{
+						"foo": "bar",
+					},
+				},
+			},
+			expected: true,
+		},
+		{
+			name: "machine set and machine do not have matching labels",
+			machineSet: clusterv1.MachineSet{
+				Spec: clusterv1.MachineSetSpec{
+					Selector: metav1.LabelSelector{
+						MatchLabels: map[string]string{
+							"foo": "bar",
+						},
+					},
+				},
+			},
+			machine: clusterv1.Machine{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "doesNotMatchSelector",
+					Labels: map[string]string{
+						"no": "match",
+					},
+				},
+			},
+			expected: false,
+		},
+		{
+			name: "machine set has empty selector",
+			machineSet: clusterv1.MachineSet{
+				Spec: clusterv1.MachineSetSpec{
+					Selector: metav1.LabelSelector{},
+				},
+			},
+			machine: clusterv1.Machine{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "doesNotMatter",
+				},
+			},
+			expected: false,
+		},
+		{
+			name: "machine set has bad selector",
+			machineSet: clusterv1.MachineSet{
+				Spec: clusterv1.MachineSetSpec{
+					Selector: metav1.LabelSelector{
+						MatchLabels: map[string]string{
+							"foo": "bar",
+						},
+						MatchExpressions: []metav1.LabelSelectorRequirement{
+							{
+								Operator: "bad-operator",
+							},
+						},
+					},
+				},
+			},
+			machine: clusterv1.Machine{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "match",
+					Labels: map[string]string{
+						"foo": "bar",
+					},
+				},
+			},
+			expected: false,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			g := NewWithT(t)
+			got := r.hasMatchingLabels(&tc.machineSet, &tc.machine)
+			g.Expect(got).To(Equal(tc.expected))
+		})
 	}
 }
 

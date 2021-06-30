@@ -5,6 +5,3 @@ resources:
 - group: controlplane
   version: v1alpha3
   kind: KubeadmControlPlane
-- group: controlplane
-  version: v1alpha4
-  kind: KubeadmControlPlane

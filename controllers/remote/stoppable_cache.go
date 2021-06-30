@@ -17,7 +17,6 @@ limitations under the License.
 package remote
 
 import (
-	"context"
 	"sync"
 
 	"sigs.k8s.io/controller-runtime/pkg/cache"
@@ -27,12 +26,12 @@ import (
 type stoppableCache struct {
 	cache.Cache
 
-	lock       sync.Mutex
-	stopped    bool
-	cancelFunc context.CancelFunc
+	lock    sync.Mutex
+	stopped bool
+	stop    chan struct{}
 }
 
-// Stop cancels the cache.Cache's context, unless it has already been stopped.
+// Stop closes the cache.Cache's stop channel if it has not already been stopped.
 func (cc *stoppableCache) Stop() {
 	cc.lock.Lock()
 	defer cc.lock.Unlock()
@@ -42,5 +41,5 @@ func (cc *stoppableCache) Stop() {
 	}
 
 	cc.stopped = true
-	cc.cancelFunc()
+	close(cc.stop)
 }

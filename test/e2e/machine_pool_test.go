@@ -19,11 +19,13 @@ limitations under the License.
 package e2e
 
 import (
+	"context"
+
 	. "github.com/onsi/ginkgo"
 )
 
 var _ = Describe("When testing MachinePools", func() {
-	MachinePoolSpec(ctx, func() MachinePoolInput {
+	MachinePoolSpec(context.TODO(), func() MachinePoolInput {
 		return MachinePoolInput{
 			E2EConfig:             e2eConfig,
 			ClusterctlConfigPath:  clusterctlConfigPath,

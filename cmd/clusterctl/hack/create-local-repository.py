@@ -16,12 +16,12 @@
 
 ###################
 
-# create-local-repository.py takes in input a list of provider and, for each of them, generates the components YAML from the
+# local-overrides.py takes in input a list of provider and, for each of them, generates the components YAML from the
 # local repositories (the GitHub repositories clone), and finally stores it in the clusterctl local override folder
 
 # prerequisites:
 
-# - the script should be executed from sigs.k8s.io/cluster-api/ by calling cmd/clusterctl/hack/create-local-repository.py
+# - the script should be executed from sigs.k8s.io/cluster-api/ by calling cmd/clusterctl/hack/local-overrides.py
 # - there should be a sigs.k8s.io/cluster-api/clusterctl-settings.json file with the list of provider for which
 #   the local overrides should be generated and the list of provider repositories to be included (on top of cluster-api).
 # {
@@ -44,7 +44,6 @@ import json
 import subprocess
 import os
 from distutils.dir_util import copy_tree
-from distutils.file_util import copy_file
 import errno
 import sys
 
@@ -53,26 +52,26 @@ settings = {}
 providers = {
       'cluster-api': {
               'componentsFile': 'core-components.yaml',
-              'nextVersion': 'v0.4.99',
+              'nextVersion': 'v0.3.8',
               'type': 'CoreProvider',
       },
       'bootstrap-kubeadm': {
             'componentsFile': 'bootstrap-components.yaml',
-            'nextVersion': 'v0.4.99',
+            'nextVersion': 'v0.3.8',
             'type': 'BootstrapProvider',
-            'configFolder': 'bootstrap/kubeadm/config/default',
+            'configFolder': 'bootstrap/kubeadm/config',
       },
       'control-plane-kubeadm': {
             'componentsFile': 'control-plane-components.yaml',
-            'nextVersion': 'v0.4.99',
+            'nextVersion': 'v0.3.8',
             'type': 'ControlPlaneProvider',
-            'configFolder': 'controlplane/kubeadm/config/default',
+            'configFolder': 'controlplane/kubeadm/config',
       },
       'infrastructure-docker': {
           'componentsFile': 'infrastructure-components.yaml',
-          'nextVersion': 'v0.4.99',
+          'nextVersion': 'v0.3.8',
           'type': 'InfrastructureProvider',
-          'configFolder': 'test/infrastructure/docker/config/default',
+          'configFolder': 'test/infrastructure/docker/config',
       },
 }
 
@@ -117,7 +116,7 @@ def get_repository_folder():
     home = get_home()
     return os.path.join(home, '.cluster-api', 'dev-repository')
 
-def write_local_repository(provider, version, components_file, components_yaml, metadata_file):
+def write_local_repository(provider, version, components_file, components_yaml):
     try:
         repository_folder = get_repository_folder()
         provider_folder = os.path.join(repository_folder, provider, version)
@@ -130,8 +129,6 @@ def write_local_repository(provider, version, components_file, components_yaml, 
         f = open(components_path, 'wb')
         f.write(components_yaml)
         f.close()
-
-        copy_file(metadata_file, provider_folder)
 
         if provider == "infrastructure-docker":
             copy_tree("test/infrastructure/docker/templates", provider_folder)
@@ -150,8 +147,7 @@ def create_local_repositories():
         assert p is not None, 'invalid configuration: please specify the configuration for the {} provider'.format(provider)
 
         repo = p.get('repo', '.')
-        config_folder = p.get('configFolder', 'config/default')
-        metadata_file = repo+'/metadata.yaml'
+        config_folder = p.get('configFolder', 'config')
 
         next_version = p.get('nextVersion')
         assert next_version is not None, 'invalid configuration for provider {}: please provide nextVersion value'.format(provider)
@@ -163,7 +159,7 @@ def create_local_repositories():
         assert components_file is not None, 'invalid configuration for provider {}: please provide componentsFile value'.format(provider)
 
         components_yaml = execCmd(['kustomize', 'build', os.path.join(repo, config_folder)])
-        components_path = write_local_repository(provider, next_version, components_file, components_yaml, metadata_file)
+        components_path = write_local_repository(provider, next_version, components_file, components_yaml)
 
         yield name, type, next_version, components_path
 

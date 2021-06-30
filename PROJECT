@@ -1,28 +1,31 @@
+version: "2"
 domain: x-k8s.io
 repo: sigs.k8s.io/cluster-api
 resources:
 - group: cluster
+  version: v1alpha2
   kind: Cluster
-  version: v1alpha3
 - group: cluster
+  version: v1alpha2
   kind: Machine
-  version: v1alpha3
 - group: cluster
+  version: v1alpha2
   kind: MachineSet
-  version: v1alpha3
 - group: cluster
+  version: v1alpha2
   kind: MachineDeployment
-  version: v1alpha3
 - group: cluster
+  version: v1alpha3
   kind: Cluster
-  version: v1alpha4
 - group: cluster
+  version: v1alpha3
   kind: Machine
-  version: v1alpha4
 - group: cluster
+  version: v1alpha3
   kind: MachineSet
-  version: v1alpha4
 - group: cluster
+  version: v1alpha3
   kind: MachineDeployment
-  version: v1alpha4
-version: "2"
+- group: cluster
+  version: v1alpha3
+  kind: MachinePool

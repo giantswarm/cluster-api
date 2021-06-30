@@ -14,7 +14,6 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-// Package controllers implements controller functionality.
 package controllers
 
 import (
@@ -23,8 +22,8 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/pkg/errors"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	clusterv1 "sigs.k8s.io/cluster-api/api/v1alpha4"
-	infrav1 "sigs.k8s.io/cluster-api/test/infrastructure/docker/api/v1alpha4"
+	clusterv1 "sigs.k8s.io/cluster-api/api/v1alpha3"
+	infrav1 "sigs.k8s.io/cluster-api/test/infrastructure/docker/api/v1alpha3"
 	"sigs.k8s.io/cluster-api/test/infrastructure/docker/docker"
 	"sigs.k8s.io/cluster-api/util"
 	"sigs.k8s.io/cluster-api/util/conditions"
@@ -34,10 +33,15 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
+	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 )
 
-// DockerClusterReconciler reconciles a DockerCluster object.
+const (
+	clusterControllerName = "DockerCluster-controller"
+)
+
+// DockerClusterReconciler reconciles a DockerCluster object
 type DockerClusterReconciler struct {
 	client.Client
 	Log logr.Logger
@@ -47,9 +51,10 @@ type DockerClusterReconciler struct {
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=dockerclusters/status,verbs=get;update;patch
 
 // Reconcile reads that state of the cluster for a DockerCluster object and makes changes based on the state read
-// and what is in the DockerCluster.Spec.
-func (r *DockerClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) (_ ctrl.Result, rerr error) {
-	log := ctrl.LoggerFrom(ctx)
+// and what is in the DockerCluster.Spec
+func (r *DockerClusterReconciler) Reconcile(req ctrl.Request) (_ ctrl.Result, rerr error) {
+	ctx := context.Background()
+	log := log.Log.WithName(clusterControllerName).WithValues("docker-cluster", req.NamespacedName)
 
 	// Fetch the DockerCluster instance
 	dockerCluster := &infrav1.DockerCluster{}
@@ -73,7 +78,7 @@ func (r *DockerClusterReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	log = log.WithValues("cluster", cluster.Name)
 
 	// Create a helper for managing a docker container hosting the loadbalancer.
-	externalLoadBalancer, err := docker.NewLoadBalancer(cluster)
+	externalLoadBalancer, err := docker.NewLoadBalancer(cluster.Name, log)
 	if err != nil {
 		return ctrl.Result{}, errors.Wrapf(err, "failed to create helper for managing the externalLoadBalancer")
 	}
@@ -135,21 +140,21 @@ func patchDockerCluster(ctx context.Context, patchHelper *patch.Helper, dockerCl
 }
 
 func (r *DockerClusterReconciler) reconcileNormal(ctx context.Context, dockerCluster *infrav1.DockerCluster, externalLoadBalancer *docker.LoadBalancer) (ctrl.Result, error) {
-	// Create the docker container hosting the load balancer.
-	if err := externalLoadBalancer.Create(ctx); err != nil {
+	//Create the docker container hosting the load balancer
+	if err := externalLoadBalancer.Create(); err != nil {
 		conditions.MarkFalse(dockerCluster, infrav1.LoadBalancerAvailableCondition, infrav1.LoadBalancerProvisioningFailedReason, clusterv1.ConditionSeverityWarning, err.Error())
 		return ctrl.Result{}, errors.Wrap(err, "failed to create load balancer")
 	}
 
 	// Set APIEndpoints with the load balancer IP so the Cluster API Cluster Controller can pull it
-	lbIP, err := externalLoadBalancer.IP(ctx)
+	lbip4, err := externalLoadBalancer.IP(ctx)
 	if err != nil {
 		conditions.MarkFalse(dockerCluster, infrav1.LoadBalancerAvailableCondition, infrav1.LoadBalancerProvisioningFailedReason, clusterv1.ConditionSeverityWarning, err.Error())
 		return ctrl.Result{}, errors.Wrap(err, "failed to get ip for the load balancer")
 	}
 
 	dockerCluster.Spec.ControlPlaneEndpoint = infrav1.APIEndpoint{
-		Host: lbIP,
+		Host: lbip4,
 		Port: 6443,
 	}
 
@@ -185,7 +190,7 @@ func (r *DockerClusterReconciler) reconcileDelete(ctx context.Context, dockerClu
 	return ctrl.Result{}, nil
 }
 
-// SetupWithManager will add watches for this controller.
+// SetupWithManager will add watches for this controller
 func (r *DockerClusterReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	c, err := ctrl.NewControllerManagedBy(mgr).
 		For(&infrav1.DockerCluster{}).
@@ -196,7 +201,9 @@ func (r *DockerClusterReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	}
 	return c.Watch(
 		&source.Kind{Type: &clusterv1.Cluster{}},
-		handler.EnqueueRequestsFromMapFunc(util.ClusterToInfrastructureMapFunc(infrav1.GroupVersion.WithKind("DockerCluster"))),
+		&handler.EnqueueRequestsFromMapFunc{
+			ToRequests: util.ClusterToInfrastructureMapFunc(infrav1.GroupVersion.WithKind("DockerCluster")),
+		},
 		predicates.ClusterUnpaused(r.Log),
 	)
 }

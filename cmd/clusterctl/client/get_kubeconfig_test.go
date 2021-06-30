@@ -25,12 +25,14 @@ import (
 )
 
 func Test_clusterctlClient_GetKubeconfig(t *testing.T) {
+
 	configClient := newFakeConfig()
 	kubeconfig := cluster.Kubeconfig{Path: "kubeconfig", Context: "mgmt-context"}
-	clusterClient := newFakeCluster(cluster.Kubeconfig{Path: "cluster1"}, configClient)
-
+	clusterClient := &fakeClusterClient{
+		kubeconfig: kubeconfig,
+	}
 	// create a clusterctl client where the proxy returns an empty namespace
-	clusterClient.fakeProxy = test.NewFakeProxy().WithNamespace("").WithFakeCAPISetup()
+	clusterClient.fakeProxy = test.NewFakeProxy().WithNamespace("")
 	badClient := newFakeClient(configClient).WithCluster(clusterClient)
 
 	tests := []struct {

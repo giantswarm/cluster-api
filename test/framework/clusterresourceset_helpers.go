@@ -24,9 +24,10 @@ import (
 	. "github.com/onsi/gomega"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
-	clusterv1 "sigs.k8s.io/cluster-api/api/v1alpha4"
-	addonsv1 "sigs.k8s.io/cluster-api/exp/addons/api/v1alpha4"
+	clusterv1 "sigs.k8s.io/cluster-api/api/v1alpha3"
+	addonsv1 "sigs.k8s.io/cluster-api/exp/addons/api/v1alpha3"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -68,7 +69,7 @@ type DiscoverClusterResourceSetAndWaitForSuccessInput struct {
 	Cluster      *clusterv1.Cluster
 }
 
-// DiscoverClusterResourceSetAndWaitForSuccess patches a ClusterResourceSet label to the cluster and waits for resources to be created in that cluster.
+// DiscoverClusterResourceSetAndWaitForSuccessInput patches a ClusterResourceSet label to the cluster and waits for resources to be created in that cluster.
 func DiscoverClusterResourceSetAndWaitForSuccess(ctx context.Context, input DiscoverClusterResourceSetAndWaitForSuccessInput, intervals ...interface{}) {
 	Expect(ctx).NotTo(BeNil(), "ctx is required for DiscoverClusterResourceSetAndWaitForSuccess")
 	Expect(input.ClusterProxy).ToNot(BeNil(), "Invalid argument. input.ClusterProxy can't be nil when calling DiscoverClusterResourceSetAndWaitForSuccess")
@@ -98,7 +99,9 @@ func DiscoverClusterResourceSetAndWaitForSuccess(ctx context.Context, input Disc
 			Cluster:            input.Cluster,
 			ClusterResourceSet: crs,
 		}, intervals...)
+
 	}
+
 }
 
 // WaitForClusterResourceSetToApplyResourcesInput is the input for WaitForClusterResourceSetToApplyResources.
@@ -128,7 +131,7 @@ func WaitForClusterResourceSetToApplyResources(ctx context.Context, input WaitFo
 		Expect(input.ClusterProxy.GetClient().Get(ctx, types.NamespacedName{Name: input.Cluster.Name, Namespace: input.Cluster.Namespace}, binding)).To(Succeed())
 
 		for _, resource := range input.ClusterResourceSet.Spec.Resources {
-			var configSource client.Object
+			var configSource runtime.Object
 
 			switch resource.Kind {
 			case string(addonsv1.SecretClusterResourceSetResourceKind):
@@ -149,4 +152,5 @@ func WaitForClusterResourceSetToApplyResources(ctx context.Context, input WaitFo
 		}
 		return true
 	}, intervals...).Should(BeTrue())
+
 }

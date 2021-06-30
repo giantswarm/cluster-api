@@ -29,6 +29,10 @@ type DeleteOptions struct {
 	// default rules for kubeconfig discovery will be used.
 	Kubeconfig Kubeconfig
 
+	// Namespace where the provider to be deleted lives. If unspecified, the namespace name will be inferred
+	// from the current configuration.
+	Namespace string
+
 	// CoreProvider version (e.g. cluster-api:v0.3.0) to add to the management cluster. If unspecified, the
 	// cluster-api core provider's latest release is used.
 	CoreProvider string
@@ -52,6 +56,7 @@ type DeleteOptions struct {
 	IncludeNamespace bool
 
 	// IncludeCRDs forces the deletion of the provider's CRDs (and of all the related objects).
+	// By Extension, this forces the deletion of all the resources shared among provider instances, like e.g. web-hooks.
 	IncludeCRDs bool
 }
 
@@ -61,12 +66,6 @@ func (c *clusterctlClient) Delete(options DeleteOptions) error {
 		return err
 	}
 
-	// Ensure this command only runs against management clusters with the current Cluster API contract.
-	if err := clusterClient.ProviderInventory().CheckCAPIContract(); err != nil {
-		return err
-	}
-
-	// Ensure the custom resource definitions required by clusterctl are in place.
 	if err := clusterClient.ProviderInventory().EnsureCustomResourceDefinitions(); err != nil {
 		return err
 	}
@@ -82,6 +81,15 @@ func (c *clusterctlClient) Delete(options DeleteOptions) error {
 
 	if options.DeleteAll {
 		providersToDelete = installedProviders.Items
+		if options.Namespace != "" {
+			// Delete only the providers in the specified namespace
+			providersToDelete = []clusterctlv1.Provider{}
+			for _, provider := range installedProviders.Items {
+				if provider.Namespace == options.Namespace {
+					providersToDelete = append(providersToDelete, provider)
+				}
+			}
+		}
 	} else {
 		// Otherwise we are deleting only a subset of providers.
 		var providers []clusterctlv1.Provider
@@ -97,13 +105,19 @@ func (c *clusterctlClient) Delete(options DeleteOptions) error {
 				return err
 			}
 
-			// Try to detect the namespace where the provider lives
-			provider.Namespace, err = clusterClient.ProviderInventory().GetProviderNamespace(provider.ProviderName, provider.GetProviderType())
-			if err != nil {
-				return err
-			}
+			// If the namespace where the provider is installed is not provided, try to detect it
+			provider.Namespace = options.Namespace
 			if provider.Namespace == "" {
-				return errors.Errorf("Failed to identify the namespace for the %q provider.", name)
+				provider.Namespace, err = clusterClient.ProviderInventory().GetDefaultProviderNamespace(provider.ProviderName, provider.GetProviderType())
+				if err != nil {
+					return err
+				}
+
+				// if there are more instance of a providers, it is not possible to get a default namespace for the provider,
+				// so we should return and ask for it.
+				if provider.Namespace == "" {
+					return errors.Errorf("Unable to find default namespace for the %q provider. Please specify the provider's namespace", name)
+				}
 			}
 
 			providersToDelete = append(providersToDelete, provider)

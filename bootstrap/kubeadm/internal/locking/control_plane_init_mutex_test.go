@@ -32,8 +32,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
-	clusterv1 "sigs.k8s.io/cluster-api/api/v1alpha4"
-	ctrl "sigs.k8s.io/controller-runtime"
+	clusterv1 "sigs.k8s.io/cluster-api/api/v1alpha3"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/log"
@@ -42,10 +41,6 @@ import (
 const (
 	clusterName      = "test-cluster"
 	clusterNamespace = "test-namespace"
-)
-
-var (
-	ctx = ctrl.SetupSignalHandler()
 )
 
 func TestControlPlaneInitMutex_Lock(t *testing.T) {
@@ -59,42 +54,47 @@ func TestControlPlaneInitMutex_Lock(t *testing.T) {
 
 	tests := []struct {
 		name          string
+		context       context.Context
 		client        client.Client
 		shouldAcquire bool
 	}{
 		{
-			name: "should successfully acquire lock if the config cannot be found",
+			name:    "should successfully acquire lock if the config cannot be found",
+			context: context.Background(),
 			client: &fakeClient{
-				Client:   fake.NewClientBuilder().WithScheme(scheme).Build(),
+				Client:   fake.NewFakeClientWithScheme(scheme),
 				getError: apierrors.NewNotFound(schema.GroupResource{Group: "", Resource: "configmaps"}, fmt.Sprintf("%s-controlplane", uid)),
 			},
 			shouldAcquire: true,
 		},
 		{
-			name: "should not acquire lock if already exits",
+			name:    "should not acquire lock if already exits",
+			context: context.Background(),
 			client: &fakeClient{
-				Client: fake.NewClientBuilder().WithScheme(scheme).WithObjects(&corev1.ConfigMap{
+				Client: fake.NewFakeClientWithScheme(scheme, &corev1.ConfigMap{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      configMapName(clusterName),
 						Namespace: clusterNamespace,
 					},
-				}).Build(),
+				}),
 			},
 			shouldAcquire: false,
 		},
 		{
-			name: "should not acquire lock if cannot create config map",
+			name:    "should not acquire lock if cannot create config map",
+			context: context.Background(),
 			client: &fakeClient{
-				Client:      fake.NewClientBuilder().WithScheme(scheme).Build(),
+				Client:      fake.NewFakeClientWithScheme(scheme),
 				getError:    apierrors.NewNotFound(schema.GroupResource{Group: "", Resource: "configmaps"}, configMapName(clusterName)),
 				createError: errors.New("create error"),
 			},
 			shouldAcquire: false,
 		},
 		{
-			name: "should not acquire lock if config map already exists while creating",
+			name:    "should not acquire lock if config map already exists while creating",
+			context: context.Background(),
 			client: &fakeClient{
-				Client:      fake.NewClientBuilder().WithScheme(scheme).Build(),
+				Client:      fake.NewFakeClientWithScheme(scheme),
 				getError:    apierrors.NewNotFound(schema.GroupResource{Group: "", Resource: "configmaps"}, fmt.Sprintf("%s-controlplane", uid)),
 				createError: apierrors.NewAlreadyExists(schema.GroupResource{Group: "", Resource: "configmaps"}, fmt.Sprintf("%s-controlplane", uid)),
 			},
@@ -125,11 +125,17 @@ func TestControlPlaneInitMutex_Lock(t *testing.T) {
 				},
 			}
 
-			gs.Expect(l.Lock(ctx, cluster, machine)).To(Equal(tc.shouldAcquire))
+			gs.Expect(l.Lock(context.Background(), cluster, machine)).To(Equal(tc.shouldAcquire))
 		})
 	}
 }
 func TestControlPlaneInitMutex_UnLock(t *testing.T) {
+	g := NewWithT(t)
+
+	scheme := runtime.NewScheme()
+	g.Expect(clusterv1.AddToScheme(scheme)).To(Succeed())
+	g.Expect(corev1.AddToScheme(scheme)).To(Succeed())
+
 	uid := types.UID("test-uid")
 	configMap := &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
@@ -139,36 +145,41 @@ func TestControlPlaneInitMutex_UnLock(t *testing.T) {
 	}
 	tests := []struct {
 		name          string
+		context       context.Context
 		client        client.Client
 		shouldRelease bool
 	}{
 		{
-			name: "should release lock by deleting config map",
+			name:    "should release lock by deleting config map",
+			context: context.Background(),
 			client: &fakeClient{
-				Client: fake.NewClientBuilder().Build(),
+				Client: fake.NewFakeClientWithScheme(scheme),
 			},
 			shouldRelease: true,
 		},
 		{
-			name: "should not release lock if cannot delete config map",
+			name:    "should not release lock if cannot delete config map",
+			context: context.Background(),
 			client: &fakeClient{
-				Client:      fake.NewClientBuilder().WithObjects(configMap).Build(),
+				Client:      fake.NewFakeClientWithScheme(scheme, configMap),
 				deleteError: errors.New("delete error"),
 			},
 			shouldRelease: false,
 		},
 		{
-			name: "should release lock if config map does not exist",
+			name:    "should release lock if config map does not exist",
+			context: context.Background(),
 			client: &fakeClient{
-				Client:   fake.NewClientBuilder().Build(),
+				Client:   fake.NewFakeClientWithScheme(scheme),
 				getError: apierrors.NewNotFound(schema.GroupResource{Group: "", Resource: "configmaps"}, fmt.Sprintf("%s-controlplane", uid)),
 			},
 			shouldRelease: true,
 		},
 		{
-			name: "should not release lock if error while getting config map",
+			name:    "should not release lock if error while getting config map",
+			context: context.Background(),
 			client: &fakeClient{
-				Client:   fake.NewClientBuilder().Build(),
+				Client:   fake.NewFakeClientWithScheme(scheme),
 				getError: errors.New("get error"),
 			},
 			shouldRelease: false,
@@ -193,7 +204,7 @@ func TestControlPlaneInitMutex_UnLock(t *testing.T) {
 				},
 			}
 
-			gs.Expect(l.Unlock(ctx, cluster)).To(Equal(tc.shouldRelease))
+			gs.Expect(l.Unlock(context.Background(), cluster)).To(Equal(tc.shouldRelease))
 		})
 	}
 }
@@ -201,19 +212,23 @@ func TestControlPlaneInitMutex_UnLock(t *testing.T) {
 func TestInfoLines_Lock(t *testing.T) {
 	g := NewWithT(t)
 
+	scheme := runtime.NewScheme()
+	g.Expect(clusterv1.AddToScheme(scheme)).To(Succeed())
+	g.Expect(corev1.AddToScheme(scheme)).To(Succeed())
+
 	uid := types.UID("test-uid")
 	info := information{MachineName: "my-control-plane"}
 	b, err := json.Marshal(info)
 	g.Expect(err).NotTo(HaveOccurred())
 
 	c := &fakeClient{
-		Client: fake.NewClientBuilder().WithObjects(&corev1.ConfigMap{
+		Client: fake.NewFakeClientWithScheme(scheme, &corev1.ConfigMap{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      configMapName(clusterName),
 				Namespace: clusterNamespace,
 			},
 			Data: map[string]string{semaphoreInformationKey: string(b)},
-		}).Build(),
+		}),
 	}
 
 	logtester := &logtests{
@@ -237,7 +252,7 @@ func TestInfoLines_Lock(t *testing.T) {
 		},
 	}
 
-	g.Expect(l.Lock(ctx, cluster, machine)).To(BeFalse())
+	g.Expect(l.Lock(context.Background(), cluster, machine)).To(BeFalse())
 
 	foundLogLine := false
 	for _, line := range logtester.InfoLog {
@@ -258,21 +273,21 @@ type fakeClient struct {
 	deleteError error
 }
 
-func (fc *fakeClient) Get(ctx context.Context, key client.ObjectKey, obj client.Object) error {
+func (fc *fakeClient) Get(ctx context.Context, key client.ObjectKey, obj runtime.Object) error {
 	if fc.getError != nil {
 		return fc.getError
 	}
 	return fc.Client.Get(ctx, key, obj)
 }
 
-func (fc *fakeClient) Create(ctx context.Context, obj client.Object, opts ...client.CreateOption) error {
+func (fc *fakeClient) Create(ctx context.Context, obj runtime.Object, opts ...client.CreateOption) error {
 	if fc.createError != nil {
 		return fc.createError
 	}
 	return fc.Client.Create(ctx, obj, opts...)
 }
 
-func (fc *fakeClient) Delete(ctx context.Context, obj client.Object, opts ...client.DeleteOption) error {
+func (fc *fakeClient) Delete(ctx context.Context, obj runtime.Object, opts ...client.DeleteOption) error {
 	if fc.deleteError != nil {
 		return fc.deleteError
 	}

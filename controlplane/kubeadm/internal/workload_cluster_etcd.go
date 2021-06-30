@@ -19,28 +19,28 @@ package internal
 import (
 	"context"
 
-	"github.com/blang/semver"
 	"github.com/pkg/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	kerrors "k8s.io/apimachinery/pkg/util/errors"
-	clusterv1 "sigs.k8s.io/cluster-api/api/v1alpha4"
-	bootstrapv1 "sigs.k8s.io/cluster-api/bootstrap/kubeadm/api/v1alpha4"
+	clusterv1 "sigs.k8s.io/cluster-api/api/v1alpha3"
 	"sigs.k8s.io/cluster-api/controlplane/kubeadm/internal/etcd"
 	etcdutil "sigs.k8s.io/cluster-api/controlplane/kubeadm/internal/etcd/util"
+	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 type etcdClientFor interface {
-	forFirstAvailableNode(ctx context.Context, nodeNames []string) (*etcd.Client, error)
+	forNodes(ctx context.Context, nodeNames []string) (*etcd.Client, error)
 	forLeader(ctx context.Context, nodeNames []string) (*etcd.Client, error)
 }
 
 // ReconcileEtcdMembers iterates over all etcd members and finds members that do not have corresponding nodes.
 // If there are any such members, it deletes them from etcd and removes their nodes from the kubeadm configmap so that kubeadm does not run etcd health checks on them.
-func (w *Workload) ReconcileEtcdMembers(ctx context.Context, nodeNames []string, version semver.Version) ([]string, error) {
+func (w *Workload) ReconcileEtcdMembers(ctx context.Context, nodeNames []string) ([]string, error) {
 	removedMembers := []string{}
 	errs := []error{}
 	for _, nodeName := range nodeNames {
 		// Create the etcd Client for the etcd Pod scheduled on the Node
-		etcdClient, err := w.etcdClientGenerator.forFirstAvailableNode(ctx, []string{nodeName})
+		etcdClient, err := w.etcdClientGenerator.forNodes(ctx, []string{nodeName})
 		if err != nil {
 			continue
 		}
@@ -73,7 +73,7 @@ func (w *Workload) ReconcileEtcdMembers(ctx context.Context, nodeNames []string,
 				errs = append(errs, err)
 			}
 
-			if err := w.RemoveNodeFromKubeadmConfigMap(ctx, member.Name, version); err != nil {
+			if err := w.RemoveNodeFromKubeadmConfigMap(ctx, member.Name); err != nil {
 				errs = append(errs, err)
 			}
 		}
@@ -83,13 +83,21 @@ func (w *Workload) ReconcileEtcdMembers(ctx context.Context, nodeNames []string,
 }
 
 // UpdateEtcdVersionInKubeadmConfigMap sets the imageRepository or the imageTag or both in the kubeadm config map.
-func (w *Workload) UpdateEtcdVersionInKubeadmConfigMap(ctx context.Context, imageRepository, imageTag string, version semver.Version) error {
-	return w.updateClusterConfiguration(ctx, func(c *bootstrapv1.ClusterConfiguration) {
-		if c.Etcd.Local != nil {
-			c.Etcd.Local.ImageRepository = imageRepository
-			c.Etcd.Local.ImageTag = imageTag
-		}
-	}, version)
+func (w *Workload) UpdateEtcdVersionInKubeadmConfigMap(ctx context.Context, imageRepository, imageTag string) error {
+	configMapKey := ctrlclient.ObjectKey{Name: kubeadmConfigKey, Namespace: metav1.NamespaceSystem}
+	kubeadmConfigMap, err := w.getConfigMap(ctx, configMapKey)
+	if err != nil {
+		return err
+	}
+	config := &kubeadmConfig{ConfigMap: kubeadmConfigMap}
+	changed, err := config.UpdateEtcdMeta(imageRepository, imageTag)
+	if err != nil || !changed {
+		return err
+	}
+	if err := w.Client.Update(ctx, config.ConfigMap); err != nil {
+		return errors.Wrap(err, "error updating kubeadm ConfigMap")
+	}
+	return nil
 }
 
 // RemoveEtcdMemberForMachine removes the etcd member from the target cluster's etcd cluster.
@@ -118,7 +126,7 @@ func (w *Workload) removeMemberForNode(ctx context.Context, name string) error {
 			remainingNodes = append(remainingNodes, n.Name)
 		}
 	}
-	etcdClient, err := w.etcdClientGenerator.forFirstAvailableNode(ctx, remainingNodes)
+	etcdClient, err := w.etcdClientGenerator.forNodes(ctx, remainingNodes)
 	if err != nil {
 		return errors.Wrap(err, "failed to create etcd client")
 	}
@@ -143,7 +151,7 @@ func (w *Workload) removeMemberForNode(ctx context.Context, name string) error {
 	return nil
 }
 
-// ForwardEtcdLeadership forwards etcd leadership to the first follower.
+// ForwardEtcdLeadership forwards etcd leadership to the first follower
 func (w *Workload) ForwardEtcdLeadership(ctx context.Context, machine *clusterv1.Machine, leaderCandidate *clusterv1.Machine) error {
 	if machine == nil || machine.Status.NodeRef == nil {
 		return nil
@@ -191,14 +199,12 @@ func (w *Workload) ForwardEtcdLeadership(ctx context.Context, machine *clusterv1
 	return nil
 }
 
-// EtcdMemberStatus contains status information for a single etcd member.
 type EtcdMemberStatus struct {
 	Name       string
 	Responsive bool
 }
 
-// EtcdMembers returns the current set of members in an etcd cluster.
-//
+// EtcdStatus returns the current status of the etcd cluster
 // NOTE: This methods uses control plane machines/nodes only to get in contact with etcd,
 // but then it relies on etcd as ultimate source of truth for the list of members.
 // This is intended to allow informed decisions on actions impacting etcd quorum.

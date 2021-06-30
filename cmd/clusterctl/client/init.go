@@ -27,7 +27,6 @@ import (
 	logf "sigs.k8s.io/cluster-api/cmd/clusterctl/log"
 )
 
-// NoopProvider determines if a provider passed in should behave as a no-op.
 const NoopProvider = "-"
 
 // InitOptions carries the options supported by Init.
@@ -55,12 +54,16 @@ type InitOptions struct {
 	// will be installed in a provider's default namespace.
 	TargetNamespace string
 
+	// WatchingNamespace defines the namespace the providers should watch to reconcile Cluster API objects.
+	// If unspecified, the providers watches for Cluster API objects across all namespaces.
+	WatchingNamespace string
+
 	// LogUsageInstructions instructs the init command to print the usage instructions in case of first run.
 	LogUsageInstructions bool
 
-	// SkipTemplateProcess allows for skipping the call to the template processor, including also variable replacement in the component YAML.
-	// NOTE this works only if the rawYaml is a valid yaml by itself, like e.g when using envsubst/the simple processor.
-	skipTemplateProcess bool
+	// skipVariables skips variable parsing in the provider components yaml.
+	// It is set to true for listing images of provider components.
+	skipVariables bool
 }
 
 // Init initializes a management cluster by adding the requested list of providers.
@@ -68,18 +71,13 @@ func (c *clusterctlClient) Init(options InitOptions) ([]Components, error) {
 	log := logf.Log
 
 	// gets access to the management cluster
-	clusterClient, err := c.clusterClientFactory(ClusterClientFactoryInput{Kubeconfig: options.Kubeconfig})
+	cluster, err := c.clusterClientFactory(ClusterClientFactoryInput{Kubeconfig: options.Kubeconfig})
 	if err != nil {
 		return nil, err
 	}
 
 	// ensure the custom resource definitions required by clusterctl are in place
-	if err := clusterClient.ProviderInventory().EnsureCustomResourceDefinitions(); err != nil {
-		return nil, err
-	}
-
-	// Ensure this command only runs against v1alpha4 management clusters
-	if err := clusterClient.ProviderInventory().CheckCAPIContract(cluster.AllowCAPINotInstalled{}); err != nil {
+	if err := cluster.ProviderInventory().EnsureCustomResourceDefinitions(); err != nil {
 		return nil, err
 	}
 
@@ -87,25 +85,27 @@ func (c *clusterctlClient) Init(options InitOptions) ([]Components, error) {
 	// if not we consider this the first time init is executed, and thus we enforce the installation of a core provider,
 	// a bootstrap provider and a control-plane provider (if not already explicitly requested by the user)
 	log.Info("Fetching providers")
-	firstRun := c.addDefaultProviders(clusterClient, &options)
+	firstRun := c.addDefaultProviders(cluster, &options)
 
 	// create an installer service, add the requested providers to the install queue and then perform validation
 	// of the target state of the management cluster before starting the installation.
-	installer, err := c.setupInstaller(clusterClient, options)
+	installer, err := c.setupInstaller(cluster, options)
 	if err != nil {
 		return nil, err
 	}
 
 	// Before installing the providers, validates the management cluster resulting by the planned installation. The following checks are performed:
-	// - There should be only one instance of the same provider.
-	// - All the providers must support the same API Version of Cluster API (contract)
+	// - There should be only one instance of the same provider per namespace.
+	// - Instances of the same provider should not be fighting for objects (no watching overlap).
+	// - Providers combines in valid management groups
+	//   - All the providers should belong to one/only one management groups
+	//   - All the providers in a management group must support the same API Version of Cluster API (contract)
 	if err := installer.Validate(); err != nil {
 		return nil, err
 	}
 
 	// Before installing the providers, ensure the cert-manager Webhook is in place.
-	certManager := clusterClient.CertManager()
-	if err := certManager.EnsureInstalled(); err != nil {
+	if err := cluster.CertManager().EnsureInstalled(); err != nil {
 		return nil, err
 	}
 
@@ -121,7 +121,7 @@ func (c *clusterctlClient) Init(options InitOptions) ([]Components, error) {
 		log.Info("")
 		log.Info("You can now create your first workload cluster by running the following:")
 		log.Info("")
-		log.Info("  clusterctl generate cluster [name] --kubernetes-version [version] | kubectl apply -f -")
+		log.Info("  clusterctl config cluster [name] --kubernetes-version [version] | kubectl apply -f -")
 		log.Info("")
 	}
 
@@ -136,34 +136,28 @@ func (c *clusterctlClient) Init(options InitOptions) ([]Components, error) {
 // Init returns the list of images required for init.
 func (c *clusterctlClient) InitImages(options InitOptions) ([]string, error) {
 	// gets access to the management cluster
-	clusterClient, err := c.clusterClientFactory(ClusterClientFactoryInput{Kubeconfig: options.Kubeconfig})
+	cluster, err := c.clusterClientFactory(ClusterClientFactoryInput{Kubeconfig: options.Kubeconfig})
 	if err != nil {
-		return nil, err
-	}
-
-	// Ensure this command only runs against empty management clusters or v1alpha4 management clusters.
-	if err := clusterClient.ProviderInventory().CheckCAPIContract(cluster.AllowCAPINotInstalled{}); err != nil {
 		return nil, err
 	}
 
 	// checks if the cluster already contains a Core provider.
 	// if not we consider this the first time init is executed, and thus we enforce the installation of a core provider,
 	// a bootstrap provider and a control-plane provider (if not already explicitly requested by the user)
-	c.addDefaultProviders(clusterClient, &options)
+	c.addDefaultProviders(cluster, &options)
 
 	// skip variable parsing when listing images
-	options.skipTemplateProcess = true
+	options.skipVariables = true
 
 	// create an installer service, add the requested providers to the install queue and then perform validation
 	// of the target state of the management cluster before starting the installation.
-	installer, err := c.setupInstaller(clusterClient, options)
+	installer, err := c.setupInstaller(cluster, options)
 	if err != nil {
 		return nil, err
 	}
 
 	// Gets the list of container images required for the cert-manager (if not already installed).
-	certManager := clusterClient.CertManager()
-	images, err := certManager.Images()
+	images, err := cluster.CertManager().Images()
 	if err != nil {
 		return nil, err
 	}
@@ -179,9 +173,10 @@ func (c *clusterctlClient) setupInstaller(cluster cluster.Client, options InitOp
 	installer := cluster.ProviderInstaller()
 
 	addOptions := addToInstallerOptions{
-		installer:           installer,
-		targetNamespace:     options.TargetNamespace,
-		skipTemplateProcess: options.skipTemplateProcess,
+		installer:         installer,
+		targetNamespace:   options.TargetNamespace,
+		watchingNamespace: options.WatchingNamespace,
+		skipVariables:     options.skipVariables,
 	}
 
 	if options.CoreProvider != "" {
@@ -230,12 +225,13 @@ func (c *clusterctlClient) addDefaultProviders(cluster cluster.Client, options *
 }
 
 type addToInstallerOptions struct {
-	installer           cluster.ProviderInstaller
-	targetNamespace     string
-	skipTemplateProcess bool
+	installer         cluster.ProviderInstaller
+	targetNamespace   string
+	watchingNamespace string
+	skipVariables     bool
 }
 
-// addToInstaller adds the components to the install queue and checks that the actual provider type match the target group.
+// addToInstaller adds the components to the install queue and checks that the actual provider type match the target group
 func (c *clusterctlClient) addToInstaller(options addToInstallerOptions, providerType clusterctlv1.ProviderType, providers ...string) error {
 	for _, provider := range providers {
 		// It is possible to opt-out from automatic installation of bootstrap/control-plane providers using '-' as a provider name (NoopProvider).
@@ -246,8 +242,9 @@ func (c *clusterctlClient) addToInstaller(options addToInstallerOptions, provide
 			continue
 		}
 		componentsOptions := repository.ComponentsOptions{
-			TargetNamespace:     options.targetNamespace,
-			SkipTemplateProcess: options.skipTemplateProcess,
+			TargetNamespace:   options.targetNamespace,
+			WatchingNamespace: options.watchingNamespace,
+			SkipVariables:     options.skipVariables,
 		}
 		components, err := c.getComponentsByName(provider, providerType, componentsOptions)
 		if err != nil {

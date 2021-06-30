@@ -29,6 +29,7 @@ type decodeTest struct {
 }
 
 func TestDecodePrivateKeyPEM(t *testing.T) {
+
 	cases := []decodeTest{
 		{
 			name: "successfully processes PKCS1 private key",
@@ -142,4 +143,5 @@ func TestDecodeCertPEM(t *testing.T) {
 			g.Expect(err).NotTo(HaveOccurred())
 		})
 	}
+
 }

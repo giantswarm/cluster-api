@@ -26,8 +26,7 @@ import (
 
 // GetControllerDeploymentsInput is the input for GetControllerDeployments.
 type GetControllerDeploymentsInput struct {
-	Lister            Lister
-	ExcludeNamespaces []string
+	Lister Lister
 }
 
 // GetControllerDeployments returns all the deployment for the cluster API controllers existing in a management cluster.
@@ -35,24 +34,9 @@ func GetControllerDeployments(ctx context.Context, input GetControllerDeployment
 	deploymentList := &appsv1.DeploymentList{}
 	Expect(input.Lister.List(ctx, deploymentList, capiProviderOptions()...)).To(Succeed(), "Failed to list deployments for the cluster API controllers")
 
-	deployments := make([]*appsv1.Deployment, 0, len(deploymentList.Items))
+	deployments := make([]*appsv1.Deployment, len(deploymentList.Items))
 	for i := range deploymentList.Items {
-		d := &deploymentList.Items[i]
-		if !skipDeployment(d, input.ExcludeNamespaces) {
-			deployments = append(deployments, d)
-		}
+		deployments[i] = &deploymentList.Items[i]
 	}
 	return deployments
-}
-
-func skipDeployment(d *appsv1.Deployment, excludeNamespaces []string) bool {
-	if !d.DeletionTimestamp.IsZero() {
-		return true
-	}
-	for _, n := range excludeNamespaces {
-		if d.Namespace == n {
-			return true
-		}
-	}
-	return false
 }

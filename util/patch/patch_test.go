@@ -21,6 +21,7 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -29,18 +30,19 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/pointer"
-	clusterv1 "sigs.k8s.io/cluster-api/api/v1alpha4"
+	clusterv1 "sigs.k8s.io/cluster-api/api/v1alpha3"
 	"sigs.k8s.io/cluster-api/controllers/external"
 	"sigs.k8s.io/cluster-api/util/conditions"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-func TestPatchHelper(t *testing.T) {
-	t.Run("should patch an unstructured object", func(t *testing.T) {
+var _ = Describe("Patch Helper", func() {
+
+	It("Should patch an unstructured object", func() {
 		obj := &unstructured.Unstructured{
 			Object: map[string]interface{}{
 				"kind":       "BootstrapMachine",
-				"apiVersion": "bootstrap.cluster.x-k8s.io/v1alpha4",
+				"apiVersion": "bootstrap.cluster.x-k8s.io/v1alpha3",
 				"metadata": map[string]interface{}{
 					"generateName": "test-bootstrap-",
 					"namespace":    "default",
@@ -48,37 +50,28 @@ func TestPatchHelper(t *testing.T) {
 			},
 		}
 
-		t.Run("adding an owner reference, preserving its status", func(t *testing.T) {
-			g := NewWithT(t)
-
+		Context("adding an owner reference, preserving its status", func() {
 			obj := obj.DeepCopy()
 
-			t.Log("Creating the unstructured object")
-			g.Expect(env.Create(ctx, obj)).To(Succeed())
-			defer func() {
-				g.Expect(env.Delete(ctx, obj)).To(Succeed())
-			}()
+			By("Creating the unstructured object")
+			Expect(testEnv.Create(ctx, obj)).ToNot(HaveOccurred())
 			key := client.ObjectKey{Name: obj.GetName(), Namespace: obj.GetNamespace()}
-
-			t.Log("Checking that the object has been created")
-			g.Eventually(func() error {
-				obj := obj.DeepCopy()
-				return env.Get(ctx, key, obj)
-			}).Should(Succeed())
-
+			defer func() {
+				Expect(testEnv.Delete(ctx, obj)).To(Succeed())
+			}()
 			obj.Object["status"] = map[string]interface{}{
 				"ready": true,
 			}
-			g.Expect(env.Status().Update(ctx, obj)).To(Succeed())
+			Expect(testEnv.Status().Update(ctx, obj)).To(Succeed())
 
-			t.Log("Creating a new patch helper")
-			patcher, err := NewHelper(obj, env)
-			g.Expect(err).NotTo(HaveOccurred())
+			By("Creating a new patch helper")
+			patcher, err := NewHelper(obj, testEnv)
+			Expect(err).NotTo(HaveOccurred())
 
-			t.Log("Modifying the OwnerReferences")
+			By("Modifying the OwnerReferences")
 			refs := []metav1.OwnerReference{
 				{
-					APIVersion: "cluster.x-k8s.io/v1alpha4",
+					APIVersion: "cluster.x-k8s.io/v1alpha3",
 					Kind:       "Cluster",
 					Name:       "test",
 					UID:        types.UID("fake-uid"),
@@ -86,29 +79,28 @@ func TestPatchHelper(t *testing.T) {
 			}
 			obj.SetOwnerReferences(refs)
 
-			t.Log("Patching the unstructured object")
-			g.Expect(patcher.Patch(ctx, obj)).To(Succeed())
+			By("Patching the unstructured object")
+			Expect(patcher.Patch(ctx, obj)).To(Succeed())
 
-			t.Log("Validating that the status has been preserved")
+			By("Validating that the status has been preserved")
 			ready, err := external.IsReady(obj)
-			g.Expect(err).NotTo(HaveOccurred())
-			g.Expect(ready).To(BeTrue())
+			Expect(err).ToNot(HaveOccurred())
+			Expect(ready).To(BeTrue())
 
-			t.Log("Validating the object has been updated")
-			g.Eventually(func() bool {
+			By("Validating the object has been updated")
+			Eventually(func() bool {
 				objAfter := obj.DeepCopy()
-				if err := env.Get(ctx, key, objAfter); err != nil {
+				if err := testEnv.Get(ctx, key, objAfter); err != nil {
 					return false
 				}
+
 				return reflect.DeepEqual(obj.GetOwnerReferences(), objAfter.GetOwnerReferences())
 			}, timeout).Should(BeTrue())
 		})
 	})
 
-	t.Run("Should patch conditions", func(t *testing.T) {
-		t.Run("on a corev1.Node object", func(t *testing.T) {
-			g := NewWithT(t)
-
+	Describe("Should patch conditions", func() {
+		Specify("on a corev1.Node object", func() {
 			conditionTime := metav1.Date(2015, 1, 1, 12, 0, 0, 0, metav1.Now().Location())
 
 			obj := &corev1.Node{
@@ -120,24 +112,18 @@ func TestPatchHelper(t *testing.T) {
 				},
 			}
 
-			t.Log("Creating a Node object")
-			g.Expect(env.Create(ctx, obj)).To(Succeed())
-			defer func() {
-				g.Expect(env.Delete(ctx, obj)).To(Succeed())
-			}()
+			By("Creating a Node object")
+			Expect(testEnv.Create(ctx, obj)).ToNot(HaveOccurred())
 			key := client.ObjectKey{Name: obj.GetName()}
+			defer func() {
+				Expect(testEnv.Delete(ctx, obj)).To(Succeed())
+			}()
 
-			t.Log("Checking that the object has been created")
-			g.Eventually(func() error {
-				obj := obj.DeepCopy()
-				return env.Get(ctx, key, obj)
-			}).Should(Succeed())
+			By("Creating a new patch helper")
+			patcher, err := NewHelper(obj, testEnv)
+			Expect(err).NotTo(HaveOccurred())
 
-			t.Log("Creating a new patch helper")
-			patcher, err := NewHelper(obj, env)
-			g.Expect(err).NotTo(HaveOccurred())
-
-			t.Log("Appending a new condition")
+			By("Appending a new condition")
 			condition := corev1.NodeCondition{
 				Type:               "CustomCondition",
 				Status:             corev1.ConditionTrue,
@@ -148,20 +134,20 @@ func TestPatchHelper(t *testing.T) {
 			}
 			obj.Status.Conditions = append(obj.Status.Conditions, condition)
 
-			t.Log("Patching the Node")
-			g.Expect(patcher.Patch(ctx, obj)).To(Succeed())
+			By("Patching the Node")
+			Expect(patcher.Patch(ctx, obj)).To(Succeed())
 
-			t.Log("Validating the object has been updated")
-			g.Eventually(func() bool {
+			By("Validating the object has been updated")
+			Eventually(func() bool {
 				objAfter := obj.DeepCopy()
-				g.Expect(env.Get(ctx, key, objAfter)).To(Succeed())
+				Expect(testEnv.Get(ctx, key, objAfter)).To(Succeed())
 
 				ok, _ := ContainElement(condition).Match(objAfter.Status.Conditions)
 				return ok
 			}, timeout).Should(BeTrue())
 		})
 
-		t.Run("on a clusterv1.Cluster object", func(t *testing.T) {
+		Describe("on a clusterv1.Cluster object", func() {
 			obj := &clusterv1.Cluster{
 				ObjectMeta: metav1.ObjectMeta{
 					GenerateName: "test-",
@@ -169,85 +155,68 @@ func TestPatchHelper(t *testing.T) {
 				},
 			}
 
-			t.Run("should mark it ready", func(t *testing.T) {
-				g := NewWithT(t)
-
+			Specify("should mark it ready", func() {
 				obj := obj.DeepCopy()
 
-				t.Log("Creating the object")
-				g.Expect(env.Create(ctx, obj)).To(Succeed())
-				defer func() {
-					g.Expect(env.Delete(ctx, obj)).To(Succeed())
-				}()
+				By("Creating the object")
+				Expect(testEnv.Create(ctx, obj)).ToNot(HaveOccurred())
 				key := client.ObjectKey{Name: obj.Name, Namespace: obj.Namespace}
+				defer func() {
+					Expect(testEnv.Delete(ctx, obj)).To(Succeed())
+				}()
 
-				t.Log("Checking that the object has been created")
-				g.Eventually(func() error {
-					obj := obj.DeepCopy()
-					return env.Get(ctx, key, obj)
-				}).Should(Succeed())
+				By("Creating a new patch helper")
+				patcher, err := NewHelper(obj, testEnv)
+				Expect(err).NotTo(HaveOccurred())
 
-				t.Log("Creating a new patch helper")
-				patcher, err := NewHelper(obj, env)
-				g.Expect(err).NotTo(HaveOccurred())
-
-				t.Log("Marking Ready=True")
+				By("Marking Ready=True")
 				conditions.MarkTrue(obj, clusterv1.ReadyCondition)
 
-				t.Log("Patching the object")
-				g.Expect(patcher.Patch(ctx, obj)).To(Succeed())
+				By("Patching the object")
+				Expect(patcher.Patch(ctx, obj)).To(Succeed())
 
-				t.Log("Validating the object has been updated")
-				g.Eventually(func() bool {
+				By("Validating the object has been updated")
+				Eventually(func() bool {
 					objAfter := obj.DeepCopy()
-					if err := env.Get(ctx, key, objAfter); err != nil {
+					if err := testEnv.Get(ctx, key, objAfter); err != nil {
 						return false
 					}
 					return cmp.Equal(obj.Status.Conditions, objAfter.Status.Conditions)
 				}, timeout).Should(BeTrue())
 			})
 
-			t.Run("should recover if there is a resolvable conflict", func(t *testing.T) {
-				g := NewWithT(t)
-
+			Specify("should recover if there is a resolvable conflict", func() {
 				obj := obj.DeepCopy()
 
-				t.Log("Creating the object")
-				g.Expect(env.Create(ctx, obj)).To(Succeed())
-				defer func() {
-					g.Expect(env.Delete(ctx, obj)).To(Succeed())
-				}()
+				By("Creating the object")
+				Expect(testEnv.Create(ctx, obj)).ToNot(HaveOccurred())
 				key := client.ObjectKey{Name: obj.Name, Namespace: obj.Namespace}
-
-				t.Log("Checking that the object has been created")
-				g.Eventually(func() error {
-					obj := obj.DeepCopy()
-					return env.Get(ctx, key, obj)
-				}).Should(Succeed())
-
+				defer func() {
+					Expect(testEnv.Delete(ctx, obj)).To(Succeed())
+				}()
 				objCopy := obj.DeepCopy()
 
-				t.Log("Marking a custom condition to be false")
+				By("Marking a custom condition to be false")
 				conditions.MarkFalse(objCopy, clusterv1.ConditionType("TestCondition"), "reason", clusterv1.ConditionSeverityInfo, "message")
-				g.Expect(env.Status().Update(ctx, objCopy)).To(Succeed())
+				Expect(testEnv.Status().Update(ctx, objCopy)).To(Succeed())
 
-				t.Log("Validating that the local object's resource version is behind")
-				g.Expect(obj.ResourceVersion).NotTo(Equal(objCopy.ResourceVersion))
+				By("Validating that the local object's resource version is behind")
+				Expect(obj.ResourceVersion).ToNot(Equal(objCopy.ResourceVersion))
 
-				t.Log("Creating a new patch helper")
-				patcher, err := NewHelper(obj, env)
-				g.Expect(err).NotTo(HaveOccurred())
+				By("Creating a new patch helper")
+				patcher, err := NewHelper(obj, testEnv)
+				Expect(err).NotTo(HaveOccurred())
 
-				t.Log("Marking Ready=True")
+				By("Marking Ready=True")
 				conditions.MarkTrue(obj, clusterv1.ReadyCondition)
 
-				t.Log("Patching the object")
-				g.Expect(patcher.Patch(ctx, obj)).To(Succeed())
+				By("Patching the object")
+				Expect(patcher.Patch(ctx, obj)).To(Succeed())
 
-				t.Log("Validating the object has been updated")
-				g.Eventually(func() bool {
+				By("Validating the object has been updated")
+				Eventually(func() bool {
 					objAfter := obj.DeepCopy()
-					if err := env.Get(ctx, key, objAfter); err != nil {
+					if err := testEnv.Get(ctx, key, objAfter); err != nil {
 						return false
 					}
 
@@ -261,51 +230,42 @@ func TestPatchHelper(t *testing.T) {
 				}, timeout).Should(BeTrue())
 			})
 
-			t.Run("should recover if there is a resolvable conflict, incl. patch spec and status", func(t *testing.T) {
-				g := NewWithT(t)
-
+			Specify("should recover if there is a resolvable conflict, incl. patch spec and status", func() {
 				obj := obj.DeepCopy()
 
-				t.Log("Creating the object")
-				g.Expect(env.Create(ctx, obj)).To(Succeed())
-				defer func() {
-					g.Expect(env.Delete(ctx, obj)).To(Succeed())
-				}()
+				By("Creating the object")
+				Expect(testEnv.Create(ctx, obj)).ToNot(HaveOccurred())
 				key := client.ObjectKey{Name: obj.Name, Namespace: obj.Namespace}
-
-				t.Log("Checking that the object has been created")
-				g.Eventually(func() error {
-					obj := obj.DeepCopy()
-					return env.Get(ctx, key, obj)
-				}).Should(Succeed())
-
+				defer func() {
+					Expect(testEnv.Delete(ctx, obj)).To(Succeed())
+				}()
 				objCopy := obj.DeepCopy()
 
-				t.Log("Marking a custom condition to be false")
+				By("Marking a custom condition to be false")
 				conditions.MarkFalse(objCopy, clusterv1.ConditionType("TestCondition"), "reason", clusterv1.ConditionSeverityInfo, "message")
-				g.Expect(env.Status().Update(ctx, objCopy)).To(Succeed())
+				Expect(testEnv.Status().Update(ctx, objCopy)).To(Succeed())
 
-				t.Log("Validating that the local object's resource version is behind")
-				g.Expect(obj.ResourceVersion).NotTo(Equal(objCopy.ResourceVersion))
+				By("Validating that the local object's resource version is behind")
+				Expect(obj.ResourceVersion).ToNot(Equal(objCopy.ResourceVersion))
 
-				t.Log("Creating a new patch helper")
-				patcher, err := NewHelper(obj, env)
-				g.Expect(err).NotTo(HaveOccurred())
+				By("Creating a new patch helper")
+				patcher, err := NewHelper(obj, testEnv)
+				Expect(err).NotTo(HaveOccurred())
 
-				t.Log("Changing the object spec, status, and adding Ready=True condition")
+				By("Changing the object spec, status, and adding Ready=True condition")
 				obj.Spec.Paused = true
 				obj.Spec.ControlPlaneEndpoint.Host = "test://endpoint"
 				obj.Spec.ControlPlaneEndpoint.Port = 8443
 				obj.Status.Phase = "custom-phase"
 				conditions.MarkTrue(obj, clusterv1.ReadyCondition)
 
-				t.Log("Patching the object")
-				g.Expect(patcher.Patch(ctx, obj)).To(Succeed())
+				By("Patching the object")
+				Expect(patcher.Patch(ctx, obj)).To(Succeed())
 
-				t.Log("Validating the object has been updated")
+				By("Validating the object has been updated")
 				objAfter := obj.DeepCopy()
-				g.Eventually(func() bool {
-					if err := env.Get(ctx, key, objAfter); err != nil {
+				Eventually(func() bool {
+					if err := testEnv.Get(ctx, key, objAfter); err != nil {
 						return false
 					}
 
@@ -322,47 +282,38 @@ func TestPatchHelper(t *testing.T) {
 				}, timeout).Should(BeTrue(), cmp.Diff(obj, objAfter))
 			})
 
-			t.Run("should return an error if there is an unresolvable conflict", func(t *testing.T) {
-				g := NewWithT(t)
-
+			Specify("should return an error if there is an unresolvable conflict", func() {
 				obj := obj.DeepCopy()
 
-				t.Log("Creating the object")
-				g.Expect(env.Create(ctx, obj)).To(Succeed())
-				defer func() {
-					g.Expect(env.Delete(ctx, obj)).To(Succeed())
-				}()
+				By("Creating the object")
+				Expect(testEnv.Create(ctx, obj)).ToNot(HaveOccurred())
 				key := client.ObjectKey{Name: obj.Name, Namespace: obj.Namespace}
-
-				t.Log("Checking that the object has been created")
-				g.Eventually(func() error {
-					obj := obj.DeepCopy()
-					return env.Get(ctx, key, obj)
-				}).Should(Succeed())
-
+				defer func() {
+					Expect(testEnv.Delete(ctx, obj)).To(Succeed())
+				}()
 				objCopy := obj.DeepCopy()
 
-				t.Log("Marking a custom condition to be false")
+				By("Marking a custom condition to be false")
 				conditions.MarkFalse(objCopy, clusterv1.ReadyCondition, "reason", clusterv1.ConditionSeverityInfo, "message")
-				g.Expect(env.Status().Update(ctx, objCopy)).To(Succeed())
+				Expect(testEnv.Status().Update(ctx, objCopy)).To(Succeed())
 
-				t.Log("Validating that the local object's resource version is behind")
-				g.Expect(obj.ResourceVersion).NotTo(Equal(objCopy.ResourceVersion))
+				By("Validating that the local object's resource version is behind")
+				Expect(obj.ResourceVersion).ToNot(Equal(objCopy.ResourceVersion))
 
-				t.Log("Creating a new patch helper")
-				patcher, err := NewHelper(obj, env)
-				g.Expect(err).NotTo(HaveOccurred())
+				By("Creating a new patch helper")
+				patcher, err := NewHelper(obj, testEnv)
+				Expect(err).NotTo(HaveOccurred())
 
-				t.Log("Marking Ready=True")
+				By("Marking Ready=True")
 				conditions.MarkTrue(obj, clusterv1.ReadyCondition)
 
-				t.Log("Patching the object")
-				g.Expect(patcher.Patch(ctx, obj)).NotTo(Succeed())
+				By("Patching the object")
+				Expect(patcher.Patch(ctx, obj)).ToNot(Succeed())
 
-				t.Log("Validating the object has not been updated")
-				g.Eventually(func() bool {
+				By("Validating the object has not been updated")
+				Eventually(func() bool {
 					objAfter := obj.DeepCopy()
-					if err := env.Get(ctx, key, objAfter); err != nil {
+					if err := testEnv.Get(ctx, key, objAfter); err != nil {
 						return false
 					}
 					ok, _ := ContainElement(objCopy.Status.Conditions[0]).Match(objAfter.Status.Conditions)
@@ -370,47 +321,38 @@ func TestPatchHelper(t *testing.T) {
 				}, timeout).Should(BeTrue())
 			})
 
-			t.Run("should not return an error if there is an unresolvable conflict but the conditions is owned by the controller", func(t *testing.T) {
-				g := NewWithT(t)
-
+			Specify("should not return an error if there is an unresolvable conflict but the conditions is owned by the controller", func() {
 				obj := obj.DeepCopy()
 
-				t.Log("Creating the object")
-				g.Expect(env.Create(ctx, obj)).To(Succeed())
-				defer func() {
-					g.Expect(env.Delete(ctx, obj)).To(Succeed())
-				}()
+				By("Creating the object")
+				Expect(testEnv.Create(ctx, obj)).ToNot(HaveOccurred())
 				key := client.ObjectKey{Name: obj.Name, Namespace: obj.Namespace}
-
-				t.Log("Checking that the object has been created")
-				g.Eventually(func() error {
-					obj := obj.DeepCopy()
-					return env.Get(ctx, key, obj)
-				}).Should(Succeed())
-
+				defer func() {
+					Expect(testEnv.Delete(ctx, obj)).To(Succeed())
+				}()
 				objCopy := obj.DeepCopy()
 
-				t.Log("Marking a custom condition to be false")
+				By("Marking a custom condition to be false")
 				conditions.MarkFalse(objCopy, clusterv1.ReadyCondition, "reason", clusterv1.ConditionSeverityInfo, "message")
-				g.Expect(env.Status().Update(ctx, objCopy)).To(Succeed())
+				Expect(testEnv.Status().Update(ctx, objCopy)).To(Succeed())
 
-				t.Log("Validating that the local object's resource version is behind")
-				g.Expect(obj.ResourceVersion).NotTo(Equal(objCopy.ResourceVersion))
+				By("Validating that the local object's resource version is behind")
+				Expect(obj.ResourceVersion).ToNot(Equal(objCopy.ResourceVersion))
 
-				t.Log("Creating a new patch helper")
-				patcher, err := NewHelper(obj, env)
-				g.Expect(err).NotTo(HaveOccurred())
+				By("Creating a new patch helper")
+				patcher, err := NewHelper(obj, testEnv)
+				Expect(err).NotTo(HaveOccurred())
 
-				t.Log("Marking Ready=True")
+				By("Marking Ready=True")
 				conditions.MarkTrue(obj, clusterv1.ReadyCondition)
 
-				t.Log("Patching the object")
-				g.Expect(patcher.Patch(ctx, obj, WithOwnedConditions{Conditions: []clusterv1.ConditionType{clusterv1.ReadyCondition}})).To(Succeed())
+				By("Patching the object")
+				Expect(patcher.Patch(ctx, obj, WithOwnedConditions{Conditions: []clusterv1.ConditionType{clusterv1.ReadyCondition}})).To(Succeed())
 
-				t.Log("Validating the object has been updated")
-				g.Eventually(func() bool {
+				By("Validating the object has been updated")
+				Eventually(func() bool {
 					objAfter := obj.DeepCopy()
-					if err := env.Get(ctx, key, objAfter); err != nil {
+					if err := testEnv.Get(ctx, key, objAfter); err != nil {
 						return false
 					}
 
@@ -421,47 +363,38 @@ func TestPatchHelper(t *testing.T) {
 				}, timeout).Should(BeTrue())
 			})
 
-			t.Run("should not return an error if there is an unresolvable conflict when force overwrite is enabled", func(t *testing.T) {
-				g := NewWithT(t)
-
+			Specify("should not return an error if there is an unresolvable conflict when force overwrite is enabled", func() {
 				obj := obj.DeepCopy()
 
-				t.Log("Creating the object")
-				g.Expect(env.Create(ctx, obj)).To(Succeed())
-				defer func() {
-					g.Expect(env.Delete(ctx, obj)).To(Succeed())
-				}()
+				By("Creating the object")
+				Expect(testEnv.Create(ctx, obj)).ToNot(HaveOccurred())
 				key := client.ObjectKey{Name: obj.Name, Namespace: obj.Namespace}
-
-				t.Log("Checking that the object has been created")
-				g.Eventually(func() error {
-					obj := obj.DeepCopy()
-					return env.Get(ctx, key, obj)
-				}).Should(Succeed())
-
+				defer func() {
+					Expect(testEnv.Delete(ctx, obj)).To(Succeed())
+				}()
 				objCopy := obj.DeepCopy()
 
-				t.Log("Marking a custom condition to be false")
+				By("Marking a custom condition to be false")
 				conditions.MarkFalse(objCopy, clusterv1.ReadyCondition, "reason", clusterv1.ConditionSeverityInfo, "message")
-				g.Expect(env.Status().Update(ctx, objCopy)).To(Succeed())
+				Expect(testEnv.Status().Update(ctx, objCopy)).To(Succeed())
 
-				t.Log("Validating that the local object's resource version is behind")
-				g.Expect(obj.ResourceVersion).NotTo(Equal(objCopy.ResourceVersion))
+				By("Validating that the local object's resource version is behind")
+				Expect(obj.ResourceVersion).ToNot(Equal(objCopy.ResourceVersion))
 
-				t.Log("Creating a new patch helper")
-				patcher, err := NewHelper(obj, env)
-				g.Expect(err).NotTo(HaveOccurred())
+				By("Creating a new patch helper")
+				patcher, err := NewHelper(obj, testEnv)
+				Expect(err).NotTo(HaveOccurred())
 
-				t.Log("Marking Ready=True")
+				By("Marking Ready=True")
 				conditions.MarkTrue(obj, clusterv1.ReadyCondition)
 
-				t.Log("Patching the object")
-				g.Expect(patcher.Patch(ctx, obj, WithForceOverwriteConditions{})).To(Succeed())
+				By("Patching the object")
+				Expect(patcher.Patch(ctx, obj, WithForceOverwriteConditions{})).To(Succeed())
 
-				t.Log("Validating the object has been updated")
-				g.Eventually(func() bool {
+				By("Validating the object has been updated")
+				Eventually(func() bool {
 					objAfter := obj.DeepCopy()
-					if err := env.Get(ctx, key, objAfter); err != nil {
+					if err := testEnv.Get(ctx, key, objAfter); err != nil {
 						return false
 					}
 
@@ -471,49 +404,42 @@ func TestPatchHelper(t *testing.T) {
 					return cmp.Equal(readyBefore, readyAfter)
 				}, timeout).Should(BeTrue())
 			})
+
 		})
 	})
 
-	t.Run("Should patch a clusterv1.Cluster", func(t *testing.T) {
+	Describe("Should patch a clusterv1.Cluster", func() {
 		obj := &clusterv1.Cluster{
 			ObjectMeta: metav1.ObjectMeta{
 				GenerateName: "test-",
-				Namespace:    "default",
+				Namespace:    "test-namespace",
 			},
 		}
 
-		t.Run("add a finalizer", func(t *testing.T) {
-			g := NewWithT(t)
-
+		Specify("add a finalizers", func() {
 			obj := obj.DeepCopy()
 
-			t.Log("Creating the object")
-			g.Expect(env.Create(ctx, obj)).To(Succeed())
-			defer func() {
-				g.Expect(env.Delete(ctx, obj)).To(Succeed())
-			}()
+			By("Creating the object")
+			Expect(testEnv.Create(ctx, obj)).ToNot(HaveOccurred())
 			key := client.ObjectKey{Name: obj.Name, Namespace: obj.Namespace}
+			defer func() {
+				Expect(testEnv.Delete(ctx, obj)).To(Succeed())
+			}()
 
-			t.Log("Checking that the object has been created")
-			g.Eventually(func() error {
-				obj := obj.DeepCopy()
-				return env.Get(ctx, key, obj)
-			}).Should(Succeed())
+			By("Creating a new patch helper")
+			patcher, err := NewHelper(obj, testEnv)
+			Expect(err).NotTo(HaveOccurred())
 
-			t.Log("Creating a new patch helper")
-			patcher, err := NewHelper(obj, env)
-			g.Expect(err).NotTo(HaveOccurred())
-
-			t.Log("Adding a finalizer")
+			By("Adding a finalizer")
 			obj.Finalizers = append(obj.Finalizers, clusterv1.ClusterFinalizer)
 
-			t.Log("Patching the object")
-			g.Expect(patcher.Patch(ctx, obj)).To(Succeed())
+			By("Patching the object")
+			Expect(patcher.Patch(ctx, obj)).To(Succeed())
 
-			t.Log("Validating the object has been updated")
-			g.Eventually(func() bool {
+			By("Validating the object has been updated")
+			Eventually(func() bool {
 				objAfter := obj.DeepCopy()
-				if err := env.Get(ctx, key, objAfter); err != nil {
+				if err := testEnv.Get(ctx, key, objAfter); err != nil {
 					return false
 				}
 
@@ -521,39 +447,31 @@ func TestPatchHelper(t *testing.T) {
 			}, timeout).Should(BeTrue())
 		})
 
-		t.Run("removing finalizers", func(t *testing.T) {
-			g := NewWithT(t)
-
+		Specify("removing finalizers", func() {
 			obj := obj.DeepCopy()
 			obj.Finalizers = append(obj.Finalizers, clusterv1.ClusterFinalizer)
 
-			t.Log("Creating the object")
-			g.Expect(env.Create(ctx, obj)).To(Succeed())
-			defer func() {
-				g.Expect(env.Delete(ctx, obj)).To(Succeed())
-			}()
+			By("Creating the object")
+			Expect(testEnv.Create(ctx, obj)).ToNot(HaveOccurred())
 			key := client.ObjectKey{Name: obj.Name, Namespace: obj.Namespace}
+			defer func() {
+				Expect(testEnv.Delete(ctx, obj)).To(Succeed())
+			}()
 
-			t.Log("Checking that the object has been created")
-			g.Eventually(func() error {
-				obj := obj.DeepCopy()
-				return env.Get(ctx, key, obj)
-			}).Should(Succeed())
+			By("Creating a new patch helper")
+			patcher, err := NewHelper(obj, testEnv)
+			Expect(err).NotTo(HaveOccurred())
 
-			t.Log("Creating a new patch helper")
-			patcher, err := NewHelper(obj, env)
-			g.Expect(err).NotTo(HaveOccurred())
-
-			t.Log("Removing the finalizers")
+			By("Removing the finalizers")
 			obj.SetFinalizers(nil)
 
-			t.Log("Patching the object")
-			g.Expect(patcher.Patch(ctx, obj)).To(Succeed())
+			By("Patching the object")
+			Expect(patcher.Patch(ctx, obj)).To(Succeed())
 
-			t.Log("Validating the object has been updated")
-			g.Eventually(func() bool {
+			By("Validating the object has been updated")
+			Eventually(func() bool {
 				objAfter := obj.DeepCopy()
-				if err := env.Get(ctx, key, objAfter); err != nil {
+				if err := testEnv.Get(ctx, key, objAfter); err != nil {
 					return false
 				}
 
@@ -561,44 +479,36 @@ func TestPatchHelper(t *testing.T) {
 			}, timeout).Should(BeTrue())
 		})
 
-		t.Run("updating spec", func(t *testing.T) {
-			g := NewWithT(t)
-
+		Specify("updating spec", func() {
 			obj := obj.DeepCopy()
-			obj.ObjectMeta.Namespace = "default"
+			obj.ObjectMeta.Namespace = "test-namespace"
 
-			t.Log("Creating the object")
-			g.Expect(env.Create(ctx, obj)).To(Succeed())
-			defer func() {
-				g.Expect(env.Delete(ctx, obj)).To(Succeed())
-			}()
+			By("Creating the object")
+			Expect(testEnv.Create(ctx, obj)).ToNot(HaveOccurred())
 			key := client.ObjectKey{Name: obj.Name, Namespace: obj.Namespace}
+			defer func() {
+				Expect(testEnv.Delete(ctx, obj)).To(Succeed())
+			}()
 
-			t.Log("Checking that the object has been created")
-			g.Eventually(func() error {
-				obj := obj.DeepCopy()
-				return env.Get(ctx, key, obj)
-			}).Should(Succeed())
+			By("Creating a new patch helper")
+			patcher, err := NewHelper(obj, testEnv)
+			Expect(err).NotTo(HaveOccurred())
 
-			t.Log("Creating a new patch helper")
-			patcher, err := NewHelper(obj, env)
-			g.Expect(err).NotTo(HaveOccurred())
-
-			t.Log("Updating the object spec")
+			By("Updating the object spec")
 			obj.Spec.Paused = true
 			obj.Spec.InfrastructureRef = &corev1.ObjectReference{
 				Kind:      "test-kind",
 				Name:      "test-ref",
-				Namespace: "default",
+				Namespace: "test-namespace",
 			}
 
-			t.Log("Patching the object")
-			g.Expect(patcher.Patch(ctx, obj)).To(Succeed())
+			By("Patching the object")
+			Expect(patcher.Patch(ctx, obj)).To(Succeed())
 
-			t.Log("Validating the object has been updated")
-			g.Eventually(func() bool {
+			By("Validating the object has been updated")
+			Eventually(func() bool {
 				objAfter := obj.DeepCopy()
-				if err := env.Get(ctx, key, objAfter); err != nil {
+				if err := testEnv.Get(ctx, key, objAfter); err != nil {
 					return false
 				}
 
@@ -607,88 +517,72 @@ func TestPatchHelper(t *testing.T) {
 			}, timeout).Should(BeTrue())
 		})
 
-		t.Run("updating status", func(t *testing.T) {
-			g := NewWithT(t)
-
+		Specify("updating status", func() {
 			obj := obj.DeepCopy()
 
-			t.Log("Creating the object")
-			g.Expect(env.Create(ctx, obj)).To(Succeed())
-			defer func() {
-				g.Expect(env.Delete(ctx, obj)).To(Succeed())
-			}()
+			By("Creating the object")
+			Expect(testEnv.Create(ctx, obj)).ToNot(HaveOccurred())
 			key := client.ObjectKey{Name: obj.Name, Namespace: obj.Namespace}
+			defer func() {
+				Expect(testEnv.Delete(ctx, obj)).To(Succeed())
+			}()
 
-			t.Log("Checking that the object has been created")
-			g.Eventually(func() error {
-				obj := obj.DeepCopy()
-				return env.Get(ctx, key, obj)
-			}).Should(Succeed())
+			By("Creating a new patch helper")
+			patcher, err := NewHelper(obj, testEnv)
+			Expect(err).NotTo(HaveOccurred())
 
-			t.Log("Creating a new patch helper")
-			patcher, err := NewHelper(obj, env)
-			g.Expect(err).NotTo(HaveOccurred())
-
-			t.Log("Updating the object status")
+			By("Updating the object status")
 			obj.Status.InfrastructureReady = true
 
-			t.Log("Patching the object")
-			g.Expect(patcher.Patch(ctx, obj)).To(Succeed())
+			By("Patching the object")
+			Expect(patcher.Patch(ctx, obj)).To(Succeed())
 
-			t.Log("Validating the object has been updated")
-			g.Eventually(func() bool {
+			By("Validating the object has been updated")
+			Eventually(func() bool {
 				objAfter := obj.DeepCopy()
-				if err := env.Get(ctx, key, objAfter); err != nil {
+				if err := testEnv.Get(ctx, key, objAfter); err != nil {
 					return false
 				}
 				return reflect.DeepEqual(objAfter.Status, obj.Status)
 			}, timeout).Should(BeTrue())
 		})
 
-		t.Run("updating both spec, status, and adding a condition", func(t *testing.T) {
-			g := NewWithT(t)
-
+		Specify("updating both spec, status, and adding a condition", func() {
 			obj := obj.DeepCopy()
-			obj.ObjectMeta.Namespace = "default"
+			obj.ObjectMeta.Namespace = "test-namespace"
 
-			t.Log("Creating the object")
-			g.Expect(env.Create(ctx, obj)).To(Succeed())
-			defer func() {
-				g.Expect(env.Delete(ctx, obj)).To(Succeed())
-			}()
+			By("Creating the object")
+			Expect(testEnv.Create(ctx, obj)).ToNot(HaveOccurred())
 			key := client.ObjectKey{Name: obj.Name, Namespace: obj.Namespace}
+			defer func() {
+				Expect(testEnv.Delete(ctx, obj)).To(Succeed())
+			}()
 
-			t.Log("Checking that the object has been created")
-			g.Eventually(func() error {
-				obj := obj.DeepCopy()
-				return env.Get(ctx, key, obj)
-			}).Should(Succeed())
+			By("Creating a new patch helper")
+			patcher, err := NewHelper(obj, testEnv)
+			Expect(err).NotTo(HaveOccurred())
 
-			t.Log("Creating a new patch helper")
-			patcher, err := NewHelper(obj, env)
-			g.Expect(err).NotTo(HaveOccurred())
-
-			t.Log("Updating the object spec")
+			By("Updating the object spec")
 			obj.Spec.Paused = true
 			obj.Spec.InfrastructureRef = &corev1.ObjectReference{
 				Kind:      "test-kind",
 				Name:      "test-ref",
-				Namespace: "default",
+				Namespace: "test-namespace",
 			}
 
-			t.Log("Updating the object status")
+			By("Updating the object status")
 			obj.Status.InfrastructureReady = true
 
-			t.Log("Setting Ready condition")
+			By("Setting Ready condition")
 			conditions.MarkTrue(obj, clusterv1.ReadyCondition)
 
-			t.Log("Patching the object")
-			g.Expect(patcher.Patch(ctx, obj)).To(Succeed())
+			By("Patching the object")
+			Expect(patcher.Patch(ctx, obj)).To(Succeed())
 
-			t.Log("Validating the object has been updated")
-			g.Eventually(func() bool {
+			By("Validating the object has been updated")
+			Eventually(func() bool {
 				objAfter := obj.DeepCopy()
-				if err := env.Get(ctx, key, objAfter); err != nil {
+				if err := testEnv.Get(ctx, key, objAfter); err != nil {
 					return false
 				}
 
@@ -699,11 +593,11 @@ func TestPatchHelper(t *testing.T) {
 		})
 	})
 
-	t.Run("Should update Status.ObservedGeneration when using WithStatusObservedGeneration option", func(t *testing.T) {
+	It("Should update Status.ObservedGeneration when using WithStatusObservedGeneration option", func() {
 		obj := &clusterv1.MachineSet{
 			ObjectMeta: metav1.ObjectMeta{
 				GenerateName: "test-ms",
-				Namespace:    "default",
+				Namespace:    "test-namespace",
 			},
 			Spec: clusterv1.MachineSetSpec{
 				ClusterName: "test1",
@@ -715,38 +609,30 @@ func TestPatchHelper(t *testing.T) {
 			},
 		}
 
-		t.Run("when updating spec", func(t *testing.T) {
-			g := NewWithT(t)
-
+		Context("when updating spec", func() {
 			obj := obj.DeepCopy()
 
-			t.Log("Creating the MachineSet object")
-			g.Expect(env.Create(ctx, obj)).To(Succeed())
-			defer func() {
-				g.Expect(env.Delete(ctx, obj)).To(Succeed())
-			}()
+			By("Creating the MachineSet object")
+			Expect(testEnv.Create(ctx, obj)).ToNot(HaveOccurred())
 			key := client.ObjectKey{Name: obj.Name, Namespace: obj.Namespace}
+			defer func() {
+				Expect(testEnv.Delete(ctx, obj)).To(Succeed())
+			}()
 
-			t.Log("Checking that the object has been created")
-			g.Eventually(func() error {
-				obj := obj.DeepCopy()
-				return env.Get(ctx, key, obj)
-			}).Should(Succeed())
+			By("Creating a new patch helper")
+			patcher, err := NewHelper(obj, testEnv)
+			Expect(err).NotTo(HaveOccurred())
 
-			t.Log("Creating a new patch helper")
-			patcher, err := NewHelper(obj, env)
-			g.Expect(err).NotTo(HaveOccurred())
-
-			t.Log("Updating the object spec")
+			By("Updating the object spec")
 			obj.Spec.Replicas = pointer.Int32Ptr(10)
 
-			t.Log("Patching the object")
-			g.Expect(patcher.Patch(ctx, obj, WithStatusObservedGeneration{})).To(Succeed())
+			By("Patching the object")
+			Expect(patcher.Patch(ctx, obj, WithStatusObservedGeneration{})).To(Succeed())
 
-			t.Log("Validating the object has been updated")
-			g.Eventually(func() bool {
+			By("Validating the object has been updated")
+			Eventually(func() bool {
 				objAfter := obj.DeepCopy()
-				if err := env.Get(ctx, key, objAfter); err != nil {
+				if err := testEnv.Get(ctx, key, objAfter); err != nil {
 					return false
 				}
 
@@ -755,47 +641,39 @@ func TestPatchHelper(t *testing.T) {
 			}, timeout).Should(BeTrue())
 		})
 
-		t.Run("when updating spec, status, and metadata", func(t *testing.T) {
-			g := NewWithT(t)
-
+		Context("when updating spec, status, and metadata", func() {
 			obj := obj.DeepCopy()
 
-			t.Log("Creating the MachineSet object")
-			g.Expect(env.Create(ctx, obj)).To(Succeed())
-			defer func() {
-				g.Expect(env.Delete(ctx, obj)).To(Succeed())
-			}()
+			By("Creating the MachineSet object")
+			Expect(testEnv.Create(ctx, obj)).ToNot(HaveOccurred())
 			key := client.ObjectKey{Name: obj.Name, Namespace: obj.Namespace}
+			defer func() {
+				Expect(testEnv.Delete(ctx, obj)).To(Succeed())
+			}()
 
-			t.Log("Checking that the object has been created")
-			g.Eventually(func() error {
-				obj := obj.DeepCopy()
-				return env.Get(ctx, key, obj)
-			}).Should(Succeed())
+			By("Creating a new patch helper")
+			patcher, err := NewHelper(obj, testEnv)
+			Expect(err).NotTo(HaveOccurred())
 
-			t.Log("Creating a new patch helper")
-			patcher, err := NewHelper(obj, env)
-			g.Expect(err).NotTo(HaveOccurred())
-
-			t.Log("Updating the object spec")
+			By("Updating the object spec")
 			obj.Spec.Replicas = pointer.Int32Ptr(10)
 
-			t.Log("Updating the object status")
+			By("Updating the object status")
 			obj.Status.AvailableReplicas = 6
 			obj.Status.ReadyReplicas = 6
 
-			t.Log("Updating the object metadata")
+			By("Updating the object metadata")
 			obj.ObjectMeta.Annotations = map[string]string{
 				"test1": "annotation",
 			}
 
-			t.Log("Patching the object")
-			g.Expect(patcher.Patch(ctx, obj, WithStatusObservedGeneration{})).To(Succeed())
+			By("Patching the object")
+			Expect(patcher.Patch(ctx, obj, WithStatusObservedGeneration{})).To(Succeed())
 
-			t.Log("Validating the object has been updated")
-			g.Eventually(func() bool {
+			By("Validating the object has been updated")
+			Eventually(func() bool {
 				objAfter := obj.DeepCopy()
-				if err := env.Get(ctx, key, objAfter); err != nil {
+				if err := testEnv.Get(ctx, key, objAfter); err != nil {
 					return false
 				}
 
@@ -805,92 +683,44 @@ func TestPatchHelper(t *testing.T) {
 			}, timeout).Should(BeTrue())
 		})
 
-		t.Run("without any changes", func(t *testing.T) {
-			g := NewWithT(t)
-
+		Context("without any changes", func() {
 			obj := obj.DeepCopy()
 
-			t.Log("Creating the MachineSet object")
-			g.Expect(env.Create(ctx, obj)).To(Succeed())
-			defer func() {
-				g.Expect(env.Delete(ctx, obj)).To(Succeed())
-			}()
+			By("Creating the MachineSet object")
+			Expect(testEnv.Create(ctx, obj)).ToNot(HaveOccurred())
 			key := client.ObjectKey{Name: obj.Name, Namespace: obj.Namespace}
-
-			t.Log("Checking that the object has been created")
-			g.Eventually(func() error {
-				obj := obj.DeepCopy()
-				return env.Get(ctx, key, obj)
-			}).Should(Succeed())
-
+			defer func() {
+				Expect(testEnv.Delete(ctx, obj)).To(Succeed())
+			}()
 			obj.Status.ObservedGeneration = obj.GetGeneration()
 			lastGeneration := obj.GetGeneration()
-			g.Expect(env.Status().Update(ctx, obj))
+			Expect(testEnv.Status().Update(ctx, obj))
 
-			t.Log("Creating a new patch helper")
-			patcher, err := NewHelper(obj, env)
-			g.Expect(err).NotTo(HaveOccurred())
+			By("Creating a new patch helper")
+			patcher, err := NewHelper(obj, testEnv)
+			Expect(err).NotTo(HaveOccurred())
 
-			t.Log("Patching the object")
-			g.Expect(patcher.Patch(ctx, obj, WithStatusObservedGeneration{})).To(Succeed())
+			By("Patching the object")
+			Expect(patcher.Patch(ctx, obj, WithStatusObservedGeneration{})).To(Succeed())
 
-			t.Log("Validating the object has been updated")
-			g.Eventually(func() bool {
+			By("Validating the object has been updated")
+			Eventually(func() bool {
 				objAfter := obj.DeepCopy()
-				if err := env.Get(ctx, key, objAfter); err != nil {
+				if err := testEnv.Get(ctx, key, objAfter); err != nil {
 					return false
 				}
+
 				return lastGeneration == objAfter.Status.ObservedGeneration
 			}, timeout).Should(BeTrue())
 		})
 	})
-
-	t.Run("Should error if the object isn't the same", func(t *testing.T) {
-		g := NewWithT(t)
-
-		cluster := &clusterv1.Cluster{
-			ObjectMeta: metav1.ObjectMeta{
-				GenerateName: "test-",
-				Namespace:    "default",
-			},
-		}
-
-		machineSet := &clusterv1.MachineSet{
-			ObjectMeta: metav1.ObjectMeta{
-				GenerateName: "test-ms",
-				Namespace:    "default",
-			},
-			Spec: clusterv1.MachineSetSpec{
-				ClusterName: "test1",
-				Template: clusterv1.MachineTemplateSpec{
-					Spec: clusterv1.MachineSpec{
-						ClusterName: "test1",
-					},
-				},
-			},
-		}
-
-		g.Expect(env.Create(ctx, cluster)).To(Succeed())
-		defer func() {
-			g.Expect(env.Delete(ctx, cluster)).To(Succeed())
-		}()
-		g.Expect(env.Create(ctx, machineSet)).To(Succeed())
-		defer func() {
-			g.Expect(env.Delete(ctx, machineSet)).To(Succeed())
-		}()
-
-		patcher, err := NewHelper(cluster, env)
-		g.Expect(err).NotTo(HaveOccurred())
-
-		g.Expect(patcher.Patch(ctx, machineSet)).NotTo(Succeed())
-	})
-}
+})
 
 func TestNewHelperNil(t *testing.T) {
 	var x *appsv1.Deployment
 	g := NewWithT(t)
 	_, err := NewHelper(x, nil)
-	g.Expect(err).NotTo(BeNil())
+	g.Expect(err).ToNot(BeNil())
 	_, err = NewHelper(nil, nil)
-	g.Expect(err).NotTo(BeNil())
+	g.Expect(err).ToNot(BeNil())
 }

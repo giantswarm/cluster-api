@@ -21,31 +21,41 @@ import (
 	"os"
 	"testing"
 
-	"sigs.k8s.io/cluster-api/internal/envtest"
-	ctrl "sigs.k8s.io/controller-runtime"
+	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/gomega"
+
+	"sigs.k8s.io/cluster-api/test/helpers"
+	"sigs.k8s.io/controller-runtime/pkg/envtest/printer"
 	// +kubebuilder:scaffold:imports
 )
 
+// These tests use Ginkgo (BDD-style Go testing framework). Refer to
+// http://onsi.github.io/ginkgo/ to learn more about Ginkgo.
+
 var (
-	env *envtest.Environment
-	ctx = ctrl.SetupSignalHandler()
+	testEnv *helpers.TestEnvironment
 )
+
+func TestAPIs(t *testing.T) {
+	RegisterFailHandler(Fail)
+
+	RunSpecsWithDefaultAndCustomReporters(t,
+		"Controller Suite",
+		[]Reporter{printer.NewlineReporter{}})
+}
 
 func TestMain(m *testing.M) {
 	// Bootstrapping test environment
-	env = envtest.New()
+	testEnv = helpers.NewTestEnvironment()
 	go func() {
-		if err := env.Start(ctx); err != nil {
+		if err := testEnv.StartManager(); err != nil {
 			panic(fmt.Sprintf("Failed to start the envtest manager: %v", err))
 		}
 	}()
-	<-env.Manager.Elected()
-	env.WaitForWebhooks()
-
 	// Run tests
 	code := m.Run()
 	// Tearing down the test environment
-	if err := env.Stop(); err != nil {
+	if err := testEnv.Stop(); err != nil {
 		panic(fmt.Sprintf("Failed to stop the envtest: %v", err))
 	}
 

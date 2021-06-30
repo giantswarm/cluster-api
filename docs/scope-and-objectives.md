@@ -38,20 +38,16 @@ This is a living document that is refined over time. It serves as guard rails fo
 
 ## Table of Contents
 
-* [Cluster API Scope and Objectives](#cluster-api-scope-and-objectives)
+* [Statement and Objectives](#cluster-api-statement-and-objectives)
+  * [Metadata](#metadata)
   * [Table of Contents](#table-of-contents)
   * [Summary](#summary)
-    * [What is Cluster API?](#what-is-cluster-api)
   * [Glossary](#glossary)
   * [Motivation](#motivation)
     * [Goals](#goals)
-    * [Non-goals](#non-goals)
+    * [Non\-goals](#non-goals)
   * [Requirements](#requirements)
-    * [Foundation](#foundation)
-    * [User Experience](#user-experience)
-    * [Organization](#organization)
-    * [Validation](#validation)
-    * [Extension](#extension)
+  * [Workstreams](#workstreams)
 
 ## Summary
 
@@ -65,7 +61,7 @@ We are building a set of Kubernetes cluster management APIs to enable common clu
 
 ## Glossary
 
-[See ./book/GLOSSARY.md](./book/src/reference/glossary.md)
+[See ./book/GLOSSARY.md](./book/GLOSSARY.md)
 
 - __Cluster API__: Unless otherwise specified, this refers to the project as a whole.
 - __Infrastructure provider__: Refers to the source of computational resources (e.g. machines, networking, etc.). Examples for cloud include AWS, Azure, Google, etc.; for bare metal include VMware, MAAS, etc. When there is more than one way to obtain resources from the same infrastructure provider (e.g. EC2 vs. EKS) each way is referred to as a variant.

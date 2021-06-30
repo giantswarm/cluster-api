@@ -38,7 +38,6 @@ func (o *addObjectOptions) ApplyOptions(opts []AddObjectOption) *addObjectOption
 // e.g. control plane for KCP.
 type ObjectMetaName string
 
-// ApplyToAdd applies the given options.
 func (n ObjectMetaName) ApplyToAdd(options *addObjectOptions) {
 	options.MetaName = string(n)
 }
@@ -47,7 +46,6 @@ func (n ObjectMetaName) ApplyToAdd(options *addObjectOptions) {
 // when adding the node's children.
 type GroupingObject bool
 
-// ApplyToAdd applies the given options.
 func (n GroupingObject) ApplyToAdd(options *addObjectOptions) {
 	options.GroupingObject = bool(n)
 }
@@ -56,7 +54,6 @@ func (n GroupingObject) ApplyToAdd(options *addObjectOptions) {
 // same Status, Severity and Reason of the parent's object ready condition (it is an echo).
 type NoEcho bool
 
-// ApplyToAdd applies the given options.
 func (n NoEcho) ApplyToAdd(options *addObjectOptions) {
 	options.NoEcho = bool(n)
 }

@@ -19,6 +19,7 @@ package cmd
 import (
 	"bytes"
 	"io"
+	"io/ioutil"
 	"os"
 	"path/filepath"
 	"strings"
@@ -107,21 +108,22 @@ v3: default3
 				return
 			}
 
-			output, err := io.ReadAll(buf)
+			output, err := ioutil.ReadAll(buf)
 			g.Expect(err).ToNot(HaveOccurred())
 			g.Expect(string(output)).To(Equal(tt.expectedOutput))
 		})
 	}
+
 }
 
 // createTempFile creates a temporary yaml file inside a temp dir. It returns
 // the filepath and a cleanup function for the temp directory.
 func createTempFile(g *WithT, contents string) (string, func()) {
-	dir, err := os.MkdirTemp("", "clusterctl")
+	dir, err := ioutil.TempDir("", "clusterctl")
 	g.Expect(err).NotTo(HaveOccurred())
 
 	templateFile := filepath.Join(dir, "templ.yaml")
-	g.Expect(os.WriteFile(templateFile, []byte(contents), 0600)).To(Succeed())
+	g.Expect(ioutil.WriteFile(templateFile, []byte(contents), 0600)).To(Succeed())
 
 	return templateFile, func() {
 		os.RemoveAll(dir)

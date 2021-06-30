@@ -32,7 +32,7 @@ import (
 )
 
 const (
-	minimumKubernetesVersion = "v1.19.1"
+	minimumKubernetesVersion = "v1.16.0"
 )
 
 var (
@@ -104,7 +104,6 @@ type clusterClient struct {
 	processor               yaml.Processor
 }
 
-// RepositoryClientFactory defines a function that returns a new repository.Client.
 type RepositoryClientFactory func(provider config.Provider, configClient config.Client, options ...repository.Option) (repository.Client, error)
 
 // ensure clusterClient implements Client.
@@ -119,7 +118,7 @@ func (c *clusterClient) Proxy() Proxy {
 }
 
 func (c *clusterClient) CertManager() CertManagerClient {
-	return newCertManagerClient(c.configClient, c.repositoryClientFactory, c.proxy, c.pollImmediateWaiter)
+	return newCertMangerClient(c.configClient, c.proxy, c.pollImmediateWaiter)
 }
 
 func (c *clusterClient) ProviderComponents() ComponentsClient {
@@ -150,7 +149,7 @@ func (c *clusterClient) WorkloadCluster() WorkloadCluster {
 	return newWorkloadCluster(c.proxy)
 }
 
-// Option is a configuration option supplied to New.
+// Option is a configuration option supplied to New
 type Option func(*clusterClient)
 
 // InjectProxy allows to override the default proxy used by clusterctl.
@@ -219,7 +218,6 @@ func newClusterClient(kubeconfig Kubeconfig, configClient config.Client, options
 	return client
 }
 
-// Proxy defines a client proxy interface.
 type Proxy interface {
 	// GetConfig returns the rest.Config
 	GetConfig() (*rest.Config, error)

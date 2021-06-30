@@ -19,6 +19,7 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"io/ioutil"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -26,13 +27,13 @@ import (
 	"time"
 
 	"github.com/blang/semver"
-	"github.com/google/go-github/v33/github"
+	"github.com/google/go-github/github"
 	"github.com/pkg/errors"
 	"golang.org/x/oauth2"
 	"k8s.io/client-go/util/homedir"
 	"sigs.k8s.io/cluster-api/cmd/clusterctl/client/config"
 	logf "sigs.k8s.io/cluster-api/cmd/clusterctl/log"
-	"sigs.k8s.io/cluster-api/version"
+	"sigs.k8s.io/cluster-api/cmd/version"
 	"sigs.k8s.io/yaml"
 )
 
@@ -145,7 +146,7 @@ func (v *versionChecker) getLatestRelease() (*ReleaseInfo, error) {
 			log.V(1).Info("⚠️ Unable to get latest github release for clusterctl")
 			// failing silently here so we don't error out in air-gapped
 			// environments.
-			return nil, nil // nolint:nilerr
+			return nil, nil
 		}
 
 		vs = &VersionState{
@@ -162,6 +163,7 @@ func (v *versionChecker) getLatestRelease() (*ReleaseInfo, error) {
 	}
 
 	return &vs.LatestRelease, nil
+
 }
 
 func writeStateFile(path string, vs *VersionState) error {
@@ -172,11 +174,15 @@ func writeStateFile(path string, vs *VersionState) error {
 	if err := os.MkdirAll(filepath.Dir(path), os.ModePerm); err != nil {
 		return err
 	}
-	return os.WriteFile(path, vsb, 0600)
+	if err := ioutil.WriteFile(path, vsb, 0600); err != nil {
+		return err
+	}
+	return nil
+
 }
 
 func readStateFile(filepath string) (*VersionState, error) {
-	b, err := os.ReadFile(filepath)
+	b, err := ioutil.ReadFile(filepath)
 	if err != nil {
 		if os.IsNotExist(err) {
 			// if the file doesn't exist yet, don't error

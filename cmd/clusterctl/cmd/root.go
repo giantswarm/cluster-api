@@ -41,7 +41,6 @@ var (
 	verbosity *int
 )
 
-// RootCmd is clusterctl root CLI command.
 var RootCmd = &cobra.Command{
 	Use:          "clusterctl",
 	SilenceUsage: true,
@@ -88,7 +87,6 @@ var RootCmd = &cobra.Command{
 	},
 }
 
-// Execute executes the root command.
 func Execute() {
 	if err := RootCmd.Execute(); err != nil {
 		if verbosity != nil && *verbosity >= 5 {
@@ -135,7 +133,7 @@ func initConfig() {
 	logf.SetLogger(logf.NewLogger(logf.WithThreshold(verbosity)))
 }
 
-const indentation = `  `
+const Indentation = `  `
 
 // LongDesc normalizes a command's long description to follow the conventions.
 func LongDesc(s string) string {
@@ -173,7 +171,7 @@ func (s normalizer) indent() normalizer {
 	indentedLines := make([]string, 0, len(splitLines))
 	for _, line := range splitLines {
 		trimmed := strings.TrimSpace(line)
-		indented := indentation + trimmed
+		indented := Indentation + trimmed
 		indentedLines = append(indentedLines, indented)
 	}
 	s.string = strings.Join(indentedLines, "\n")
