@@ -45,6 +45,11 @@ func (c *clusterctlClient) Move(options MoveOptions) error {
 		return err
 	}
 
+	// Ensure this command only runs against management clusters with the current Cluster API contract.
+	if err := fromCluster.ProviderInventory().CheckCAPIContract(); err != nil {
+		return err
+	}
+
 	// Ensures the custom resource definitions required by clusterctl are in place.
 	if err := fromCluster.ProviderInventory().EnsureCustomResourceDefinitions(); err != nil {
 		return err
@@ -55,6 +60,11 @@ func (c *clusterctlClient) Move(options MoveOptions) error {
 		// Get the client for interacting with the target management cluster.
 		toCluster, err = c.clusterClientFactory(ClusterClientFactoryInput{Kubeconfig: options.ToKubeconfig})
 		if err != nil {
+			return err
+		}
+
+		// Ensure this command only runs against management clusters with the current Cluster API contract.
+		if err := toCluster.ProviderInventory().CheckCAPIContract(); err != nil {
 			return err
 		}
 
@@ -73,9 +83,5 @@ func (c *clusterctlClient) Move(options MoveOptions) error {
 		options.Namespace = currentNamespace
 	}
 
-	if err := fromCluster.ObjectMover().Move(options.Namespace, toCluster, options.DryRun); err != nil {
-		return err
-	}
-
-	return nil
+	return fromCluster.ObjectMover().Move(options.Namespace, toCluster, options.DryRun)
 }

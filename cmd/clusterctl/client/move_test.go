@@ -23,6 +23,7 @@ import (
 	clusterctlv1 "sigs.k8s.io/cluster-api/cmd/clusterctl/api/v1alpha3"
 	"sigs.k8s.io/cluster-api/cmd/clusterctl/client/cluster"
 	"sigs.k8s.io/cluster-api/cmd/clusterctl/client/config"
+	"sigs.k8s.io/cluster-api/cmd/clusterctl/internal/test"
 )
 
 func Test_clusterctlClient_Move(t *testing.T) {
@@ -102,14 +103,16 @@ func fakeClientForMove() *fakeClient {
 		WithProvider(infra)
 
 	cluster1 := newFakeCluster(cluster.Kubeconfig{Path: "kubeconfig", Context: "mgmt-context"}, config1).
-		WithProviderInventory(core.Name(), core.Type(), "v1.0.0", "cluster-api-system", "").
-		WithProviderInventory(infra.Name(), infra.Type(), "v2.0.0", "infra-system", "").
-		WithObjectMover(&fakeObjectMover{})
+		WithProviderInventory(core.Name(), core.Type(), "v1.0.0", "cluster-api-system").
+		WithProviderInventory(infra.Name(), infra.Type(), "v2.0.0", "infra-system").
+		WithObjectMover(&fakeObjectMover{}).
+		WithObjs(test.FakeCAPISetupObjects()...)
 
 	// Creating this cluster for move_test
 	cluster2 := newFakeCluster(cluster.Kubeconfig{Path: "kubeconfig", Context: "worker-context"}, config1).
-		WithProviderInventory(core.Name(), core.Type(), "v1.0.0", "cluster-api-system", "").
-		WithProviderInventory(infra.Name(), infra.Type(), "v2.0.0", "infra-system", "")
+		WithProviderInventory(core.Name(), core.Type(), "v1.0.0", "cluster-api-system").
+		WithProviderInventory(infra.Name(), infra.Type(), "v2.0.0", "infra-system").
+		WithObjs(test.FakeCAPISetupObjects()...)
 
 	client := newFakeClient(config1).
 		WithCluster(cluster1).

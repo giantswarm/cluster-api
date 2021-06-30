@@ -21,39 +21,41 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
-	"github.com/go-logr/logr"
 	"github.com/pkg/errors"
 	"k8s.io/apimachinery/pkg/util/wait"
-	infrav1 "sigs.k8s.io/cluster-api/test/infrastructure/docker/api/v1alpha3"
-	"sigs.k8s.io/cluster-api/test/infrastructure/docker/cloudinit"
-	"sigs.k8s.io/cluster-api/test/infrastructure/docker/docker/types"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/kind/pkg/apis/config/v1alpha4"
 	"sigs.k8s.io/kind/pkg/cluster/constants"
 	"sigs.k8s.io/kind/pkg/exec"
+
+	clusterv1 "sigs.k8s.io/cluster-api/api/v1alpha4"
+	infrav1 "sigs.k8s.io/cluster-api/test/infrastructure/docker/api/v1alpha4"
+	"sigs.k8s.io/cluster-api/test/infrastructure/docker/cloudinit"
+	"sigs.k8s.io/cluster-api/test/infrastructure/docker/docker/types"
+	"sigs.k8s.io/cluster-api/util/container"
 )
 
 const (
 	defaultImageName = "kindest/node"
-	defaultImageTag  = "v1.16.3"
+	defaultImageTag  = "v1.19.11"
 )
 
 type nodeCreator interface {
-	CreateControlPlaneNode(name, image, clusterLabel, listenAddress string, port int32, mounts []v1alpha4.Mount, portMappings []v1alpha4.PortMapping, labels map[string]string) (node *types.Node, err error)
-	CreateWorkerNode(name, image, clusterLabel string, mounts []v1alpha4.Mount, portMappings []v1alpha4.PortMapping, labels map[string]string) (node *types.Node, err error)
+	CreateControlPlaneNode(name, image, clusterLabel, listenAddress string, port int32, mounts []v1alpha4.Mount, portMappings []v1alpha4.PortMapping, labels map[string]string, ipFamily clusterv1.ClusterIPFamily) (node *types.Node, err error)
+	CreateWorkerNode(name, image, clusterLabel string, mounts []v1alpha4.Mount, portMappings []v1alpha4.PortMapping, labels map[string]string, ipFamily clusterv1.ClusterIPFamily) (node *types.Node, err error)
 }
 
 // Machine implement a service for managing the docker containers hosting a kubernetes nodes.
 type Machine struct {
-	log       logr.Logger
 	cluster   string
 	machine   string
 	image     string
+	ipFamily  clusterv1.ClusterIPFamily
 	labels    map[string]string
 	container *types.Node
 
@@ -61,20 +63,20 @@ type Machine struct {
 }
 
 // NewMachine returns a new Machine service for the given Cluster/DockerCluster pair.
-func NewMachine(cluster, machine, image string, labels map[string]string, logger logr.Logger) (*Machine, error) {
-	if cluster == "" {
+func NewMachine(cluster *clusterv1.Cluster, machine, image string, labels map[string]string) (*Machine, error) {
+	if cluster == nil {
 		return nil, errors.New("cluster is required when creating a docker.Machine")
+	}
+	if cluster.Name == "" {
+		return nil, errors.New("cluster name is required when creating a docker.Machine")
 	}
 	if machine == "" {
 		return nil, errors.New("machine is required when creating a docker.Machine")
 	}
-	if logger == nil {
-		return nil, errors.New("logger is required when creating a docker.Machine")
-	}
 
 	filters := []string{
-		withLabel(clusterLabel(cluster)),
-		withName(machineContainerName(cluster, machine)),
+		withLabel(clusterLabel(cluster.Name)),
+		withName(machineContainerName(cluster.Name, machine)),
 	}
 	for key, val := range labels {
 		filters = append(filters, withLabel(toLabel(key, val)))
@@ -85,28 +87,32 @@ func NewMachine(cluster, machine, image string, labels map[string]string, logger
 		return nil, err
 	}
 
+	ipFamily, err := cluster.GetIPFamily()
+	if err != nil {
+		return nil, fmt.Errorf("create docker machine: %s", err)
+	}
+
 	return &Machine{
-		cluster:     cluster,
+		cluster:     cluster.Name,
 		machine:     machine,
 		image:       image,
+		ipFamily:    ipFamily,
 		container:   container,
 		labels:      labels,
-		log:         logger,
 		nodeCreator: &Manager{},
 	}, nil
 }
 
-func ListMachinesByCluster(cluster string, labels map[string]string, logger logr.Logger) ([]*Machine, error) {
-	if cluster == "" {
+func ListMachinesByCluster(cluster *clusterv1.Cluster, labels map[string]string) ([]*Machine, error) {
+	if cluster == nil {
 		return nil, errors.New("cluster is required when listing machines in the cluster")
 	}
-
-	if logger == nil {
-		return nil, errors.New("logger is required when listing machines in the cluster")
+	if cluster.Name == "" {
+		return nil, errors.New("cluster name is required when listing machines in the cluster")
 	}
 
 	filters := []string{
-		withLabel(clusterLabel(cluster)),
+		withLabel(clusterLabel(cluster.Name)),
 	}
 	for key, val := range labels {
 		filters = append(filters, withLabel(toLabel(key, val)))
@@ -117,15 +123,20 @@ func ListMachinesByCluster(cluster string, labels map[string]string, logger logr
 		return nil, err
 	}
 
+	ipFamily, err := cluster.GetIPFamily()
+	if err != nil {
+		return nil, fmt.Errorf("list docker machines by cluster: %s", err)
+	}
+
 	machines := make([]*Machine, len(containers))
 	for i, container := range containers {
 		machines[i] = &Machine{
-			cluster:     cluster,
-			machine:     machineFromContainerName(cluster, container.Name),
+			cluster:     cluster.Name,
+			machine:     machineFromContainerName(cluster.Name, container.Name),
 			image:       container.Image,
+			ipFamily:    ipFamily,
 			labels:      labels,
 			container:   container,
-			log:         logger,
 			nodeCreator: &Manager{},
 		}
 	}
@@ -133,7 +144,7 @@ func ListMachinesByCluster(cluster string, labels map[string]string, logger logr
 	return machines, nil
 }
 
-// IsControlPlane returns true if the container for this machine is a control plane node
+// IsControlPlane returns true if the container for this machine is a control plane node.
 func (m *Machine) IsControlPlane() bool {
 	if !m.Exists() {
 		return false
@@ -142,6 +153,8 @@ func (m *Machine) IsControlPlane() bool {
 }
 
 // ImageVersion returns the version of the image used or nil if not specified
+// NOTE: Image version might be different from the Kubernetes version, because some characters
+// allowed by semver (e.g. +) can't be used for image tags, so they are replaced with "_".
 func (m *Machine) ImageVersion() string {
 	if m.image == "" {
 		return defaultImageTag
@@ -155,32 +168,37 @@ func (m *Machine) Exists() bool {
 	return m.container != nil
 }
 
-// Name returns the name of the machine
+// Name returns the name of the machine.
 func (m *Machine) Name() string {
 	return m.machine
 }
 
-// ContainerName return the name of the container for this machine
+// ContainerName return the name of the container for this machine.
 func (m *Machine) ContainerName() string {
 	return machineContainerName(m.cluster, m.machine)
 }
 
-// ProviderID return the provider identifier for this machine
+// ProviderID return the provider identifier for this machine.
 func (m *Machine) ProviderID() string {
 	return fmt.Sprintf("docker:////%s", m.ContainerName())
 }
 
 func (m *Machine) Address(ctx context.Context) (string, error) {
-	ipv4, _, err := m.container.IP(ctx)
+	ipv4, ipv6, err := m.container.IP(ctx)
 	if err != nil {
 		return "", err
 	}
 
+	if m.ipFamily == clusterv1.IPv6IPFamily {
+		return ipv6, nil
+	}
 	return ipv4, nil
 }
 
 // Create creates a docker container hosting a Kubernetes node.
 func (m *Machine) Create(ctx context.Context, role string, version *string, mounts []infrav1.Mount) error {
+	log := ctrl.LoggerFrom(ctx)
+
 	// Create if not exists.
 	if m.container == nil {
 		var err error
@@ -192,7 +210,7 @@ func (m *Machine) Create(ctx context.Context, role string, version *string, moun
 
 		switch role {
 		case constants.ControlPlaneNodeRoleValue:
-			m.log.Info("Creating control plane machine container")
+			log.Info("Creating control plane machine container")
 			m.container, err = m.nodeCreator.CreateControlPlaneNode(
 				m.ContainerName(),
 				machineImage,
@@ -202,12 +220,13 @@ func (m *Machine) Create(ctx context.Context, role string, version *string, moun
 				kindMounts(mounts),
 				nil,
 				m.labels,
+				m.ipFamily,
 			)
 			if err != nil {
 				return errors.WithStack(err)
 			}
 		case constants.WorkerNodeRoleValue:
-			m.log.Info("Creating worker machine container")
+			log.Info("Creating worker machine container")
 			m.container, err = m.nodeCreator.CreateWorkerNode(
 				m.ContainerName(),
 				machineImage,
@@ -215,6 +234,7 @@ func (m *Machine) Create(ctx context.Context, role string, version *string, moun
 				kindMounts(mounts),
 				nil,
 				m.labels,
+				m.ipFamily,
 			)
 			if err != nil {
 				return errors.WithStack(err)
@@ -229,7 +249,9 @@ func (m *Machine) Create(ctx context.Context, role string, version *string, moun
 			return ps.Run(ctx) == nil, nil
 		})
 		if err != nil {
-			return errors.WithStack(err)
+			log.Info("Failed running command", "command", "crictl ps")
+			logContainerDebugInfo(ctx, m.ContainerName())
+			return errors.Wrap(errors.WithStack(err), "failed to run crictl ps")
 		}
 		return nil
 	}
@@ -255,14 +277,14 @@ func kindMounts(mounts []infrav1.Mount) []v1alpha4.Mount {
 
 func (m *Machine) PreloadLoadImages(ctx context.Context, images []string) error {
 	// Save the image into a tar
-	dir, err := ioutil.TempDir("", "image-tar")
+	dir, err := os.MkdirTemp("", "image-tar")
 	if err != nil {
 		return errors.Wrap(err, "failed to create tempdir")
 	}
 	defer os.RemoveAll(dir)
 
 	for i, image := range images {
-		imageTarPath := filepath.Join(dir, fmt.Sprintf("image-%d.tar", i))
+		imageTarPath := filepath.Clean(filepath.Join(dir, fmt.Sprintf("image-%d.tar", i)))
 
 		err = exec.Command("docker", "save", "-o", imageTarPath, image).Run()
 		if err != nil {
@@ -284,8 +306,10 @@ func (m *Machine) PreloadLoadImages(ctx context.Context, images []string) error 
 	return nil
 }
 
-// ExecBootstrap runs bootstrap on a node, this is generally `kubeadm <init|join>`
+// ExecBootstrap runs bootstrap on a node, this is generally `kubeadm <init|join>`.
 func (m *Machine) ExecBootstrap(ctx context.Context, data string) error {
+	log := ctrl.LoggerFrom(ctx)
+
 	if m.container == nil {
 		return errors.New("unable to set ExecBootstrap. the container hosting this machine does not exists")
 	}
@@ -297,7 +321,7 @@ func (m *Machine) ExecBootstrap(ctx context.Context, data string) error {
 
 	commands, err := cloudinit.Commands(cloudConfig)
 	if err != nil {
-		m.log.Info("cloud config failed to parse", "bootstrap data", data)
+		log.Info("cloud config failed to parse", "bootstrap data", data)
 		return errors.Wrap(err, "failed to join a control plane node with kubeadm")
 	}
 
@@ -312,7 +336,8 @@ func (m *Machine) ExecBootstrap(ctx context.Context, data string) error {
 		}
 		err := cmd.Run(ctx)
 		if err != nil {
-			m.log.Info("Failed running command", "command", command, "stdout", outStd.String(), "stderr", outErr.String(), "bootstrap data", data)
+			log.Info("Failed running command", "command", command, "stdout", outStd.String(), "stderr", outErr.String(), "bootstrap data", data)
+			logContainerDebugInfo(ctx, m.ContainerName())
 			return errors.Wrap(errors.WithStack(err), "failed to run cloud config")
 		}
 	}
@@ -320,8 +345,30 @@ func (m *Machine) ExecBootstrap(ctx context.Context, data string) error {
 	return nil
 }
 
-// SetNodeProviderID sets the docker provider ID for the kubernetes node
+// CheckForBootstrapSuccess checks if bootstrap was successful by checking for existence of the sentinel file.
+func (m *Machine) CheckForBootstrapSuccess(ctx context.Context) error {
+	log := ctrl.LoggerFrom(ctx)
+
+	if m.container == nil {
+		return errors.New("unable to set CheckForBootstrapSuccess. the container hosting this machine does not exists")
+	}
+
+	var outErr bytes.Buffer
+	var outStd bytes.Buffer
+	cmd := m.container.Commander.Command("test", "-f", "/run/cluster-api/bootstrap-success.complete")
+	cmd.SetStderr(&outErr)
+	cmd.SetStdout(&outStd)
+	if err := cmd.Run(ctx); err != nil {
+		log.Info("Failed running command", "command", "test -f /run/cluster-api/bootstrap-success.complete", "stdout", outStd.String(), "stderr", outErr.String())
+		return errors.Wrap(errors.WithStack(err), "failed to run bootstrap check")
+	}
+	return nil
+}
+
+// SetNodeProviderID sets the docker provider ID for the kubernetes node.
 func (m *Machine) SetNodeProviderID(ctx context.Context) error {
+	log := ctrl.LoggerFrom(ctx)
+
 	kubectlNode, err := m.getKubectlNode()
 	if err != nil {
 		return errors.Wrapf(err, "unable to set NodeProviderID. error getting a kubectl node")
@@ -329,8 +376,11 @@ func (m *Machine) SetNodeProviderID(ctx context.Context) error {
 	if kubectlNode == nil {
 		return errors.New("unable to set NodeProviderID. there are no kubectl node available")
 	}
+	if !kubectlNode.IsRunning() {
+		return errors.Wrapf(ContainerNotRunningError{Name: kubectlNode.Name}, "unable to set NodeProviderID")
+	}
 
-	m.log.Info("Setting Kubernetes node providerID")
+	log.Info("Setting Kubernetes node providerID")
 	patch := fmt.Sprintf(`{"spec": {"providerID": "%s"}}`, m.ProviderID())
 	cmd := kubectlNode.Commander.Command(
 		"kubectl",
@@ -342,7 +392,7 @@ func (m *Machine) SetNodeProviderID(ctx context.Context) error {
 	lines, err := cmd.RunLoggingOutputOnFail(ctx)
 	if err != nil {
 		for _, line := range lines {
-			m.log.Info(line)
+			log.Info(line)
 		}
 		return errors.Wrap(err, "failed update providerID")
 	}
@@ -376,9 +426,11 @@ func (m *Machine) getKubectlNode() (*types.Node, error) {
 
 // Delete deletes a docker container hosting a Kubernetes node.
 func (m *Machine) Delete(ctx context.Context) error {
+	log := ctrl.LoggerFrom(ctx)
+
 	// Delete if exists.
 	if m.container != nil {
-		m.log.Info("Deleting machine container")
+		log.Info("Deleting machine container")
 		if err := m.container.Delete(ctx); err != nil {
 			return err
 		}
@@ -386,15 +438,14 @@ func (m *Machine) Delete(ctx context.Context) error {
 	return nil
 }
 
-// machineImage is the image of the container node with the machine
+// machineImage is the image of the container node with the machine.
 func (m *Machine) machineImage(version *string) string {
 	if version == nil {
 		defaultImage := fmt.Sprintf("%s:%s", defaultImageName, defaultImageTag)
-		m.log.Info("Image for machine container not specified, using default comtainer image", defaultImage)
 		return defaultImage
 	}
 
-	//TODO(fp) make this smarter
+	// TODO(fp) make this smarter
 	// - allows usage of custom docker repository & image names
 	// - add v only for semantic versions
 	versionString := *version
@@ -402,5 +453,25 @@ func (m *Machine) machineImage(version *string) string {
 		versionString = fmt.Sprintf("v%s", versionString)
 	}
 
+	versionString = container.SemverToOCIImageTag(versionString)
+
 	return fmt.Sprintf("%s:%s", defaultImageName, versionString)
+}
+
+func logContainerDebugInfo(ctx context.Context, name string) {
+	log := ctrl.LoggerFrom(ctx)
+
+	cmd := exec.CommandContext(ctx, "docker", "inspect", name)
+	output, err := exec.CombinedOutputLines(cmd)
+	if err != nil {
+		log.Error(err, "Failed inspecting the machine container", "output", output)
+	}
+	log.Info("Inspected the machine container", "output", output)
+
+	cmd = exec.CommandContext(ctx, "docker", "logs", name)
+	output, err = exec.CombinedOutputLines(cmd)
+	if err != nil {
+		log.Error(err, "Failed to get logs from the machine container", "output", output)
+	}
+	log.Info("Got logs from the machine container", "output", output)
 }

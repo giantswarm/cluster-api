@@ -21,8 +21,8 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/pkg/errors"
-	kerrors "k8s.io/apimachinery/pkg/api/errors"
-	clusterv1 "sigs.k8s.io/cluster-api/api/v1alpha3"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	clusterv1 "sigs.k8s.io/cluster-api/api/v1alpha4"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
@@ -37,7 +37,7 @@ type ClusterCacheReconciler struct {
 	Tracker *ClusterCacheTracker
 }
 
-func (r *ClusterCacheReconciler) SetupWithManager(mgr ctrl.Manager, options controller.Options) error {
+func (r *ClusterCacheReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Manager, options controller.Options) error {
 	_, err := ctrl.NewControllerManagedBy(mgr).
 		For(&clusterv1.Cluster{}).
 		WithOptions(options).
@@ -51,10 +51,8 @@ func (r *ClusterCacheReconciler) SetupWithManager(mgr ctrl.Manager, options cont
 
 // Reconcile reconciles Clusters and removes ClusterCaches for any Cluster that cannot be retrieved from the
 // management cluster.
-func (r *ClusterCacheReconciler) Reconcile(req reconcile.Request) (reconcile.Result, error) {
-	ctx := context.Background()
-
-	log := r.Log.WithValues("namespace", req.Namespace, "name", req.Name)
+func (r *ClusterCacheReconciler) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
+	log := ctrl.LoggerFrom(ctx)
 	log.V(4).Info("Reconciling")
 
 	var cluster clusterv1.Cluster
@@ -63,7 +61,7 @@ func (r *ClusterCacheReconciler) Reconcile(req reconcile.Request) (reconcile.Res
 	if err == nil {
 		log.V(4).Info("Cluster still exists")
 		return reconcile.Result{}, nil
-	} else if !kerrors.IsNotFound(err) {
+	} else if !apierrors.IsNotFound(err) {
 		log.Error(err, "Error retrieving cluster")
 		return reconcile.Result{}, err
 	}
@@ -73,5 +71,4 @@ func (r *ClusterCacheReconciler) Reconcile(req reconcile.Request) (reconcile.Res
 	r.Tracker.deleteAccessor(req.NamespacedName)
 
 	return reconcile.Result{}, nil
-
 }

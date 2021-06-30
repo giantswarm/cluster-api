@@ -27,17 +27,12 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
-	clusterv1 "sigs.k8s.io/cluster-api/api/v1alpha3"
-	addonsv1 "sigs.k8s.io/cluster-api/exp/addons/api/v1alpha3"
+	clusterv1 "sigs.k8s.io/cluster-api/api/v1alpha4"
+	addonsv1 "sigs.k8s.io/cluster-api/exp/addons/api/v1alpha4"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
 
 func TestGetorCreateClusterResourceSetBinding(t *testing.T) {
-	g := NewWithT(t)
-
-	scheme := runtime.NewScheme()
-	g.Expect(addonsv1.AddToScheme(scheme)).To(Succeed())
-
 	testClusterWithBinding := &clusterv1.Cluster{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "test-cluster-with-binding",
@@ -77,10 +72,9 @@ func TestGetorCreateClusterResourceSetBinding(t *testing.T) {
 		},
 	}
 
-	c := fake.NewFakeClientWithScheme(
-		scheme,
-		testClusterResourceSetBinding,
-	)
+	c := fake.NewClientBuilder().
+		WithObjects(testClusterResourceSetBinding).
+		Build()
 	r := &ClusterResourceSetReconciler{
 		Client: c,
 	}
@@ -115,11 +109,6 @@ func TestGetorCreateClusterResourceSetBinding(t *testing.T) {
 }
 
 func TestGetSecretFromNamespacedName(t *testing.T) {
-	g := NewWithT(t)
-
-	scheme := runtime.NewScheme()
-	g.Expect(corev1.AddToScheme(scheme)).To(Succeed())
-
 	existingSecretName := types.NamespacedName{Name: "my-secret", Namespace: "default"}
 	existingSecret := &corev1.Secret{
 		TypeMeta: metav1.TypeMeta{Kind: "Secret", APIVersion: "v1"},
@@ -153,10 +142,9 @@ func TestGetSecretFromNamespacedName(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			gs := NewWithT(t)
 
-			c := fake.NewFakeClientWithScheme(
-				scheme,
-				existingSecret,
-			)
+			c := fake.NewClientBuilder().
+				WithObjects(existingSecret).
+				Build()
 
 			got, err := getSecret(context.TODO(), c, tt.secretName)
 
@@ -210,10 +198,10 @@ func TestGetConfigMapFromNamespacedName(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			gs := NewWithT(t)
 
-			c := fake.NewFakeClientWithScheme(
-				scheme,
-				existingConfigMap,
-			)
+			c := fake.NewClientBuilder().
+				WithScheme(scheme).
+				WithObjects(existingConfigMap).
+				Build()
 
 			got, err := getConfigMap(context.TODO(), c, tt.configMapName)
 
