@@ -203,7 +203,7 @@ func RegenerateSecret(ctx context.Context, c client.Client, configSecret *corev1
 func generateKubeconfig(ctx context.Context, c client.Client, clusterName client.ObjectKey, endpoint string) ([]byte, error) {
 	clusterCA, err := secret.GetFromNamespacedName(ctx, c, clusterName, secret.ClusterCA)
 	if err != nil {
-		if apierrors.IsNotFound(errors.Cause(err)) {
+		if apierrors.IsNotFound(err) {
 			return nil, ErrDependentCertificateNotFound
 		}
 		return nil, err

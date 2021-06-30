@@ -105,33 +105,6 @@ func TestHasUnhealthyCondition(t *testing.T) {
 	})
 }
 
-func TestHasUnhealthyCondition(t *testing.T) {
-	t.Run("healthy machine (without HealthCheckSucceeded condition) should return false", func(t *testing.T) {
-		g := NewWithT(t)
-		m := &clusterv1.Machine{}
-		g.Expect(machinefilters.HasUnhealthyCondition(m)).To(BeFalse())
-	})
-	t.Run("healthy machine (with HealthCheckSucceeded condition == True) should return false", func(t *testing.T) {
-		g := NewWithT(t)
-		m := &clusterv1.Machine{}
-		conditions.MarkTrue(m, clusterv1.MachineHealthCheckSuccededCondition)
-		g.Expect(machinefilters.HasUnhealthyCondition(m)).To(BeFalse())
-	})
-	t.Run("unhealthy machine NOT eligible for KCP remediation (with withHealthCheckSucceeded condition == False but without OwnerRemediated) should return false", func(t *testing.T) {
-		g := NewWithT(t)
-		m := &clusterv1.Machine{}
-		conditions.MarkFalse(m, clusterv1.MachineHealthCheckSuccededCondition, clusterv1.MachineHasFailureReason, clusterv1.ConditionSeverityWarning, "")
-		g.Expect(machinefilters.HasUnhealthyCondition(m)).To(BeFalse())
-	})
-	t.Run("unhealthy machine eligible for KCP (with HealthCheckSucceeded condition == False and with OwnerRemediated) should return true", func(t *testing.T) {
-		g := NewWithT(t)
-		m := &clusterv1.Machine{}
-		conditions.MarkFalse(m, clusterv1.MachineHealthCheckSuccededCondition, clusterv1.MachineHasFailureReason, clusterv1.ConditionSeverityWarning, "")
-		conditions.MarkFalse(m, clusterv1.MachineOwnerRemediatedCondition, clusterv1.WaitingForRemediationReason, clusterv1.ConditionSeverityWarning, "")
-		g.Expect(machinefilters.HasUnhealthyCondition(m)).To(BeTrue())
-	})
-}
-
 func TestHasDeletionTimestamp(t *testing.T) {
 	t.Run("machine with deletion timestamp returns true", func(t *testing.T) {
 		g := NewWithT(t)

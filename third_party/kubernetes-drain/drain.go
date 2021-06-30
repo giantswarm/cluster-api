@@ -171,8 +171,8 @@ func (d *Helper) GetPodsForDeletion(ctx context.Context, nodeName string) (*podD
 
 	for _, pod := range podList.Items {
 		var status podDeleteStatus
-		for _, filter := range d.makeFilters(ctx) {
-			status = filter(ctx, pod)
+		for _, filter := range d.makeFilters() {
+			status = filter(pod)
 			if !status.delete {
 				// short-circuit as soon as pod is filtered out
 				// at that point, there is no reason to run pod
@@ -304,7 +304,6 @@ func (d *Helper) deletePods(ctx context.Context, pods []corev1.Pod, getPodFn fun
 	} else {
 		globalTimeout = d.Timeout
 	}
-	ctx := d.getContext()
 	for _, pod := range pods {
 		err := d.DeletePod(ctx, pod)
 		if err != nil && !apierrors.IsNotFound(err) {

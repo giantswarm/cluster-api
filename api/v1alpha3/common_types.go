@@ -38,10 +38,6 @@ const (
 	// on the reconciled object.
 	PausedAnnotation = "cluster.x-k8s.io/paused"
 
-	// DeleteMachineAnnotation marks control plane and worker nodes that will be given priority for deletion
-	// when KCP or a machineset scales down. This annotation is given top priority on all delete policies.
-	DeleteMachineAnnotation = "cluster.x-k8s.io/delete-machine"
-
 	// TemplateClonedFromNameAnnotation is the infrastructure machine annotation that stores the name of the infrastructure template resource
 	// that was cloned for the machine. This annotation is set only during cloning a template. Older/adopted machines will not have this annotation.
 	TemplateClonedFromNameAnnotation = "cluster.x-k8s.io/cloned-from-name"
@@ -64,9 +60,6 @@ const (
 	MachineInternalIP  MachineAddressType = "InternalIP"
 	MachineExternalDNS MachineAddressType = "ExternalDNS"
 	MachineInternalDNS MachineAddressType = "InternalDNS"
-
-	// MachineNodeNameIndex is used by the Machine Controller to index Machines by Node name, and add a watch on Nodes.
-	MachineNodeNameIndex = "status.nodeRef.name"
 )
 
 const (
