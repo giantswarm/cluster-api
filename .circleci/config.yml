@@ -23,6 +23,9 @@ jobs:
             docker tag quay.io/giantswarm/cluster-api-controller-amd64:$CIRCLE_SHA1 quay.io/giantswarm/cluster-api-controller:$CIRCLE_SHA1
             docker tag quay.io/giantswarm/kubeadm-control-plane-controller-amd64:$CIRCLE_SHA1 quay.io/giantswarm/kubeadm-control-plane-controller:$CIRCLE_SHA1
             docker tag quay.io/giantswarm/kubeadm-bootstrap-controller-amd64:$CIRCLE_SHA1 quay.io/giantswarm/kubeadm-bootstrap-controller:$CIRCLE_SHA1
+            docker tag quay.io/giantswarm/cluster-api-controller-amd64:$CIRCLE_SHA1 registry-intl.cn-shanghai.aliyuncs.com/giantswarm/cluster-api-controller:$CIRCLE_SHA1
+            docker tag quay.io/giantswarm/kubeadm-control-plane-controller-amd64:$CIRCLE_SHA1 registry-intl.cn-shanghai.aliyuncs.com/giantswarm/kubeadm-control-plane-controller:$CIRCLE_SHA1
+            docker tag quay.io/giantswarm/kubeadm-bootstrap-controller-amd64:$CIRCLE_SHA1 registry-intl.cn-shanghai.aliyuncs.com/giantswarm/kubeadm-bootstrap-controller:$CIRCLE_SHA1
       - run:
           name: Push images to quay
           command: |
@@ -36,9 +39,9 @@ jobs:
       - run:
           name: Push image to aliyun
           command: |
-            docker push registry-intl.cn-shanghai.aliyuncs.com/$CIRCLE_PROJECT_USERNAME/cluster-api-controller:$CIRCLE_SHA1
-            docker push registry-intl.cn-shanghai.aliyuncs.com/$CIRCLE_PROJECT_USERNAME/kubeadm-control-plane-controller:$CIRCLE_SHA1
-            docker push registry-intl.cn-shanghai.aliyuncs.com/$CIRCLE_PROJECT_USERNAME/kubeadm-bootstrap-controller:$CIRCLE_SHA1
+            docker push registry-intl.cn-shanghai.aliyuncs.com/giantswarm/cluster-api-controller:$CIRCLE_SHA1
+            docker push registry-intl.cn-shanghai.aliyuncs.com/giantswarm/kubeadm-control-plane-controller:$CIRCLE_SHA1
+            docker push registry-intl.cn-shanghai.aliyuncs.com/giantswarm/kubeadm-bootstrap-controller:$CIRCLE_SHA1
 
 
 workflows:
