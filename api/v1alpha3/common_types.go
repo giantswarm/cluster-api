@@ -23,7 +23,7 @@ import (
 
 const (
 	// ClusterLabelName is the label set on machines linked to a cluster and
-	// external objects(bootstrap and infrastructure providers)
+	// external objects(bootstrap and infrastructure providers).
 	ClusterLabelName = "cluster.x-k8s.io/cluster-name"
 
 	// ProviderLabelName is the label set on components in the provider manifest.
@@ -38,10 +38,6 @@ const (
 	// on the reconciled object.
 	PausedAnnotation = "cluster.x-k8s.io/paused"
 
-	// DeleteMachineAnnotation marks control plane and worker nodes that will be given priority for deletion
-	// when KCP or a machineset scales down. This annotation is given top priority on all delete policies.
-	DeleteMachineAnnotation = "cluster.x-k8s.io/delete-machine"
-
 	// TemplateClonedFromNameAnnotation is the infrastructure machine annotation that stores the name of the infrastructure template resource
 	// that was cloned for the machine. This annotation is set only during cloning a template. Older/adopted machines will not have this annotation.
 	TemplateClonedFromNameAnnotation = "cluster.x-k8s.io/cloned-from-name"
@@ -50,20 +46,23 @@ const (
 	// that was cloned for the machine. This annotation is set only during cloning a template. Older/adopted machines will not have this annotation.
 	TemplateClonedFromGroupKindAnnotation = "cluster.x-k8s.io/cloned-from-groupkind"
 
-	// ClusterSecretType defines the type of secret created by core components
+	// ClusterSecretType defines the type of secret created by core components.
 	ClusterSecretType corev1.SecretType = "cluster.x-k8s.io/secret" //nolint:gosec
 )
 
 // MachineAddressType describes a valid MachineAddress type.
 type MachineAddressType string
 
+// Define all the constants related to MachineAddressType.
 const (
 	MachineHostName    MachineAddressType = "Hostname"
 	MachineExternalIP  MachineAddressType = "ExternalIP"
 	MachineInternalIP  MachineAddressType = "InternalIP"
 	MachineExternalDNS MachineAddressType = "ExternalDNS"
 	MachineInternalDNS MachineAddressType = "InternalDNS"
+)
 
+const (
 	// MachineNodeNameIndex is used by the Machine Controller to index Machines by Node name, and add a watch on Nodes.
 	MachineNodeNameIndex = "status.nodeRef.name"
 )
@@ -109,6 +108,8 @@ type ObjectMeta struct {
 	// Cannot be updated.
 	// More info: http://kubernetes.io/docs/user-guide/identifiers#names
 	// +optional
+	//
+	// Deprecated: This field has no function and is going to be removed in a next release.
 	Name string `json:"name,omitempty"`
 
 	// GenerateName is an optional prefix, used by the server, to generate a unique
@@ -127,6 +128,8 @@ type ObjectMeta struct {
 	// Applied only if Name is not specified.
 	// More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#idempotency
 	// +optional
+	//
+	// Deprecated: This field has no function and is going to be removed in a next release.
 	GenerateName string `json:"generateName,omitempty"`
 
 	// Namespace defines the space within each name must be unique. An empty namespace is
@@ -138,6 +141,8 @@ type ObjectMeta struct {
 	// Cannot be updated.
 	// More info: http://kubernetes.io/docs/user-guide/namespaces
 	// +optional
+	//
+	// Deprecated: This field has no function and is going to be removed in a next release.
 	Namespace string `json:"namespace,omitempty"`
 
 	// Map of string keys and values that can be used to organize and categorize
@@ -161,5 +166,7 @@ type ObjectMeta struct {
 	// +optional
 	// +patchMergeKey=uid
 	// +patchStrategy=merge
+	//
+	// Deprecated: This field has no function and is going to be removed in a next release.
 	OwnerReferences []metav1.OwnerReference `json:"ownerReferences,omitempty" patchStrategy:"merge" patchMergeKey:"uid"`
 }

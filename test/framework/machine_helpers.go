@@ -26,7 +26,7 @@ import (
 	"github.com/pkg/errors"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
-	clusterv1 "sigs.k8s.io/cluster-api/api/v1alpha3"
+	clusterv1 "sigs.k8s.io/cluster-api/api/v1alpha4"
 	"sigs.k8s.io/cluster-api/test/framework/internal/log"
 	"sigs.k8s.io/cluster-api/util/patch"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -209,7 +209,7 @@ func PatchNodeCondition(ctx context.Context, input PatchNodeConditionInput) {
 	Expect(patchHelper.Patch(ctx, node)).To(Succeed())
 }
 
-// MachineStatusCheck is a type that operates a status check on a Machine
+// MachineStatusCheck is a type that operates a status check on a Machine.
 type MachineStatusCheck func(p *clusterv1.Machine) error
 
 // WaitForMachineStatusCheckInput is the input for WaitForMachineStatusCheck.
@@ -244,7 +244,7 @@ func WaitForMachineStatusCheck(ctx context.Context, input WaitForMachineStatusCh
 	}, intervals...).Should(BeTrue())
 }
 
-// MachineNodeRefCheck is a MachineStatusCheck ensuring that a NodeRef is assigned to the machine
+// MachineNodeRefCheck is a MachineStatusCheck ensuring that a NodeRef is assigned to the machine.
 func MachineNodeRefCheck() MachineStatusCheck {
 	return func(machine *clusterv1.Machine) error {
 		if machine.Status.NodeRef == nil {
@@ -254,7 +254,7 @@ func MachineNodeRefCheck() MachineStatusCheck {
 	}
 }
 
-// MachinePhaseCheck is a MachineStatusCheck ensuring that a machines is in the expected phase
+// MachinePhaseCheck is a MachineStatusCheck ensuring that a machines is in the expected phase.
 func MachinePhaseCheck(expectedPhase string) MachineStatusCheck {
 	return func(machine *clusterv1.Machine) error {
 		if machine.Status.Phase != expectedPhase {

@@ -23,7 +23,7 @@ import (
 
 // +kubebuilder:object:root=true
 
-// Metadata for a provider repository
+// Metadata for a provider repository.
 type Metadata struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
@@ -54,6 +54,17 @@ func init() {
 func (m *Metadata) GetReleaseSeriesForVersion(version *version.Version) *ReleaseSeries {
 	for _, releaseSeries := range m.ReleaseSeries {
 		if version.Major() == releaseSeries.Major && version.Minor() == releaseSeries.Minor {
+			return &releaseSeries
+		}
+	}
+
+	return nil
+}
+
+// GetReleaseSeriesForContract returns the release series for a given API Version, e.g. `v1alpha4`.
+func (m *Metadata) GetReleaseSeriesForContract(contract string) *ReleaseSeries {
+	for _, releaseSeries := range m.ReleaseSeries {
+		if contract == releaseSeries.Contract {
 			return &releaseSeries
 		}
 	}

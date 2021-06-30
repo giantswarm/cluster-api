@@ -28,7 +28,7 @@ import (
 // Client is used to interact with provider repositories.
 // Provider repository are expected to contain two types of YAML files:
 // - YAML files defining the provider components (CRD, Controller, RBAC etc.)
-// - YAML files defining the cluster templates (Cluster, Machines)
+// - YAML files defining the cluster templates (Cluster, Machines).
 type Client interface {
 	config.Provider
 
@@ -73,7 +73,7 @@ func (c *repositoryClient) Metadata(version string) MetadataClient {
 	return newMetadataClient(c.Provider, version, c.repository, c.configClient.Variables())
 }
 
-// Option is a configuration option supplied to New
+// Option is a configuration option supplied to New.
 type Option func(*repositoryClient)
 
 // InjectRepository allows to override the repository implementation to use;
@@ -150,7 +150,7 @@ type Repository interface {
 
 var _ Repository = &test.FakeRepository{}
 
-//repositoryFactory returns the repository implementation corresponding to the provider URL.
+// repositoryFactory returns the repository implementation corresponding to the provider URL.
 func repositoryFactory(providerConfig config.Provider, configVariablesClient config.VariablesClient) (Repository, error) {
 	// parse the repository url
 	rURL, err := url.Parse(providerConfig.URL())

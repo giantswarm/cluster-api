@@ -19,6 +19,10 @@ package internal
 import (
 	"context"
 	"fmt"
+	"strings"
+
+	"github.com/blang/semver"
+	"sigs.k8s.io/cluster-api/util/version"
 
 	"github.com/coredns/corefile-migration/migration"
 	"github.com/pkg/errors"
@@ -26,9 +30,8 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	kubeadmv1 "sigs.k8s.io/cluster-api/bootstrap/kubeadm/types/v1beta1"
-	controlplanev1 "sigs.k8s.io/cluster-api/controlplane/kubeadm/api/v1alpha3"
-	"sigs.k8s.io/cluster-api/util"
+	bootstrapv1 "sigs.k8s.io/cluster-api/bootstrap/kubeadm/api/v1alpha4"
+	controlplanev1 "sigs.k8s.io/cluster-api/controlplane/kubeadm/api/v1alpha4"
 	containerutil "sigs.k8s.io/cluster-api/util/container"
 	"sigs.k8s.io/cluster-api/util/patch"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
@@ -39,14 +42,20 @@ const (
 	corefileBackupKey = "Corefile-backup"
 	coreDNSKey        = "coredns"
 	coreDNSVolumeKey  = "config-volume"
+
+	kubernetesImageRepository = "k8s.gcr.io"
+	oldCoreDNSImageName       = "coredns"
+	coreDNSImageName          = "coredns/coredns"
 )
 
 type coreDNSMigrator interface {
 	Migrate(currentVersion string, toVersion string, corefile string, deprecations bool) (string, error)
 }
 
+// CoreDNSMigrator is a shim that can be used to migrate CoreDNS files from one version to another.
 type CoreDNSMigrator struct{}
 
+// Migrate calls the CoreDNS migration library to migrate a corefile.
 func (c *CoreDNSMigrator) Migrate(fromCoreDNSVersion, toCoreDNSVersion, corefile string, deprecations bool) (string, error) {
 	return migration.Migrate(fromCoreDNSVersion, toCoreDNSVersion, corefile, deprecations)
 }
@@ -67,7 +76,7 @@ type coreDNSInfo struct {
 
 // UpdateCoreDNS updates the kubeadm configmap, coredns corefile and coredns
 // deployment.
-func (w *Workload) UpdateCoreDNS(ctx context.Context, kcp *controlplanev1.KubeadmControlPlane) error {
+func (w *Workload) UpdateCoreDNS(ctx context.Context, kcp *controlplanev1.KubeadmControlPlane, version semver.Version) error {
 	// Return early if we've been asked to skip CoreDNS upgrades entirely.
 	if _, ok := kcp.Annotations[controlplanev1.SkipCoreDNSAnnotation]; ok {
 		return nil
@@ -79,10 +88,6 @@ func (w *Workload) UpdateCoreDNS(ctx context.Context, kcp *controlplanev1.Kubead
 	}
 
 	clusterConfig := kcp.Spec.KubeadmConfigSpec.ClusterConfiguration
-	// Return early if the type is anything other than empty (default), or CoreDNS.
-	if clusterConfig.DNS.Type != "" && clusterConfig.DNS.Type != kubeadmv1.CoreDNS {
-		return nil
-	}
 
 	// Get the CoreDNS info needed for the upgrade.
 	info, err := w.getCoreDNSInfo(ctx, clusterConfig)
@@ -106,7 +111,7 @@ func (w *Workload) UpdateCoreDNS(ctx context.Context, kcp *controlplanev1.Kubead
 	}
 
 	// Perform the upgrade.
-	if err := w.updateCoreDNSImageInfoInKubeadmConfigMap(ctx, &clusterConfig.DNS); err != nil {
+	if err := w.updateCoreDNSImageInfoInKubeadmConfigMap(ctx, &clusterConfig.DNS, version); err != nil {
 		return err
 	}
 	if err := w.updateCoreDNSCorefile(ctx, info); err != nil {
@@ -119,7 +124,7 @@ func (w *Workload) UpdateCoreDNS(ctx context.Context, kcp *controlplanev1.Kubead
 }
 
 // getCoreDNSInfo returns all necessary coredns based information.
-func (w *Workload) getCoreDNSInfo(ctx context.Context, clusterConfig *kubeadmv1.ClusterConfiguration) (*coreDNSInfo, error) {
+func (w *Workload) getCoreDNSInfo(ctx context.Context, clusterConfig *bootstrapv1.ClusterConfiguration) (*coreDNSInfo, error) {
 	// Get the coredns configmap and corefile.
 	key := ctrlclient.ObjectKey{Name: coreDNSKey, Namespace: metav1.NamespaceSystem}
 	cm, err := w.getConfigMap(ctx, key)
@@ -155,12 +160,12 @@ func (w *Workload) getCoreDNSInfo(ctx context.Context, clusterConfig *kubeadmv1.
 	}
 
 	// Handle imageRepository.
-	toImageRepository := fmt.Sprintf("%s/%s", parsedImage.Repository, parsedImage.Name)
+	toImageRepository := parsedImage.Repository
 	if clusterConfig.ImageRepository != "" {
-		toImageRepository = fmt.Sprintf("%s/%s", clusterConfig.ImageRepository, coreDNSKey)
+		toImageRepository = strings.TrimSuffix(clusterConfig.ImageRepository, "/")
 	}
 	if clusterConfig.DNS.ImageRepository != "" {
-		toImageRepository = fmt.Sprintf("%s/%s", clusterConfig.DNS.ImageRepository, coreDNSKey)
+		toImageRepository = strings.TrimSuffix(clusterConfig.DNS.ImageRepository, "/")
 	}
 
 	// Handle imageTag.
@@ -180,15 +185,21 @@ func (w *Workload) getCoreDNSInfo(ctx context.Context, clusterConfig *kubeadmv1.
 		return nil, err
 	}
 
+	// Handle the renaming of the upstream image from "k8s.gcr.io/coredns" to "k8s.gcr.io/coredns/coredns"
+	toImageName := parsedImage.Name
+	if toImageRepository == kubernetesImageRepository && toImageName == oldCoreDNSImageName && targetMajorMinorPatch.GTE(semver.MustParse("1.8.0")) {
+		toImageName = coreDNSImageName
+	}
+
 	return &coreDNSInfo{
 		Corefile:               corefile,
 		Deployment:             deployment,
-		CurrentMajorMinorPatch: currentMajorMinorPatch,
-		TargetMajorMinorPatch:  targetMajorMinorPatch,
+		CurrentMajorMinorPatch: currentMajorMinorPatch.String(),
+		TargetMajorMinorPatch:  targetMajorMinorPatch.String(),
 		FromImageTag:           parsedImage.Tag,
 		ToImageTag:             toImageTag,
 		FromImage:              container.Image,
-		ToImage:                fmt.Sprintf("%s:%s", toImageRepository, toImageTag),
+		ToImage:                fmt.Sprintf("%s/%s:%s", toImageRepository, toImageName, toImageTag),
 	}, nil
 }
 
@@ -208,20 +219,11 @@ func (w *Workload) updateCoreDNSDeployment(ctx context.Context, info *coreDNSInf
 }
 
 // UpdateCoreDNSImageInfoInKubeadmConfigMap updates the kubernetes version in the kubeadm config map.
-func (w *Workload) updateCoreDNSImageInfoInKubeadmConfigMap(ctx context.Context, dns *kubeadmv1.DNS) error {
-	configMapKey := ctrlclient.ObjectKey{Name: kubeadmConfigKey, Namespace: metav1.NamespaceSystem}
-	kubeadmConfigMap, err := w.getConfigMap(ctx, configMapKey)
-	if err != nil {
-		return err
-	}
-	config := &kubeadmConfig{ConfigMap: kubeadmConfigMap}
-	if err := config.UpdateCoreDNSImageInfo(dns.ImageRepository, dns.ImageTag); err != nil {
-		return err
-	}
-	if err := w.Client.Update(ctx, config.ConfigMap); err != nil {
-		return errors.Wrap(err, "error updating kubeadm ConfigMap")
-	}
-	return nil
+func (w *Workload) updateCoreDNSImageInfoInKubeadmConfigMap(ctx context.Context, dns *bootstrapv1.DNS, version semver.Version) error {
+	return w.updateClusterConfiguration(ctx, func(c *bootstrapv1.ClusterConfiguration) {
+		c.DNS.ImageRepository = dns.ImageRepository
+		c.DNS.ImageTag = dns.ImageTag
+	}, version)
 }
 
 // updateCoreDNSCorefile migrates the coredns corefile if there is an increase
@@ -297,23 +299,23 @@ func patchCoreDNSDeploymentImage(deployment *appsv1.Deployment, image string) {
 	}
 }
 
-func extractImageVersion(tag string) (string, error) {
-	ver, err := util.ParseMajorMinorPatch(tag)
+func extractImageVersion(tag string) (semver.Version, error) {
+	ver, err := version.ParseMajorMinorPatchTolerant(tag)
 	if err != nil {
-		return "", err
+		return semver.Version{}, err
 	}
-	return fmt.Sprintf("%d.%d.%d", ver.Major, ver.Minor, ver.Patch), nil
+	return ver, nil
 }
 
 // validateCoreDNSImageTag returns error if the versions don't meet requirements.
 // Some of the checks come from
 // https://github.com/coredns/corefile-migration/blob/v1.0.6/migration/migrate.go#L414
 func validateCoreDNSImageTag(fromTag, toTag string) error {
-	from, err := util.ParseMajorMinorPatch(fromTag)
+	from, err := version.ParseMajorMinorPatchTolerant(fromTag)
 	if err != nil {
 		return errors.Wrapf(err, "failed to parse CoreDNS current version %q", fromTag)
 	}
-	to, err := util.ParseMajorMinorPatch(toTag)
+	to, err := version.ParseMajorMinorPatchTolerant(toTag)
 	if err != nil {
 		return errors.Wrapf(err, "failed to parse CoreDNS target version %q", toTag)
 	}
