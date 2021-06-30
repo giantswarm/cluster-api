@@ -10,10 +10,9 @@ jobs:
       - run:
           environment:
             REGISTRY: quay.io/giantswarm
-            TAG: $CIRCLE_SHA1
           name: Build the CAPI docker images
           command: |
-            make -e docker-build
+            TAG=$CIRCLE_SHA1 make -e docker-build
       - run:
           name: Login to quay
           command: |
