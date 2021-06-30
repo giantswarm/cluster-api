@@ -171,8 +171,8 @@ func (d *Helper) GetPodsForDeletion(ctx context.Context, nodeName string) (*podD
 
 	for _, pod := range podList.Items {
 		var status podDeleteStatus
-		for _, filter := range d.makeFilters(ctx) {
-			status = filter(ctx, pod)
+		for _, filter := range d.makeFilters() {
+			status = filter(pod)
 			if !status.delete {
 				// short-circuit as soon as pod is filtered out
 				// at that point, there is no reason to run pod
@@ -215,14 +215,14 @@ func (d *Helper) DeleteOrEvictPods(ctx context.Context, pods []corev1.Pod) error
 		}
 
 		if len(policyGroupVersion) > 0 {
-			return d.evictPods(pods, policyGroupVersion, getPodFn)
+			return d.evictPods(ctx, pods, policyGroupVersion, getPodFn)
 		}
 	}
 
-	return d.deletePods(pods, getPodFn)
+	return d.deletePods(ctx, pods, getPodFn)
 }
 
-func (d *Helper) evictPods(pods []corev1.Pod, policyGroupVersion string, getPodFn func(namespace, name string) (*corev1.Pod, error)) error {
+func (d *Helper) evictPods(ctx context.Context, pods []corev1.Pod, policyGroupVersion string, getPodFn func(namespace, name string) (*corev1.Pod, error)) error {
 	returnCh := make(chan error, 1)
 	// 0 timeout means infinite, we use MaxInt64 to represent it.
 	var globalTimeout time.Duration
@@ -296,7 +296,7 @@ func (d *Helper) evictPods(pods []corev1.Pod, policyGroupVersion string, getPodF
 	return utilerrors.NewAggregate(errors)
 }
 
-func (d *Helper) deletePods(pods []corev1.Pod, getPodFn func(namespace, name string) (*corev1.Pod, error)) error {
+func (d *Helper) deletePods(ctx context.Context, pods []corev1.Pod, getPodFn func(namespace, name string) (*corev1.Pod, error)) error {
 	// 0 timeout means infinite, we use MaxInt64 to represent it.
 	var globalTimeout time.Duration
 	if d.Timeout == 0 {
@@ -304,7 +304,6 @@ func (d *Helper) deletePods(pods []corev1.Pod, getPodFn func(namespace, name str
 	} else {
 		globalTimeout = d.Timeout
 	}
-	ctx := d.getContext()
 	for _, pod := range pods {
 		err := d.DeletePod(ctx, pod)
 		if err != nil && !apierrors.IsNotFound(err) {

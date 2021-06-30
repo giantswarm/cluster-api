@@ -20,9 +20,10 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/blang/semver"
 	"github.com/pkg/errors"
-	clusterv1 "sigs.k8s.io/cluster-api/api/v1alpha3"
-	controlplanev1 "sigs.k8s.io/cluster-api/controlplane/kubeadm/api/v1alpha3"
+	clusterv1 "sigs.k8s.io/cluster-api/api/v1alpha4"
+	controlplanev1 "sigs.k8s.io/cluster-api/controlplane/kubeadm/api/v1alpha4"
 	"sigs.k8s.io/cluster-api/controlplane/kubeadm/internal"
 	"sigs.k8s.io/cluster-api/util"
 	"sigs.k8s.io/cluster-api/util/conditions"
@@ -34,7 +35,7 @@ import (
 // reconcileUnhealthyMachines tries to remediate KubeadmControlPlane unhealthy machines
 // based on the process described in https://github.com/kubernetes-sigs/cluster-api/blob/master/docs/proposals/20191017-kubeadm-based-control-plane.md#remediation-using-delete-and-recreate
 func (r *KubeadmControlPlaneReconciler) reconcileUnhealthyMachines(ctx context.Context, controlPlane *internal.ControlPlane) (ret ctrl.Result, retErr error) {
-	logger := r.Log.WithValues("namespace", controlPlane.KCP.Namespace, "kubeadmControlPlane", controlPlane.KCP.Name, "cluster", controlPlane.Cluster.Name)
+	log := ctrl.LoggerFrom(ctx)
 
 	// Gets all machines that have `MachineHealthCheckSucceeded=False` (indicating a problem was detected on the machine)
 	// and `MachineOwnerRemediated` present, indicating that this controller is responsible for performing remediation.
@@ -67,7 +68,7 @@ func (r *KubeadmControlPlaneReconciler) reconcileUnhealthyMachines(ctx context.C
 		if err := patchHelper.Patch(ctx, machineToBeRemediated, patch.WithOwnedConditions{Conditions: []clusterv1.ConditionType{
 			clusterv1.MachineOwnerRemediatedCondition,
 		}}); err != nil {
-			logger.Error(err, "Failed to patch control plane Machine", "machine", machineToBeRemediated.Name)
+			log.Error(err, "Failed to patch control plane Machine", "machine", machineToBeRemediated.Name)
 			if retErr == nil {
 				retErr = errors.Wrapf(err, "failed to patch control plane Machine %s", machineToBeRemediated.Name)
 			}
@@ -79,24 +80,24 @@ func (r *KubeadmControlPlaneReconciler) reconcileUnhealthyMachines(ctx context.C
 
 	desiredReplicas := int(*controlPlane.KCP.Spec.Replicas)
 
-	// The cluster MUST have spec.replicas >= 3, because this is the smallest cluster size that allows any etcd failure tolerance.
-	if desiredReplicas < 3 {
-		logger.Info("A control plane machine needs remediation, but the number of desired replicas is less than 3. Skipping remediation", "UnhealthyMachine", machineToBeRemediated.Name, "Replicas", desiredReplicas)
-		conditions.MarkFalse(machineToBeRemediated, clusterv1.MachineOwnerRemediatedCondition, clusterv1.WaitingForRemediationReason, clusterv1.ConditionSeverityWarning, "KCP can't remediate if there are less than 3 desired replicas")
+	// The cluster MUST have more than one replica, because this is the smallest cluster size that allows any etcd failure tolerance.
+	if controlPlane.Machines.Len() <= 1 {
+		log.Info("A control plane machine needs remediation, but the number of current replicas is less or equal to 1. Skipping remediation", "UnhealthyMachine", machineToBeRemediated.Name, "Replicas", controlPlane.Machines.Len())
+		conditions.MarkFalse(machineToBeRemediated, clusterv1.MachineOwnerRemediatedCondition, clusterv1.WaitingForRemediationReason, clusterv1.ConditionSeverityWarning, "KCP can't remediate if current replicas are less or equal then 1")
 		return ctrl.Result{}, nil
 	}
 
 	// The number of replicas MUST be equal to or greater than the desired replicas. This rule ensures that when the cluster
 	// is missing replicas, we skip remediation and instead perform regular scale up/rollout operations first.
 	if controlPlane.Machines.Len() < desiredReplicas {
-		logger.Info("A control plane machine needs remediation, but the current number of replicas is lower that expected. Skipping remediation", "UnhealthyMachine", machineToBeRemediated.Name, "Replicas", desiredReplicas, "CurrentReplicas", controlPlane.Machines.Len())
+		log.Info("A control plane machine needs remediation, but the current number of replicas is lower that expected. Skipping remediation", "UnhealthyMachine", machineToBeRemediated.Name, "Replicas", desiredReplicas, "CurrentReplicas", controlPlane.Machines.Len())
 		conditions.MarkFalse(machineToBeRemediated, clusterv1.MachineOwnerRemediatedCondition, clusterv1.WaitingForRemediationReason, clusterv1.ConditionSeverityWarning, "KCP waiting for having at least %d control plane machines before triggering remediation", desiredReplicas)
 		return ctrl.Result{}, nil
 	}
 
 	// The cluster MUST have no machines with a deletion timestamp. This rule prevents KCP taking actions while the cluster is in a transitional state.
 	if controlPlane.HasDeletingMachine() {
-		logger.Info("A control plane machine needs remediation, but there are other control-plane machines being deleted. Skipping remediation", "UnhealthyMachine", machineToBeRemediated.Name)
+		log.Info("A control plane machine needs remediation, but there are other control-plane machines being deleted. Skipping remediation", "UnhealthyMachine", machineToBeRemediated.Name)
 		conditions.MarkFalse(machineToBeRemediated, clusterv1.MachineOwnerRemediatedCondition, clusterv1.WaitingForRemediationReason, clusterv1.ConditionSeverityWarning, "KCP waiting for control plane machine deletion to complete before triggering remediation")
 		return ctrl.Result{}, nil
 	}
@@ -110,7 +111,7 @@ func (r *KubeadmControlPlaneReconciler) reconcileUnhealthyMachines(ctx context.C
 			return ctrl.Result{}, err
 		}
 		if !canSafelyRemediate {
-			logger.Info("A control plane machine needs remediation, but removing this machine could result in etcd quorum loss. Skipping remediation", "UnhealthyMachine", machineToBeRemediated.Name)
+			log.Info("A control plane machine needs remediation, but removing this machine could result in etcd quorum loss. Skipping remediation", "UnhealthyMachine", machineToBeRemediated.Name)
 			conditions.MarkFalse(machineToBeRemediated, clusterv1.MachineOwnerRemediatedCondition, clusterv1.WaitingForRemediationReason, clusterv1.ConditionSeverityWarning, "KCP can't remediate this machine because this could result in etcd loosing quorum")
 			return ctrl.Result{}, nil
 		}
@@ -118,7 +119,7 @@ func (r *KubeadmControlPlaneReconciler) reconcileUnhealthyMachines(ctx context.C
 
 	workloadCluster, err := r.managementCluster.GetWorkloadCluster(ctx, util.ObjectKey(controlPlane.Cluster))
 	if err != nil {
-		logger.Error(err, "Failed to create client to workload cluster")
+		log.Error(err, "Failed to create client to workload cluster")
 		return ctrl.Result{}, errors.Wrapf(err, "failed to create client to workload cluster")
 	}
 
@@ -126,17 +127,22 @@ func (r *KubeadmControlPlaneReconciler) reconcileUnhealthyMachines(ctx context.C
 	if controlPlane.IsEtcdManaged() {
 		etcdLeaderCandidate := controlPlane.HealthyMachines().Newest()
 		if err := workloadCluster.ForwardEtcdLeadership(ctx, machineToBeRemediated, etcdLeaderCandidate); err != nil {
-			logger.Error(err, "Failed to move leadership to candidate machine", "candidate", etcdLeaderCandidate.Name)
+			log.Error(err, "Failed to move leadership to candidate machine", "candidate", etcdLeaderCandidate.Name)
 			return ctrl.Result{}, err
 		}
 		if err := workloadCluster.RemoveEtcdMemberForMachine(ctx, machineToBeRemediated); err != nil {
-			logger.Error(err, "Failed to remove etcd member for machine")
+			log.Error(err, "Failed to remove etcd member for machine")
 			return ctrl.Result{}, err
 		}
 	}
 
-	if err := workloadCluster.RemoveMachineFromKubeadmConfigMap(ctx, machineToBeRemediated); err != nil {
-		logger.Error(err, "Failed to remove machine from kubeadm ConfigMap")
+	parsedVersion, err := semver.ParseTolerant(controlPlane.KCP.Spec.Version)
+	if err != nil {
+		return ctrl.Result{}, errors.Wrapf(err, "failed to parse kubernetes version %q", controlPlane.KCP.Spec.Version)
+	}
+
+	if err := workloadCluster.RemoveMachineFromKubeadmConfigMap(ctx, machineToBeRemediated, parsedVersion); err != nil {
+		log.Error(err, "Failed to remove machine from kubeadm ConfigMap")
 		return ctrl.Result{}, err
 	}
 
@@ -145,7 +151,7 @@ func (r *KubeadmControlPlaneReconciler) reconcileUnhealthyMachines(ctx context.C
 		return ctrl.Result{}, errors.Wrapf(err, "failed to delete unhealthy machine %s", machineToBeRemediated.Name)
 	}
 
-	logger.Info("Remediating unhealthy machine", "UnhealthyMachine", machineToBeRemediated.Name)
+	log.Info("Remediating unhealthy machine", "UnhealthyMachine", machineToBeRemediated.Name)
 	conditions.MarkFalse(machineToBeRemediated, clusterv1.MachineOwnerRemediatedCondition, clusterv1.RemediationInProgressReason, clusterv1.ConditionSeverityWarning, "")
 	return ctrl.Result{Requeue: true}, nil
 }
@@ -154,7 +160,7 @@ func (r *KubeadmControlPlaneReconciler) reconcileUnhealthyMachines(ctx context.C
 // without loosing etcd quorum.
 //
 // The answer mostly depend on the existence of other failing members on top of the one being deleted, and according
-// to the etcd fault tolerance specification (see https://github.com/etcd-io/etcd/blob/master/Documentation/faq.md#what-is-failure-tolerance):
+// to the etcd fault tolerance specification (see https://etcd.io/docs/v3.3/faq/#what-is-failure-tolerance):
 // - 3 CP cluster does not tolerate additional failing members on top of the one being deleted (the target
 //   cluster size after deletion is 2, fault tolerance 0)
 // - 5 CP cluster tolerates 1 additional failing members on top of the one being deleted (the target
@@ -166,7 +172,7 @@ func (r *KubeadmControlPlaneReconciler) reconcileUnhealthyMachines(ctx context.C
 // NOTE: this func assumes the list of members in sync with the list of machines/nodes, it is required to call reconcileEtcdMembers
 // ans well as reconcileControlPlaneConditions before this.
 func (r *KubeadmControlPlaneReconciler) canSafelyRemoveEtcdMember(ctx context.Context, controlPlane *internal.ControlPlane, machineToBeRemediated *clusterv1.Machine) (bool, error) {
-	logger := r.Log.WithValues("namespace", controlPlane.KCP.Namespace, "kubeadmControlPlane", controlPlane.KCP.Name, "cluster", controlPlane.Cluster.Name)
+	log := ctrl.LoggerFrom(ctx)
 
 	workloadCluster, err := r.managementCluster.GetWorkloadCluster(ctx, client.ObjectKey{
 		Namespace: controlPlane.Cluster.Namespace,
@@ -186,30 +192,24 @@ func (r *KubeadmControlPlaneReconciler) canSafelyRemoveEtcdMember(ctx context.Co
 
 	currentTotalMembers := len(etcdMembers)
 
-	logger.Info("etcd cluster before remediation",
+	log.Info("etcd cluster before remediation",
 		"currentTotalMembers", currentTotalMembers,
 		"currentMembers", etcdMembers)
 
-	// The cluster MUST have at least 3 members, because this is the smallest cluster size that allows any etcd failure tolerance.
-	//
-	// NOTE: This should not happen given that we are checking the number of replicas before calling this method, however
-	// given that this could be destructive, this is an additional safeguard.
-	if currentTotalMembers < 3 {
-		logger.Info("etcd cluster with less of 3 members can't be safely remediated")
-		return false, nil
-	}
-
-	targetTotalMembers := currentTotalMembers - 1
-	targetQuorum := targetTotalMembers/2.0 + 1
+	// Projects the target etcd cluster after remediation, considering all the etcd members except the one being remediated.
+	targetTotalMembers := 0
 	targetUnhealthyMembers := 0
 
 	healthyMembers := []string{}
 	unhealthyMembers := []string{}
 	for _, etcdMember := range etcdMembers {
 		// Skip the machine to be deleted because it won't be part of the target etcd cluster.
-		if etcdMember == machineToBeRemediated.Name {
+		if machineToBeRemediated.Status.NodeRef != nil && machineToBeRemediated.Status.NodeRef.Name == etcdMember {
 			continue
 		}
+
+		// Include the member in the target etcd cluster.
+		targetTotalMembers++
 
 		// Search for the machine corresponding to the etcd member.
 		var machine *clusterv1.Machine
@@ -225,7 +225,7 @@ func (r *KubeadmControlPlaneReconciler) canSafelyRemoveEtcdMember(ctx context.Co
 		//
 		// NOTE: This should not happen given that we are running reconcileEtcdMembers before calling this method.
 		if machine == nil {
-			logger.Info("An etcd member does not have a corresponding machine, assuming this member is unhealthy", "MemberName", etcdMember)
+			log.Info("An etcd member does not have a corresponding machine, assuming this member is unhealthy", "MemberName", etcdMember)
 			targetUnhealthyMembers++
 			unhealthyMembers = append(unhealthyMembers, fmt.Sprintf("%s (no machine)", etcdMember))
 			continue
@@ -241,15 +241,17 @@ func (r *KubeadmControlPlaneReconciler) canSafelyRemoveEtcdMember(ctx context.Co
 		healthyMembers = append(healthyMembers, fmt.Sprintf("%s (%s)", etcdMember, machine.Name))
 	}
 
-	logger.Info(fmt.Sprintf("etcd cluster projected after remediation of %s", machineToBeRemediated.Name),
+	// See https://etcd.io/docs/v3.3/faq/#what-is-failure-tolerance for fault tolerance formula explanation.
+	targetQuorum := (targetTotalMembers / 2.0) + 1
+	canSafelyRemediate := targetTotalMembers-targetUnhealthyMembers >= targetQuorum
+
+	log.Info(fmt.Sprintf("etcd cluster projected after remediation of %s", machineToBeRemediated.Name),
 		"healthyMembers", healthyMembers,
 		"unhealthyMembers", unhealthyMembers,
 		"targetTotalMembers", targetTotalMembers,
 		"targetQuorum", targetQuorum,
 		"targetUnhealthyMembers", targetUnhealthyMembers,
-		"projectedQuorum", targetTotalMembers-targetUnhealthyMembers)
-	if targetTotalMembers-targetUnhealthyMembers >= targetQuorum {
-		return true, nil
-	}
-	return false, nil
+		"canSafelyRemediate", canSafelyRemediate)
+
+	return canSafelyRemediate, nil
 }

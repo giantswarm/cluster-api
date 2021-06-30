@@ -14,13 +14,14 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
+// Package annotations implements annotation helper functions.
 package annotations
 
 import (
 	"strings"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	clusterv1 "sigs.k8s.io/cluster-api/api/v1alpha3"
+	clusterv1 "sigs.k8s.io/cluster-api/api/v1alpha4"
 )
 
 // IsPaused returns true if the Cluster is paused or the object has the `paused` annotation.
@@ -31,16 +32,22 @@ func IsPaused(cluster *clusterv1.Cluster, o metav1.Object) bool {
 	return HasPausedAnnotation(o)
 }
 
-// HasPausedAnnotation returns true if the object has the `paused` annotation.
-func HasPausedAnnotation(o metav1.Object) bool {
-	annotations := o.GetAnnotations()
-	if annotations == nil {
-		return false
-	}
-	_, ok := annotations[clusterv1.PausedAnnotation]
-	return ok
+// IsExternallyManaged returns true if the object has the `managed-by` annotation.
+func IsExternallyManaged(o metav1.Object) bool {
+	return hasAnnotation(o, clusterv1.ManagedByAnnotation)
 }
 
+// HasPausedAnnotation returns true if the object has the `paused` annotation.
+func HasPausedAnnotation(o metav1.Object) bool {
+	return hasAnnotation(o, clusterv1.PausedAnnotation)
+}
+
+// HasSkipRemediationAnnotation returns true if the object has the `skip-remediation` annotation.
+func HasSkipRemediationAnnotation(o metav1.Object) bool {
+	return hasAnnotation(o, clusterv1.MachineSkipRemediationAnnotation)
+}
+
+// HasWithPrefix returns true if at least one of the annotations has the prefix specified.
 func HasWithPrefix(prefix string, annotations map[string]string) bool {
 	for key := range annotations {
 		if strings.HasPrefix(key, prefix) {
@@ -48,4 +55,34 @@ func HasWithPrefix(prefix string, annotations map[string]string) bool {
 		}
 	}
 	return false
+}
+
+// AddAnnotations sets the desired annotations on the object and returns true if the annotations have changed.
+func AddAnnotations(o metav1.Object, desired map[string]string) bool {
+	if len(desired) == 0 {
+		return false
+	}
+	annotations := o.GetAnnotations()
+	if annotations == nil {
+		annotations = make(map[string]string)
+		o.SetAnnotations(annotations)
+	}
+	hasChanged := false
+	for k, v := range desired {
+		if cur, ok := annotations[k]; !ok || cur != v {
+			annotations[k] = v
+			hasChanged = true
+		}
+	}
+	return hasChanged
+}
+
+// hasAnnotation returns true if the object has the specified annotation.
+func hasAnnotation(o metav1.Object, annotation string) bool {
+	annotations := o.GetAnnotations()
+	if annotations == nil {
+		return false
+	}
+	_, ok := annotations[annotation]
+	return ok
 }

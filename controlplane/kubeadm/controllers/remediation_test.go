@@ -18,32 +18,35 @@ package controllers
 
 import (
 	"context"
+	"fmt"
+	"strings"
 	"testing"
+	"time"
 
 	. "github.com/onsi/gomega"
-
+	"github.com/pkg/errors"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/client-go/tools/record"
 	utilpointer "k8s.io/utils/pointer"
-	clusterv1 "sigs.k8s.io/cluster-api/api/v1alpha3"
-	controlplanev1 "sigs.k8s.io/cluster-api/controlplane/kubeadm/api/v1alpha3"
+	clusterv1 "sigs.k8s.io/cluster-api/api/v1alpha4"
+	controlplanev1 "sigs.k8s.io/cluster-api/controlplane/kubeadm/api/v1alpha4"
 	"sigs.k8s.io/cluster-api/controlplane/kubeadm/internal"
+	"sigs.k8s.io/cluster-api/util/collections"
 	"sigs.k8s.io/cluster-api/util/conditions"
 	"sigs.k8s.io/cluster-api/util/patch"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/log"
 )
 
 func TestReconcileUnhealthyMachines(t *testing.T) {
 	g := NewWithT(t)
 	ctx := context.TODO()
 	r := &KubeadmControlPlaneReconciler{
-		Client:   testEnv.GetClient(),
-		Log:      log.Log,
+		Client:   env.GetClient(),
 		recorder: record.NewFakeRecorder(32),
 	}
-	ns, err := testEnv.CreateNamespace(ctx, "ns1")
+	ns, err := env.CreateNamespace(ctx, "ns1")
 	g.Expect(err).ToNot(HaveOccurred())
 
 	t.Run("Remediation does not happen if there are no unhealthy machines", func(t *testing.T) {
@@ -52,7 +55,7 @@ func TestReconcileUnhealthyMachines(t *testing.T) {
 		controlPlane := &internal.ControlPlane{
 			KCP:      &controlplanev1.KubeadmControlPlane{},
 			Cluster:  &clusterv1.Cluster{},
-			Machines: internal.NewFilterableMachineCollection(),
+			Machines: collections.New(),
 		}
 		ret, err := r.reconcileUnhealthyMachines(context.TODO(), controlPlane)
 
@@ -68,50 +71,59 @@ func TestReconcileUnhealthyMachines(t *testing.T) {
 		controlPlane := &internal.ControlPlane{
 			KCP:      &controlplanev1.KubeadmControlPlane{},
 			Cluster:  &clusterv1.Cluster{},
-			Machines: internal.NewFilterableMachineCollection(m),
+			Machines: collections.FromMachines(m),
 		}
 		ret, err := r.reconcileUnhealthyMachines(context.TODO(), controlPlane)
 
 		g.Expect(ret.IsZero()).To(BeTrue()) // Remediation skipped
 		g.Expect(err).ToNot(HaveOccurred())
 	})
-	t.Run("Remediation does not happen if desired replicas < 3", func(t *testing.T) {
+	t.Run("Remediation does not happen if desired replicas <= 1", func(t *testing.T) {
 		g := NewWithT(t)
 
 		m := createMachine(ctx, g, ns.Name, "m1-unhealthy-", withMachineHealthCheckFailed())
 		controlPlane := &internal.ControlPlane{
 			KCP: &controlplanev1.KubeadmControlPlane{Spec: controlplanev1.KubeadmControlPlaneSpec{
 				Replicas: utilpointer.Int32Ptr(1),
+				RolloutStrategy: &controlplanev1.RolloutStrategy{
+					RollingUpdate: &controlplanev1.RollingUpdate{
+						MaxSurge: &intstr.IntOrString{
+							IntVal: 1,
+						},
+					},
+				},
 			}},
 			Cluster:  &clusterv1.Cluster{},
-			Machines: internal.NewFilterableMachineCollection(m),
+			Machines: collections.FromMachines(m),
 		}
 		ret, err := r.reconcileUnhealthyMachines(context.TODO(), controlPlane)
 
 		g.Expect(ret.IsZero()).To(BeTrue()) // Remediation skipped
 		g.Expect(err).ToNot(HaveOccurred())
-		assertMachineCondition(ctx, g, m, clusterv1.MachineOwnerRemediatedCondition, corev1.ConditionFalse, clusterv1.WaitingForRemediationReason, clusterv1.ConditionSeverityWarning, "KCP can't remediate if there are less than 3 desired replicas")
+		assertMachineCondition(ctx, g, m, clusterv1.MachineOwnerRemediatedCondition, corev1.ConditionFalse, clusterv1.WaitingForRemediationReason, clusterv1.ConditionSeverityWarning, "KCP can't remediate if current replicas are less or equal then 1")
 
-		g.Expect(testEnv.Cleanup(ctx, m)).To(Succeed())
+		g.Expect(env.Cleanup(ctx, m)).To(Succeed())
 	})
 	t.Run("Remediation does not happen if number of machines lower than desired", func(t *testing.T) {
 		g := NewWithT(t)
 
-		m := createMachine(ctx, g, ns.Name, "m1-unhealthy-", withMachineHealthCheckFailed())
+		m1 := createMachine(ctx, g, ns.Name, "m1-unhealthy-", withMachineHealthCheckFailed())
+		m2 := createMachine(ctx, g, ns.Name, "m2-healthy-")
 		controlPlane := &internal.ControlPlane{
 			KCP: &controlplanev1.KubeadmControlPlane{Spec: controlplanev1.KubeadmControlPlaneSpec{
-				Replicas: utilpointer.Int32Ptr(3),
+				Replicas:        utilpointer.Int32Ptr(3),
+				RolloutStrategy: &controlplanev1.RolloutStrategy{},
 			}},
 			Cluster:  &clusterv1.Cluster{},
-			Machines: internal.NewFilterableMachineCollection(m),
+			Machines: collections.FromMachines(m1, m2),
 		}
 		ret, err := r.reconcileUnhealthyMachines(context.TODO(), controlPlane)
 
 		g.Expect(ret.IsZero()).To(BeTrue()) // Remediation skipped
 		g.Expect(err).ToNot(HaveOccurred())
-		assertMachineCondition(ctx, g, m, clusterv1.MachineOwnerRemediatedCondition, corev1.ConditionFalse, clusterv1.WaitingForRemediationReason, clusterv1.ConditionSeverityWarning, "KCP waiting for having at least 3 control plane machines before triggering remediation")
+		assertMachineCondition(ctx, g, m1, clusterv1.MachineOwnerRemediatedCondition, corev1.ConditionFalse, clusterv1.WaitingForRemediationReason, clusterv1.ConditionSeverityWarning, "KCP waiting for having at least 3 control plane machines before triggering remediation")
 
-		g.Expect(testEnv.Cleanup(ctx, m)).To(Succeed())
+		g.Expect(env.Cleanup(ctx, m1, m2)).To(Succeed())
 	})
 	t.Run("Remediation does not happen if there is a deleting machine", func(t *testing.T) {
 		g := NewWithT(t)
@@ -124,7 +136,7 @@ func TestReconcileUnhealthyMachines(t *testing.T) {
 				Replicas: utilpointer.Int32Ptr(3),
 			}},
 			Cluster:  &clusterv1.Cluster{},
-			Machines: internal.NewFilterableMachineCollection(m1, m2, m3),
+			Machines: collections.FromMachines(m1, m2, m3),
 		}
 		ret, err := r.reconcileUnhealthyMachines(context.TODO(), controlPlane)
 
@@ -132,7 +144,7 @@ func TestReconcileUnhealthyMachines(t *testing.T) {
 		g.Expect(err).ToNot(HaveOccurred())
 		assertMachineCondition(ctx, g, m1, clusterv1.MachineOwnerRemediatedCondition, corev1.ConditionFalse, clusterv1.WaitingForRemediationReason, clusterv1.ConditionSeverityWarning, "KCP waiting for control plane machine deletion to complete before triggering remediation")
 
-		g.Expect(testEnv.Cleanup(ctx, m1, m2)).To(Succeed())
+		g.Expect(env.Cleanup(ctx, m1, m2)).To(Succeed())
 	})
 	t.Run("Remediation does not happen if there is at least one additional unhealthy etcd member on a 3 machine CP", func(t *testing.T) {
 		g := NewWithT(t)
@@ -146,16 +158,15 @@ func TestReconcileUnhealthyMachines(t *testing.T) {
 				Replicas: utilpointer.Int32Ptr(3),
 			}},
 			Cluster:  &clusterv1.Cluster{},
-			Machines: internal.NewFilterableMachineCollection(m1, m2, m3),
+			Machines: collections.FromMachines(m1, m2, m3),
 		}
 
 		r := &KubeadmControlPlaneReconciler{
-			Client:   testEnv.GetClient(),
-			Log:      log.Log,
+			Client:   env.GetClient(),
 			recorder: record.NewFakeRecorder(32),
 			managementCluster: &fakeManagementCluster{
 				Workload: fakeWorkloadCluster{
-					EtcdMembersResult: controlPlane.Machines.Names(),
+					EtcdMembersResult: nodes(controlPlane.Machines),
 				},
 			},
 		}
@@ -166,7 +177,7 @@ func TestReconcileUnhealthyMachines(t *testing.T) {
 		g.Expect(err).ToNot(HaveOccurred())
 		assertMachineCondition(ctx, g, m1, clusterv1.MachineOwnerRemediatedCondition, corev1.ConditionFalse, clusterv1.WaitingForRemediationReason, clusterv1.ConditionSeverityWarning, "KCP can't remediate this machine because this could result in etcd loosing quorum")
 
-		g.Expect(testEnv.Cleanup(ctx, m1, m2, m3)).To(Succeed())
+		g.Expect(env.Cleanup(ctx, m1, m2, m3)).To(Succeed())
 	})
 	t.Run("Remediation does not happen if there is at least two additional unhealthy etcd member on a 5 machine CP", func(t *testing.T) {
 		g := NewWithT(t)
@@ -182,16 +193,15 @@ func TestReconcileUnhealthyMachines(t *testing.T) {
 				Replicas: utilpointer.Int32Ptr(5),
 			}},
 			Cluster:  &clusterv1.Cluster{},
-			Machines: internal.NewFilterableMachineCollection(m1, m2, m3, m4, m5),
+			Machines: collections.FromMachines(m1, m2, m3, m4, m5),
 		}
 
 		r := &KubeadmControlPlaneReconciler{
-			Client:   testEnv.GetClient(),
-			Log:      log.Log,
+			Client:   env.GetClient(),
 			recorder: record.NewFakeRecorder(32),
 			managementCluster: &fakeManagementCluster{
 				Workload: fakeWorkloadCluster{
-					EtcdMembersResult: controlPlane.Machines.Names(),
+					EtcdMembersResult: nodes(controlPlane.Machines),
 				},
 			},
 		}
@@ -202,35 +212,34 @@ func TestReconcileUnhealthyMachines(t *testing.T) {
 		g.Expect(err).ToNot(HaveOccurred())
 		assertMachineCondition(ctx, g, m1, clusterv1.MachineOwnerRemediatedCondition, corev1.ConditionFalse, clusterv1.WaitingForRemediationReason, clusterv1.ConditionSeverityWarning, "KCP can't remediate this machine because this could result in etcd loosing quorum")
 
-		g.Expect(testEnv.Cleanup(ctx, m1, m2, m3, m4, m5)).To(Succeed())
+		g.Expect(env.Cleanup(ctx, m1, m2, m3, m4, m5)).To(Succeed())
 	})
-	t.Run("Remediation deletes unhealthy machine", func(t *testing.T) {
+	t.Run("Remediation deletes unhealthy machine - 2 CP (during 1 CP rolling upgrade)", func(t *testing.T) {
 		g := NewWithT(t)
 
 		m1 := createMachine(ctx, g, ns.Name, "m1-unhealthy-", withMachineHealthCheckFailed())
-		patchHelper, err := patch.NewHelper(m1, testEnv.GetClient())
+		patchHelper, err := patch.NewHelper(m1, env.GetClient())
 		g.Expect(err).ToNot(HaveOccurred())
 		m1.ObjectMeta.Finalizers = []string{"wait-before-delete"}
 		g.Expect(patchHelper.Patch(ctx, m1))
 
 		m2 := createMachine(ctx, g, ns.Name, "m2-healthy-", withHealthyEtcdMember())
-		m3 := createMachine(ctx, g, ns.Name, "m3-healthy-", withHealthyEtcdMember())
 
 		controlPlane := &internal.ControlPlane{
 			KCP: &controlplanev1.KubeadmControlPlane{Spec: controlplanev1.KubeadmControlPlaneSpec{
-				Replicas: utilpointer.Int32Ptr(3),
+				Replicas: utilpointer.Int32Ptr(2),
+				Version:  "v1.19.1",
 			}},
 			Cluster:  &clusterv1.Cluster{},
-			Machines: internal.NewFilterableMachineCollection(m1, m2, m3),
+			Machines: collections.FromMachines(m1, m2),
 		}
 
 		r := &KubeadmControlPlaneReconciler{
-			Client:   testEnv.GetClient(),
-			Log:      log.Log,
+			Client:   env.GetClient(),
 			recorder: record.NewFakeRecorder(32),
 			managementCluster: &fakeManagementCluster{
 				Workload: fakeWorkloadCluster{
-					EtcdMembersResult: controlPlane.Machines.Names(),
+					EtcdMembersResult: nodes(controlPlane.Machines),
 				},
 			},
 		}
@@ -242,26 +251,125 @@ func TestReconcileUnhealthyMachines(t *testing.T) {
 
 		assertMachineCondition(ctx, g, m1, clusterv1.MachineOwnerRemediatedCondition, corev1.ConditionFalse, clusterv1.RemediationInProgressReason, clusterv1.ConditionSeverityWarning, "")
 
-		err = testEnv.Get(ctx, client.ObjectKey{Namespace: m1.Namespace, Name: m1.Name}, m1)
+		err = env.Get(ctx, client.ObjectKey{Namespace: m1.Namespace, Name: m1.Name}, m1)
 		g.Expect(err).ToNot(HaveOccurred())
 		g.Expect(m1.ObjectMeta.DeletionTimestamp.IsZero()).To(BeFalse())
 
-		patchHelper, err = patch.NewHelper(m1, testEnv.GetClient())
+		patchHelper, err = patch.NewHelper(m1, env.GetClient())
 		g.Expect(err).ToNot(HaveOccurred())
 		m1.ObjectMeta.Finalizers = nil
 		g.Expect(patchHelper.Patch(ctx, m1))
 
-		g.Expect(testEnv.Cleanup(ctx, m1, m2, m3)).To(Succeed())
+		g.Expect(env.Cleanup(ctx, m1, m2)).To(Succeed())
+	})
+	t.Run("Remediation deletes unhealthy machine - 3 CP", func(t *testing.T) {
+		g := NewWithT(t)
+
+		m1 := createMachine(ctx, g, ns.Name, "m1-unhealthy-", withMachineHealthCheckFailed())
+		patchHelper, err := patch.NewHelper(m1, env.GetClient())
+		g.Expect(err).ToNot(HaveOccurred())
+		m1.ObjectMeta.Finalizers = []string{"wait-before-delete"}
+		g.Expect(patchHelper.Patch(ctx, m1))
+
+		m2 := createMachine(ctx, g, ns.Name, "m2-healthy-", withHealthyEtcdMember())
+		m3 := createMachine(ctx, g, ns.Name, "m3-healthy-", withHealthyEtcdMember())
+
+		controlPlane := &internal.ControlPlane{
+			KCP: &controlplanev1.KubeadmControlPlane{Spec: controlplanev1.KubeadmControlPlaneSpec{
+				Replicas: utilpointer.Int32Ptr(3),
+				Version:  "v1.19.1",
+			}},
+			Cluster:  &clusterv1.Cluster{},
+			Machines: collections.FromMachines(m1, m2, m3),
+		}
+
+		r := &KubeadmControlPlaneReconciler{
+			Client:   env.GetClient(),
+			recorder: record.NewFakeRecorder(32),
+			managementCluster: &fakeManagementCluster{
+				Workload: fakeWorkloadCluster{
+					EtcdMembersResult: nodes(controlPlane.Machines),
+				},
+			},
+		}
+
+		ret, err := r.reconcileUnhealthyMachines(context.TODO(), controlPlane)
+
+		g.Expect(ret.IsZero()).To(BeFalse()) // Remediation completed, requeue
+		g.Expect(err).ToNot(HaveOccurred())
+
+		assertMachineCondition(ctx, g, m1, clusterv1.MachineOwnerRemediatedCondition, corev1.ConditionFalse, clusterv1.RemediationInProgressReason, clusterv1.ConditionSeverityWarning, "")
+
+		err = env.Get(ctx, client.ObjectKey{Namespace: m1.Namespace, Name: m1.Name}, m1)
+		g.Expect(err).ToNot(HaveOccurred())
+		g.Expect(m1.ObjectMeta.DeletionTimestamp.IsZero()).To(BeFalse())
+
+		patchHelper, err = patch.NewHelper(m1, env.GetClient())
+		g.Expect(err).ToNot(HaveOccurred())
+		m1.ObjectMeta.Finalizers = nil
+		g.Expect(patchHelper.Patch(ctx, m1))
+
+		g.Expect(env.Cleanup(ctx, m1, m2, m3)).To(Succeed())
+	})
+	t.Run("Remediation deletes unhealthy machine - 4 CP (during 3 CP rolling upgrade)", func(t *testing.T) {
+		g := NewWithT(t)
+
+		m1 := createMachine(ctx, g, ns.Name, "m1-unhealthy-", withMachineHealthCheckFailed())
+		patchHelper, err := patch.NewHelper(m1, env.GetClient())
+		g.Expect(err).ToNot(HaveOccurred())
+		m1.ObjectMeta.Finalizers = []string{"wait-before-delete"}
+		g.Expect(patchHelper.Patch(ctx, m1))
+
+		m2 := createMachine(ctx, g, ns.Name, "m2-healthy-", withHealthyEtcdMember())
+		m3 := createMachine(ctx, g, ns.Name, "m3-healthy-", withHealthyEtcdMember())
+		m4 := createMachine(ctx, g, ns.Name, "m4-healthy-", withHealthyEtcdMember())
+
+		controlPlane := &internal.ControlPlane{
+			KCP: &controlplanev1.KubeadmControlPlane{Spec: controlplanev1.KubeadmControlPlaneSpec{
+				Replicas: utilpointer.Int32Ptr(4),
+				Version:  "v1.19.1",
+			}},
+			Cluster:  &clusterv1.Cluster{},
+			Machines: collections.FromMachines(m1, m2, m3, m4),
+		}
+
+		r := &KubeadmControlPlaneReconciler{
+			Client:   env.GetClient(),
+			recorder: record.NewFakeRecorder(32),
+			managementCluster: &fakeManagementCluster{
+				Workload: fakeWorkloadCluster{
+					EtcdMembersResult: nodes(controlPlane.Machines),
+				},
+			},
+		}
+
+		ret, err := r.reconcileUnhealthyMachines(context.TODO(), controlPlane)
+
+		g.Expect(ret.IsZero()).To(BeFalse()) // Remediation completed, requeue
+		g.Expect(err).ToNot(HaveOccurred())
+
+		assertMachineCondition(ctx, g, m1, clusterv1.MachineOwnerRemediatedCondition, corev1.ConditionFalse, clusterv1.RemediationInProgressReason, clusterv1.ConditionSeverityWarning, "")
+
+		err = env.Get(ctx, client.ObjectKey{Namespace: m1.Namespace, Name: m1.Name}, m1)
+		g.Expect(err).ToNot(HaveOccurred())
+		g.Expect(m1.ObjectMeta.DeletionTimestamp.IsZero()).To(BeFalse())
+
+		patchHelper, err = patch.NewHelper(m1, env.GetClient())
+		g.Expect(err).ToNot(HaveOccurred())
+		m1.ObjectMeta.Finalizers = nil
+		g.Expect(patchHelper.Patch(ctx, m1))
+
+		g.Expect(env.Cleanup(ctx, m1, m2, m3, m4)).To(Succeed())
 	})
 
-	g.Expect(testEnv.Cleanup(ctx, ns)).To(Succeed())
+	g.Expect(env.Cleanup(ctx, ns)).To(Succeed())
 }
 
 func TestCanSafelyRemoveEtcdMember(t *testing.T) {
 	g := NewWithT(t)
 	ctx := context.TODO()
 
-	ns, err := testEnv.CreateNamespace(ctx, "ns1")
+	ns, err := env.CreateNamespace(ctx, "ns1")
 	g.Expect(err).ToNot(HaveOccurred())
 
 	t.Run("Can't safely remediate 1 machine CP", func(t *testing.T) {
@@ -274,16 +382,15 @@ func TestCanSafelyRemoveEtcdMember(t *testing.T) {
 				Replicas: utilpointer.Int32Ptr(1),
 			}},
 			Cluster:  &clusterv1.Cluster{},
-			Machines: internal.NewFilterableMachineCollection(m1),
+			Machines: collections.FromMachines(m1),
 		}
 
 		r := &KubeadmControlPlaneReconciler{
-			Client:   testEnv.GetClient(),
-			Log:      log.Log,
+			Client:   env.GetClient(),
 			recorder: record.NewFakeRecorder(32),
 			managementCluster: &fakeManagementCluster{
 				Workload: fakeWorkloadCluster{
-					EtcdMembersResult: controlPlane.Machines.Names(),
+					EtcdMembersResult: nodes(controlPlane.Machines),
 				},
 			},
 		}
@@ -292,9 +399,9 @@ func TestCanSafelyRemoveEtcdMember(t *testing.T) {
 		g.Expect(ret).To(BeFalse())
 		g.Expect(err).ToNot(HaveOccurred())
 
-		g.Expect(testEnv.Cleanup(ctx, m1)).To(Succeed())
+		g.Expect(env.Cleanup(ctx, m1)).To(Succeed())
 	})
-	t.Run("Can't safely remediate 2 machine CP", func(t *testing.T) {
+	t.Run("Can safely remediate 2 machine CP without additional etcd member failures", func(t *testing.T) {
 		g := NewWithT(t)
 
 		m1 := createMachine(ctx, g, ns.Name, "m1-mhc-unhealthy-", withMachineHealthCheckFailed())
@@ -302,19 +409,85 @@ func TestCanSafelyRemoveEtcdMember(t *testing.T) {
 
 		controlPlane := &internal.ControlPlane{
 			KCP: &controlplanev1.KubeadmControlPlane{Spec: controlplanev1.KubeadmControlPlaneSpec{
-				Replicas: utilpointer.Int32Ptr(2),
+				Replicas: utilpointer.Int32Ptr(3),
 			}},
 			Cluster:  &clusterv1.Cluster{},
-			Machines: internal.NewFilterableMachineCollection(m1, m2),
+			Machines: collections.FromMachines(m1, m2),
 		}
 
 		r := &KubeadmControlPlaneReconciler{
-			Client:   testEnv.GetClient(),
-			Log:      log.Log,
+			Client:   env.GetClient(),
 			recorder: record.NewFakeRecorder(32),
 			managementCluster: &fakeManagementCluster{
 				Workload: fakeWorkloadCluster{
-					EtcdMembersResult: controlPlane.Machines.Names(),
+					EtcdMembersResult: nodes(controlPlane.Machines),
+				},
+			},
+		}
+
+		ret, err := r.canSafelyRemoveEtcdMember(context.TODO(), controlPlane, m1)
+		g.Expect(ret).To(BeTrue())
+		g.Expect(err).ToNot(HaveOccurred())
+
+		g.Expect(env.Cleanup(ctx, m1, m2)).To(Succeed())
+	})
+	t.Run("Can safely remediate 2 machines CP when the etcd member being remediated is missing", func(t *testing.T) {
+		g := NewWithT(t)
+
+		m1 := createMachine(ctx, g, ns.Name, "m1-mhc-unhealthy-", withMachineHealthCheckFailed())
+		m2 := createMachine(ctx, g, ns.Name, "m2-etcd-healthy-", withHealthyEtcdMember())
+
+		controlPlane := &internal.ControlPlane{
+			KCP: &controlplanev1.KubeadmControlPlane{Spec: controlplanev1.KubeadmControlPlaneSpec{
+				Replicas: utilpointer.Int32Ptr(3),
+			}},
+			Cluster:  &clusterv1.Cluster{},
+			Machines: collections.FromMachines(m1, m2),
+		}
+
+		members := make([]string, 0, len(controlPlane.Machines)-1)
+		for _, n := range nodes(controlPlane.Machines) {
+			if !strings.Contains(n, "m1-mhc-unhealthy-") {
+				members = append(members, n)
+			}
+		}
+
+		r := &KubeadmControlPlaneReconciler{
+			Client:   env.GetClient(),
+			recorder: record.NewFakeRecorder(32),
+			managementCluster: &fakeManagementCluster{
+				Workload: fakeWorkloadCluster{
+					EtcdMembersResult: members,
+				},
+			},
+		}
+
+		ret, err := r.canSafelyRemoveEtcdMember(context.TODO(), controlPlane, m1)
+		g.Expect(ret).To(BeTrue())
+		g.Expect(err).ToNot(HaveOccurred())
+
+		g.Expect(env.Cleanup(ctx, m1, m2)).To(Succeed())
+	})
+	t.Run("Can't safely remediate 2 machines CP with one additional etcd member failure", func(t *testing.T) {
+		g := NewWithT(t)
+
+		m1 := createMachine(ctx, g, ns.Name, "m1-mhc-unhealthy-", withMachineHealthCheckFailed())
+		m2 := createMachine(ctx, g, ns.Name, "m2-etcd-unhealthy-", withUnhealthyEtcdMember())
+
+		controlPlane := &internal.ControlPlane{
+			KCP: &controlplanev1.KubeadmControlPlane{Spec: controlplanev1.KubeadmControlPlaneSpec{
+				Replicas: utilpointer.Int32Ptr(3),
+			}},
+			Cluster:  &clusterv1.Cluster{},
+			Machines: collections.FromMachines(m1, m2),
+		}
+
+		r := &KubeadmControlPlaneReconciler{
+			Client:   env.GetClient(),
+			recorder: record.NewFakeRecorder(32),
+			managementCluster: &fakeManagementCluster{
+				Workload: fakeWorkloadCluster{
+					EtcdMembersResult: nodes(controlPlane.Machines),
 				},
 			},
 		}
@@ -323,7 +496,7 @@ func TestCanSafelyRemoveEtcdMember(t *testing.T) {
 		g.Expect(ret).To(BeFalse())
 		g.Expect(err).ToNot(HaveOccurred())
 
-		g.Expect(testEnv.Cleanup(ctx, m1, m2)).To(Succeed())
+		g.Expect(env.Cleanup(ctx, m1, m2)).To(Succeed())
 	})
 	t.Run("Can safely remediate 3 machines CP without additional etcd member failures", func(t *testing.T) {
 		g := NewWithT(t)
@@ -334,19 +507,18 @@ func TestCanSafelyRemoveEtcdMember(t *testing.T) {
 
 		controlPlane := &internal.ControlPlane{
 			KCP: &controlplanev1.KubeadmControlPlane{Spec: controlplanev1.KubeadmControlPlaneSpec{
-				Replicas: utilpointer.Int32Ptr(5),
+				Replicas: utilpointer.Int32Ptr(3),
 			}},
 			Cluster:  &clusterv1.Cluster{},
-			Machines: internal.NewFilterableMachineCollection(m1, m2, m3),
+			Machines: collections.FromMachines(m1, m2, m3),
 		}
 
 		r := &KubeadmControlPlaneReconciler{
-			Client:   testEnv.GetClient(),
-			Log:      log.Log,
+			Client:   env.GetClient(),
 			recorder: record.NewFakeRecorder(32),
 			managementCluster: &fakeManagementCluster{
 				Workload: fakeWorkloadCluster{
-					EtcdMembersResult: controlPlane.Machines.Names(),
+					EtcdMembersResult: nodes(controlPlane.Machines),
 				},
 			},
 		}
@@ -355,7 +527,45 @@ func TestCanSafelyRemoveEtcdMember(t *testing.T) {
 		g.Expect(ret).To(BeTrue())
 		g.Expect(err).ToNot(HaveOccurred())
 
-		g.Expect(testEnv.Cleanup(ctx, m1, m2, m3)).To(Succeed())
+		g.Expect(env.Cleanup(ctx, m1, m2, m3)).To(Succeed())
+	})
+	t.Run("Can safely remediate 3 machines CP when the etcd member being remediated is missing", func(t *testing.T) {
+		g := NewWithT(t)
+
+		m1 := createMachine(ctx, g, ns.Name, "m1-mhc-unhealthy-", withMachineHealthCheckFailed())
+		m2 := createMachine(ctx, g, ns.Name, "m2-etcd-healthy-", withHealthyEtcdMember())
+		m3 := createMachine(ctx, g, ns.Name, "m3-etcd-healthy-", withHealthyEtcdMember())
+
+		controlPlane := &internal.ControlPlane{
+			KCP: &controlplanev1.KubeadmControlPlane{Spec: controlplanev1.KubeadmControlPlaneSpec{
+				Replicas: utilpointer.Int32Ptr(3),
+			}},
+			Cluster:  &clusterv1.Cluster{},
+			Machines: collections.FromMachines(m1, m2, m3),
+		}
+
+		members := make([]string, 0, len(controlPlane.Machines)-1)
+		for _, n := range nodes(controlPlane.Machines) {
+			if !strings.Contains(n, "m1-mhc-unhealthy-") {
+				members = append(members, n)
+			}
+		}
+
+		r := &KubeadmControlPlaneReconciler{
+			Client:   env.GetClient(),
+			recorder: record.NewFakeRecorder(32),
+			managementCluster: &fakeManagementCluster{
+				Workload: fakeWorkloadCluster{
+					EtcdMembersResult: members,
+				},
+			},
+		}
+
+		ret, err := r.canSafelyRemoveEtcdMember(context.TODO(), controlPlane, m1)
+		g.Expect(ret).To(BeTrue())
+		g.Expect(err).ToNot(HaveOccurred())
+
+		g.Expect(env.Cleanup(ctx, m1, m2, m3)).To(Succeed())
 	})
 	t.Run("Can't safely remediate 3 machines CP with one additional etcd member failure", func(t *testing.T) {
 		g := NewWithT(t)
@@ -366,19 +576,18 @@ func TestCanSafelyRemoveEtcdMember(t *testing.T) {
 
 		controlPlane := &internal.ControlPlane{
 			KCP: &controlplanev1.KubeadmControlPlane{Spec: controlplanev1.KubeadmControlPlaneSpec{
-				Replicas: utilpointer.Int32Ptr(5),
+				Replicas: utilpointer.Int32Ptr(3),
 			}},
 			Cluster:  &clusterv1.Cluster{},
-			Machines: internal.NewFilterableMachineCollection(m1, m2, m3),
+			Machines: collections.FromMachines(m1, m2, m3),
 		}
 
 		r := &KubeadmControlPlaneReconciler{
-			Client:   testEnv.GetClient(),
-			Log:      log.Log,
+			Client:   env.GetClient(),
 			recorder: record.NewFakeRecorder(32),
 			managementCluster: &fakeManagementCluster{
 				Workload: fakeWorkloadCluster{
-					EtcdMembersResult: controlPlane.Machines.Names(),
+					EtcdMembersResult: nodes(controlPlane.Machines),
 				},
 			},
 		}
@@ -387,7 +596,7 @@ func TestCanSafelyRemoveEtcdMember(t *testing.T) {
 		g.Expect(ret).To(BeFalse())
 		g.Expect(err).ToNot(HaveOccurred())
 
-		g.Expect(testEnv.Cleanup(ctx, m1, m2, m3)).To(Succeed())
+		g.Expect(env.Cleanup(ctx, m1, m2, m3)).To(Succeed())
 	})
 	t.Run("Can safely remediate 5 machines CP less than 2 additional etcd member failures", func(t *testing.T) {
 		g := NewWithT(t)
@@ -403,16 +612,15 @@ func TestCanSafelyRemoveEtcdMember(t *testing.T) {
 				Replicas: utilpointer.Int32Ptr(5),
 			}},
 			Cluster:  &clusterv1.Cluster{},
-			Machines: internal.NewFilterableMachineCollection(m1, m2, m3, m4, m5),
+			Machines: collections.FromMachines(m1, m2, m3, m4, m5),
 		}
 
 		r := &KubeadmControlPlaneReconciler{
-			Client:   testEnv.GetClient(),
-			Log:      log.Log,
+			Client:   env.GetClient(),
 			recorder: record.NewFakeRecorder(32),
 			managementCluster: &fakeManagementCluster{
 				Workload: fakeWorkloadCluster{
-					EtcdMembersResult: controlPlane.Machines.Names(),
+					EtcdMembersResult: nodes(controlPlane.Machines),
 				},
 			},
 		}
@@ -421,7 +629,7 @@ func TestCanSafelyRemoveEtcdMember(t *testing.T) {
 		g.Expect(ret).To(BeTrue())
 		g.Expect(err).ToNot(HaveOccurred())
 
-		g.Expect(testEnv.Cleanup(ctx, m1, m2, m3, m4, m5)).To(Succeed())
+		g.Expect(env.Cleanup(ctx, m1, m2, m3, m4, m5)).To(Succeed())
 	})
 	t.Run("Can't safely remediate 5 machines CP with 2 additional etcd member failures", func(t *testing.T) {
 		g := NewWithT(t)
@@ -434,19 +642,18 @@ func TestCanSafelyRemoveEtcdMember(t *testing.T) {
 
 		controlPlane := &internal.ControlPlane{
 			KCP: &controlplanev1.KubeadmControlPlane{Spec: controlplanev1.KubeadmControlPlaneSpec{
-				Replicas: utilpointer.Int32Ptr(5),
+				Replicas: utilpointer.Int32Ptr(7),
 			}},
 			Cluster:  &clusterv1.Cluster{},
-			Machines: internal.NewFilterableMachineCollection(m1, m2, m3, m4, m5),
+			Machines: collections.FromMachines(m1, m2, m3, m4, m5),
 		}
 
 		r := &KubeadmControlPlaneReconciler{
-			Client:   testEnv.GetClient(),
-			Log:      log.Log,
+			Client:   env.GetClient(),
 			recorder: record.NewFakeRecorder(32),
 			managementCluster: &fakeManagementCluster{
 				Workload: fakeWorkloadCluster{
-					EtcdMembersResult: controlPlane.Machines.Names(),
+					EtcdMembersResult: nodes(controlPlane.Machines),
 				},
 			},
 		}
@@ -455,7 +662,7 @@ func TestCanSafelyRemoveEtcdMember(t *testing.T) {
 		g.Expect(ret).To(BeFalse())
 		g.Expect(err).ToNot(HaveOccurred())
 
-		g.Expect(testEnv.Cleanup(ctx, m1, m2, m3, m4, m5)).To(Succeed())
+		g.Expect(env.Cleanup(ctx, m1, m2, m3, m4, m5)).To(Succeed())
 	})
 	t.Run("Can safely remediate 7 machines CP with less than 3 additional etcd member failures", func(t *testing.T) {
 		g := NewWithT(t)
@@ -470,19 +677,18 @@ func TestCanSafelyRemoveEtcdMember(t *testing.T) {
 
 		controlPlane := &internal.ControlPlane{
 			KCP: &controlplanev1.KubeadmControlPlane{Spec: controlplanev1.KubeadmControlPlaneSpec{
-				Replicas: utilpointer.Int32Ptr(5),
+				Replicas: utilpointer.Int32Ptr(7),
 			}},
 			Cluster:  &clusterv1.Cluster{},
-			Machines: internal.NewFilterableMachineCollection(m1, m2, m3, m4, m5, m6, m7),
+			Machines: collections.FromMachines(m1, m2, m3, m4, m5, m6, m7),
 		}
 
 		r := &KubeadmControlPlaneReconciler{
-			Client:   testEnv.GetClient(),
-			Log:      log.Log,
+			Client:   env.GetClient(),
 			recorder: record.NewFakeRecorder(32),
 			managementCluster: &fakeManagementCluster{
 				Workload: fakeWorkloadCluster{
-					EtcdMembersResult: controlPlane.Machines.Names(),
+					EtcdMembersResult: nodes(controlPlane.Machines),
 				},
 			},
 		}
@@ -491,7 +697,7 @@ func TestCanSafelyRemoveEtcdMember(t *testing.T) {
 		g.Expect(ret).To(BeTrue())
 		g.Expect(err).ToNot(HaveOccurred())
 
-		g.Expect(testEnv.Cleanup(ctx, m1, m2, m3, m4, m5, m6, m7)).To(Succeed())
+		g.Expect(env.Cleanup(ctx, m1, m2, m3, m4, m5, m6, m7)).To(Succeed())
 	})
 	t.Run("Can't safely remediate 7 machines CP with 3 additional etcd member failures", func(t *testing.T) {
 		g := NewWithT(t)
@@ -509,16 +715,15 @@ func TestCanSafelyRemoveEtcdMember(t *testing.T) {
 				Replicas: utilpointer.Int32Ptr(5),
 			}},
 			Cluster:  &clusterv1.Cluster{},
-			Machines: internal.NewFilterableMachineCollection(m1, m2, m3, m4, m5, m6, m7),
+			Machines: collections.FromMachines(m1, m2, m3, m4, m5, m6, m7),
 		}
 
 		r := &KubeadmControlPlaneReconciler{
-			Client:   testEnv.GetClient(),
-			Log:      log.Log,
+			Client:   env.GetClient(),
 			recorder: record.NewFakeRecorder(32),
 			managementCluster: &fakeManagementCluster{
 				Workload: fakeWorkloadCluster{
-					EtcdMembersResult: controlPlane.Machines.Names(),
+					EtcdMembersResult: nodes(controlPlane.Machines),
 				},
 			},
 		}
@@ -527,9 +732,19 @@ func TestCanSafelyRemoveEtcdMember(t *testing.T) {
 		g.Expect(ret).To(BeFalse())
 		g.Expect(err).ToNot(HaveOccurred())
 
-		g.Expect(testEnv.Cleanup(ctx, m1, m2, m3, m4, m5, m6, m7)).To(Succeed())
+		g.Expect(env.Cleanup(ctx, m1, m2, m3, m4, m5, m6, m7)).To(Succeed())
 	})
-	g.Expect(testEnv.Cleanup(ctx, ns)).To(Succeed())
+	g.Expect(env.Cleanup(ctx, ns)).To(Succeed())
+}
+
+func nodes(machines collections.Machines) []string {
+	nodes := make([]string, 0, machines.Len())
+	for _, m := range machines {
+		if m.Status.NodeRef != nil {
+			nodes = append(nodes, m.Status.NodeRef.Name)
+		}
+	}
+	return nodes
 }
 
 type machineOption func(*clusterv1.Machine)
@@ -575,12 +790,12 @@ func createMachine(ctx context.Context, g *WithT, namespace, name string, option
 			},
 		},
 	}
-	g.Expect(testEnv.Create(ctx, m)).To(Succeed())
+	g.Expect(env.Create(ctx, m)).To(Succeed())
 
-	patchHelper, err := patch.NewHelper(m, testEnv.GetClient())
+	patchHelper, err := patch.NewHelper(m, env.GetClient())
 	g.Expect(err).ToNot(HaveOccurred())
 
-	for _, opt := range append(options, withNodeRef(m.Name)) {
+	for _, opt := range append(options, withNodeRef(fmt.Sprintf("node-%s", m.Name))) {
 		opt(m)
 	}
 
@@ -604,17 +819,33 @@ func getDeletingMachine(namespace, name string, options ...machineOption) *clust
 		},
 	}
 
-	for _, opt := range append(options, withNodeRef(m.Name)) {
+	for _, opt := range append(options, withNodeRef(fmt.Sprintf("node-%s", m.Name))) {
 		opt(m)
 	}
 	return m
 }
 
 func assertMachineCondition(ctx context.Context, g *WithT, m *clusterv1.Machine, t clusterv1.ConditionType, status corev1.ConditionStatus, reason string, severity clusterv1.ConditionSeverity, message string) {
-	g.Expect(testEnv.Get(ctx, client.ObjectKey{Namespace: m.Namespace, Name: m.Name}, m)).To(Succeed())
-	machineOwnerRemediatedCondition := conditions.Get(m, t)
-	g.Expect(machineOwnerRemediatedCondition.Status).To(Equal(status))
-	g.Expect(machineOwnerRemediatedCondition.Reason).To(Equal(reason))
-	g.Expect(machineOwnerRemediatedCondition.Severity).To(Equal(severity))
-	g.Expect(machineOwnerRemediatedCondition.Message).To(Equal(message))
+	g.Eventually(func() error {
+		if err := env.Get(ctx, client.ObjectKey{Namespace: m.Namespace, Name: m.Name}, m); err != nil {
+			return err
+		}
+		c := conditions.Get(m, t)
+		if c == nil {
+			return errors.Errorf("condition %q was nil", t)
+		}
+		if c.Status != status {
+			return errors.Errorf("condition %q status %q did not match %q", t, c.Status, status)
+		}
+		if c.Reason != reason {
+			return errors.Errorf("condition %q reason %q did not match %q", t, c.Reason, reason)
+		}
+		if c.Severity != severity {
+			return errors.Errorf("condition %q severity %q did not match %q", t, c.Status, status)
+		}
+		if c.Message != message {
+			return errors.Errorf("condition %q message %q did not match %q", t, c.Message, message)
+		}
+		return nil
+	}, 10*time.Second).Should(Succeed())
 }
