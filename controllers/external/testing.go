@@ -20,11 +20,10 @@ import (
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/pointer"
-	clusterv1 "sigs.k8s.io/cluster-api/api/v1alpha4"
+	clusterv1 "sigs.k8s.io/cluster-api/api/v1alpha3"
 )
 
 var (
-	// TestGenericBootstrapCRD is a generic boostrap CRD.
 	TestGenericBootstrapCRD = &apiextensionsv1.CustomResourceDefinition{
 		TypeMeta: metav1.TypeMeta{
 			APIVersion: apiextensionsv1.SchemeGroupVersion.String(),
@@ -33,7 +32,7 @@ var (
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "bootstrapmachines.bootstrap.cluster.x-k8s.io",
 			Labels: map[string]string{
-				clusterv1.GroupVersion.String(): "v1alpha4",
+				clusterv1.GroupVersion.String(): "v1alpha3",
 			},
 		},
 		Spec: apiextensionsv1.CustomResourceDefinitionSpec{
@@ -45,7 +44,7 @@ var (
 			},
 			Versions: []apiextensionsv1.CustomResourceDefinitionVersion{
 				{
-					Name:    "v1alpha4",
+					Name:    "v1alpha3",
 					Served:  true,
 					Storage: true,
 					Subresources: &apiextensionsv1.CustomResourceSubresources{
@@ -71,7 +70,6 @@ var (
 		},
 	}
 
-	// TestGenericBootstrapTemplateCRD is a generic boostrap template CRD.
 	TestGenericBootstrapTemplateCRD = &apiextensionsv1.CustomResourceDefinition{
 		TypeMeta: metav1.TypeMeta{
 			APIVersion: apiextensionsv1.SchemeGroupVersion.String(),
@@ -80,7 +78,7 @@ var (
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "bootstrapmachinetemplates.bootstrap.cluster.x-k8s.io",
 			Labels: map[string]string{
-				clusterv1.GroupVersion.String(): "v1alpha4",
+				clusterv1.GroupVersion.String(): "v1alpha3",
 			},
 		},
 		Spec: apiextensionsv1.CustomResourceDefinitionSpec{
@@ -92,7 +90,7 @@ var (
 			},
 			Versions: []apiextensionsv1.CustomResourceDefinitionVersion{
 				{
-					Name:    "v1alpha4",
+					Name:    "v1alpha3",
 					Served:  true,
 					Storage: true,
 					Subresources: &apiextensionsv1.CustomResourceSubresources{
@@ -118,7 +116,6 @@ var (
 		},
 	}
 
-	// TestGenericInfrastructureCRD is a generic infrastructure CRD.
 	TestGenericInfrastructureCRD = &apiextensionsv1.CustomResourceDefinition{
 		TypeMeta: metav1.TypeMeta{
 			APIVersion: apiextensionsv1.SchemeGroupVersion.String(),
@@ -127,7 +124,7 @@ var (
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "infrastructuremachines.infrastructure.cluster.x-k8s.io",
 			Labels: map[string]string{
-				clusterv1.GroupVersion.String(): "v1alpha4",
+				clusterv1.GroupVersion.String(): "v1alpha3",
 			},
 		},
 		Spec: apiextensionsv1.CustomResourceDefinitionSpec{
@@ -139,7 +136,7 @@ var (
 			},
 			Versions: []apiextensionsv1.CustomResourceDefinitionVersion{
 				{
-					Name:    "v1alpha4",
+					Name:    "v1alpha3",
 					Served:  true,
 					Storage: true,
 					Subresources: &apiextensionsv1.CustomResourceSubresources{
@@ -165,7 +162,6 @@ var (
 		},
 	}
 
-	// TestGenericInfrastructureTemplateCRD is a generic infrastructure template CRD.
 	TestGenericInfrastructureTemplateCRD = &apiextensionsv1.CustomResourceDefinition{
 		TypeMeta: metav1.TypeMeta{
 			APIVersion: apiextensionsv1.SchemeGroupVersion.String(),
@@ -174,7 +170,7 @@ var (
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "infrastructuremachinetemplates.infrastructure.cluster.x-k8s.io",
 			Labels: map[string]string{
-				clusterv1.GroupVersion.String(): "v1alpha4",
+				clusterv1.GroupVersion.String(): "v1alpha3",
 			},
 		},
 		Spec: apiextensionsv1.CustomResourceDefinitionSpec{
@@ -186,7 +182,7 @@ var (
 			},
 			Versions: []apiextensionsv1.CustomResourceDefinitionVersion{
 				{
-					Name:    "v1alpha4",
+					Name:    "v1alpha3",
 					Served:  true,
 					Storage: true,
 					Subresources: &apiextensionsv1.CustomResourceSubresources{
@@ -212,7 +208,6 @@ var (
 		},
 	}
 
-	// TestGenericInfrastructureRemediationCRD is a generic infrastructure remediation CRD.
 	TestGenericInfrastructureRemediationCRD = &apiextensionsv1.CustomResourceDefinition{
 		TypeMeta: metav1.TypeMeta{
 			APIVersion: apiextensionsv1.SchemeGroupVersion.String(),
@@ -259,7 +254,6 @@ var (
 		},
 	}
 
-	// TestGenericInfrastructureRemediationTemplateCRD is a generic infrastructure remediation template CRD.
 	TestGenericInfrastructureRemediationTemplateCRD = &apiextensionsv1.CustomResourceDefinition{
 		TypeMeta: metav1.TypeMeta{
 			APIVersion: apiextensionsv1.SchemeGroupVersion.String(),

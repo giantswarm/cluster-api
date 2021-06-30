@@ -19,18 +19,18 @@ limitations under the License.
 package e2e
 
 import (
-	. "github.com/onsi/ginkgo"
+	"context"
 
-	"sigs.k8s.io/cluster-api/test/framework"
+	. "github.com/onsi/ginkgo"
 )
 
 var _ = Describe("When testing KCP adoption", func() {
 
-	KCPAdoptionSpec(ctx, func() KCPAdoptionSpecInput {
+	KCPAdoptionSpec(context.TODO(), func() KCPAdoptionSpecInput {
 		return KCPAdoptionSpecInput{
 			E2EConfig:             e2eConfig,
 			ClusterctlConfigPath:  clusterctlConfigPath,
-			BootstrapClusterProxy: bootstrapClusterProxy.(framework.ClusterProxy),
+			BootstrapClusterProxy: bootstrapClusterProxy.(ClusterProxy),
 			ArtifactFolder:        artifactFolder,
 			SkipCleanup:           skipCleanup,
 		}

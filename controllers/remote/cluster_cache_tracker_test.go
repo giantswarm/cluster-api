@@ -18,40 +18,39 @@ package remote
 
 import (
 	"context"
-	"testing"
 
+	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes/scheme"
-	clusterv1 "sigs.k8s.io/cluster-api/api/v1alpha4"
+	clusterv1 "sigs.k8s.io/cluster-api/api/v1alpha3"
 	"sigs.k8s.io/cluster-api/util"
-	"sigs.k8s.io/cluster-api/util/conditions"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
+	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
-func mapper(i client.Object) []reconcile.Request {
+func mapper(i handler.MapObject) []reconcile.Request {
 	return []reconcile.Request{
 		{
 			NamespacedName: types.NamespacedName{
-				Namespace: i.GetNamespace(),
-				Name:      "mapped-" + i.GetName(),
+				Namespace: i.Meta.GetNamespace(),
+				Name:      "mapped-" + i.Meta.GetName(),
 			},
 		},
 	}
 }
 
-func TestClusterCacheTracker(t *testing.T) {
-	t.Run("watching", func(t *testing.T) {
+var _ = Describe("ClusterCache Tracker suite", func() {
+	Describe("watching", func() {
 		var (
 			mgr           manager.Manager
-			mgrContext    context.Context
-			mgrCancel     context.CancelFunc
+			doneMgr       chan struct{}
 			cct           *ClusterCacheTracker
 			k8sClient     client.Client
 			testNamespace *corev1.Namespace
@@ -60,39 +59,38 @@ func TestClusterCacheTracker(t *testing.T) {
 			clusterA      *clusterv1.Cluster
 		)
 
-		setup := func(t *testing.T, g *WithT) {
-			t.Log("Setting up a new manager")
+		BeforeEach(func() {
+			By("Setting up a new manager")
 			var err error
-			mgr, err = manager.New(env.Config, manager.Options{
+			mgr, err = manager.New(testEnv.Config, manager.Options{
 				Scheme:             scheme.Scheme,
 				MetricsBindAddress: "0",
 			})
-			g.Expect(err).NotTo(HaveOccurred())
+			Expect(err).NotTo(HaveOccurred())
 
 			c = &testController{
 				ch: make(chan string),
 			}
 			w, err = ctrl.NewControllerManagedBy(mgr).For(&clusterv1.MachineDeployment{}).Build(c)
-			g.Expect(err).NotTo(HaveOccurred())
+			Expect(err).To(BeNil())
 
-			mgrContext, mgrCancel = context.WithCancel(ctx)
-			t.Log("Starting the manager")
+			doneMgr = make(chan struct{})
+			By("Starting the manager")
 			go func() {
-				g.Expect(mgr.Start(mgrContext)).To(Succeed())
+				Expect(mgr.Start(doneMgr)).To(Succeed())
 			}()
-			<-env.Manager.Elected()
 
 			k8sClient = mgr.GetClient()
 
-			t.Log("Setting up a ClusterCacheTracker")
-			cct, err = NewClusterCacheTracker(mgr, ClusterCacheTrackerOptions{})
-			g.Expect(err).NotTo(HaveOccurred())
+			By("Setting up a ClusterCacheTracker")
+			cct, err = NewClusterCacheTracker(log.NullLogger{}, mgr)
+			Expect(err).NotTo(HaveOccurred())
 
-			t.Log("Creating a namespace for the test")
+			By("Creating a namespace for the test")
 			testNamespace = &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{GenerateName: "cluster-cache-test-"}}
-			g.Expect(k8sClient.Create(ctx, testNamespace)).To(Succeed())
+			Expect(k8sClient.Create(ctx, testNamespace)).To(Succeed())
 
-			t.Log("Creating a test cluster")
+			By("Creating a test cluster")
 			clusterA = &clusterv1.Cluster{
 				ObjectMeta: metav1.ObjectMeta{
 					Namespace:   testNamespace.GetName(),
@@ -100,92 +98,88 @@ func TestClusterCacheTracker(t *testing.T) {
 					Annotations: make(map[string]string),
 				},
 			}
-			g.Expect(k8sClient.Create(ctx, clusterA)).To(Succeed())
-			conditions.MarkTrue(clusterA, clusterv1.ControlPlaneInitializedCondition)
+			Expect(k8sClient.Create(ctx, clusterA)).To(Succeed())
+			clusterA.Status.ControlPlaneInitialized = true
 			clusterA.Status.InfrastructureReady = true
-			g.Expect(k8sClient.Status().Update(ctx, clusterA)).To(Succeed())
+			Expect(k8sClient.Status().Update(ctx, clusterA)).To(Succeed())
 
-			t.Log("Creating a test cluster kubeconfig")
-			g.Expect(env.CreateKubeconfigSecret(ctx, clusterA)).To(Succeed())
-		}
+			By("Creating a test cluster kubeconfig")
+			Expect(testEnv.CreateKubeconfigSecret(clusterA)).To(Succeed())
+		})
 
-		teardown := func(t *testing.T, g *WithT) {
-			t.Log("Deleting any Secrets")
-			g.Expect(cleanupTestSecrets(ctx, k8sClient)).To(Succeed())
-			t.Log("Deleting any Clusters")
-			g.Expect(cleanupTestClusters(ctx, k8sClient)).To(Succeed())
-			t.Log("Stopping the manager")
-			mgrCancel()
-		}
+		AfterEach(func() {
+			By("Deleting any Secrets")
+			Expect(cleanupTestSecrets(ctx, k8sClient)).To(Succeed())
+			By("Deleting any Clusters")
+			Expect(cleanupTestClusters(ctx, k8sClient)).To(Succeed())
+			By("Stopping the manager")
+			close(doneMgr)
+		})
 
-		t.Run("with the same name should succeed and not have duplicates", func(t *testing.T) {
-			g := NewWithT(t)
-			setup(t, g)
-			defer teardown(t, g)
-
-			t.Log("Creating the watch")
-			g.Expect(cct.Watch(ctx, WatchInput{
+		It("with the same name should succeed and not have duplicates", func() {
+			By("Creating the watch")
+			Expect(cct.Watch(ctx, WatchInput{
 				Name:         "watch1",
 				Cluster:      util.ObjectKey(clusterA),
 				Watcher:      w,
 				Kind:         &clusterv1.Cluster{},
-				EventHandler: handler.EnqueueRequestsFromMapFunc(mapper),
+				EventHandler: &handler.EnqueueRequestsFromMapFunc{ToRequests: handler.ToRequestsFunc(mapper)},
 			})).To(Succeed())
 
-			t.Log("Waiting to receive the watch notification")
-			g.Expect(<-c.ch).To(Equal("mapped-" + clusterA.Name))
+			By("Waiting to receive the watch notification")
+			Expect(<-c.ch).To(Equal("mapped-" + clusterA.Name))
 
-			t.Log("Ensuring no additional watch notifications arrive")
-			g.Consistently(func() int {
+			By("Ensuring no additional watch notifications arrive")
+			Consistently(func() int {
 				return len(c.ch)
 			}).Should(Equal(0))
 
-			t.Log("Updating the cluster")
+			By("Updating the cluster")
 			clusterA.Annotations["update1"] = "1"
-			g.Expect(k8sClient.Update(ctx, clusterA)).To(Succeed())
+			Expect(k8sClient.Update(ctx, clusterA)).Should(Succeed())
 
-			t.Log("Waiting to receive the watch notification")
-			g.Expect(<-c.ch).To(Equal("mapped-" + clusterA.Name))
+			By("Waiting to receive the watch notification")
+			Expect(<-c.ch).To(Equal("mapped-" + clusterA.Name))
 
-			t.Log("Ensuring no additional watch notifications arrive")
-			g.Consistently(func() int {
+			By("Ensuring no additional watch notifications arrive")
+			Consistently(func() int {
 				return len(c.ch)
 			}).Should(Equal(0))
 
-			t.Log("Creating the same watch a second time")
-			g.Expect(cct.Watch(ctx, WatchInput{
+			By("Creating the same watch a second time")
+			Expect(cct.Watch(ctx, WatchInput{
 				Name:         "watch1",
 				Cluster:      util.ObjectKey(clusterA),
 				Watcher:      w,
 				Kind:         &clusterv1.Cluster{},
-				EventHandler: handler.EnqueueRequestsFromMapFunc(mapper),
+				EventHandler: &handler.EnqueueRequestsFromMapFunc{ToRequests: handler.ToRequestsFunc(mapper)},
 			})).To(Succeed())
 
-			t.Log("Ensuring no additional watch notifications arrive")
-			g.Consistently(func() int {
+			By("Ensuring no additional watch notifications arrive")
+			Consistently(func() int {
 				return len(c.ch)
 			}).Should(Equal(0))
 
-			t.Log("Updating the cluster")
+			By("Updating the cluster")
 			clusterA.Annotations["update1"] = "2"
-			g.Expect(k8sClient.Update(ctx, clusterA)).To(Succeed())
+			Expect(k8sClient.Update(ctx, clusterA)).Should(Succeed())
 
-			t.Log("Waiting to receive the watch notification")
-			g.Expect(<-c.ch).To(Equal("mapped-" + clusterA.Name))
+			By("Waiting to receive the watch notification")
+			Expect(<-c.ch).To(Equal("mapped-" + clusterA.Name))
 
-			t.Log("Ensuring no additional watch notifications arrive")
-			g.Consistently(func() int {
+			By("Ensuring no additional watch notifications arrive")
+			Consistently(func() int {
 				return len(c.ch)
 			}).Should(Equal(0))
 		})
 	})
-}
+})
 
 type testController struct {
 	ch chan string
 }
 
-func (c *testController) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
+func (c *testController) Reconcile(req reconcile.Request) (reconcile.Result, error) {
 	c.ch <- req.Name
 	return ctrl.Result{}, nil
 }

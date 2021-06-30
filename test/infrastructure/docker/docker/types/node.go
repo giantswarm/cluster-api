@@ -14,7 +14,6 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-// Package types implements type functionality.
 package types
 
 import (
@@ -36,8 +35,7 @@ type Node struct {
 	ClusterRole string
 	InternalIP  string
 	Image       string
-	status      string
-	Commander   *ContainerCmder
+	Commander   *containerCmder
 }
 
 // NewNode returns a Node with defaults.
@@ -46,14 +44,8 @@ func NewNode(name, image, role string) *Node {
 		Name:        name,
 		Image:       image,
 		ClusterRole: role,
-		Commander:   GetContainerCmder(name),
+		Commander:   ContainerCmder(name),
 	}
-}
-
-// WithStatus sets the status of the container and returns the node.
-func (n *Node) WithStatus(status string) *Node {
-	n.status = status
-	return n
 }
 
 // String returns the name of the node.
@@ -87,11 +79,6 @@ func (n *Node) IP(ctx context.Context) (ipv4 string, ipv6 string, err error) {
 	return ips[0], ips[1], nil
 }
 
-// IsRunning returns if the container is running.
-func (n *Node) IsRunning() bool {
-	return strings.HasPrefix(n.status, "Up")
-}
-
 // Delete removes the container.
 func (n *Node) Delete(ctx context.Context) error {
 	cmd := exec.CommandContext(ctx,
@@ -119,6 +106,7 @@ func (n *Node) WriteFile(ctx context.Context, dest, content string) error {
 	command := n.Commander.Command("cp", "/dev/stdin", dest)
 	command.SetStdin(strings.NewReader(content))
 	return command.Run(ctx)
+
 }
 
 // Kill sends the named signal to the container.
@@ -131,26 +119,26 @@ func (n *Node) Kill(ctx context.Context, signal string) error {
 	return errors.WithStack(cmd.Run())
 }
 
-type ContainerCmder struct {
+type containerCmder struct {
 	nameOrID string
 }
 
-func GetContainerCmder(containerNameOrID string) *ContainerCmder {
-	return &ContainerCmder{
+func ContainerCmder(containerNameOrID string) *containerCmder {
+	return &containerCmder{
 		nameOrID: containerNameOrID,
 	}
 }
 
-func (c *ContainerCmder) Command(command string, args ...string) *ContainerCmd {
-	return &ContainerCmd{
+func (c *containerCmder) Command(command string, args ...string) *containerCmd {
+	return &containerCmd{
 		nameOrID: c.nameOrID,
 		command:  command,
 		args:     args,
 	}
 }
 
-// ContainerCmd implements exec.Cmd for docker containers.
-type ContainerCmd struct {
+// containerCmd implements exec.Cmd for docker containers
+type containerCmd struct {
 	nameOrID string // the container name or ID
 	command  string
 	args     []string
@@ -161,7 +149,7 @@ type ContainerCmd struct {
 }
 
 // RunLoggingOutputOnFail runs the cmd, logging error output if Run returns an error.
-func (c *ContainerCmd) RunLoggingOutputOnFail(ctx context.Context) ([]string, error) {
+func (c *containerCmd) RunLoggingOutputOnFail(ctx context.Context) ([]string, error) {
 	var buff bytes.Buffer
 	c.SetStdout(&buff)
 	c.SetStderr(&buff)
@@ -176,7 +164,7 @@ func (c *ContainerCmd) RunLoggingOutputOnFail(ctx context.Context) ([]string, er
 	return out, errors.WithStack(err)
 }
 
-func (c *ContainerCmd) Run(ctx context.Context) error {
+func (c *containerCmd) Run(ctx context.Context) error {
 	args := []string{
 		"exec",
 		// run with privileges so we can remount etc..
@@ -218,18 +206,18 @@ func (c *ContainerCmd) Run(ctx context.Context) error {
 	return errors.WithStack(cmd.Run())
 }
 
-func (c *ContainerCmd) SetEnv(env ...string) {
+func (c *containerCmd) SetEnv(env ...string) {
 	c.env = env
 }
 
-func (c *ContainerCmd) SetStdin(r io.Reader) {
+func (c *containerCmd) SetStdin(r io.Reader) {
 	c.stdin = r
 }
 
-func (c *ContainerCmd) SetStdout(w io.Writer) {
+func (c *containerCmd) SetStdout(w io.Writer) {
 	c.stdout = w
 }
 
-func (c *ContainerCmd) SetStderr(w io.Writer) {
+func (c *containerCmd) SetStderr(w io.Writer) {
 	c.stderr = w
 }

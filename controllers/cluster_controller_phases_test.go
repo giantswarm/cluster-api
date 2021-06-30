@@ -17,20 +17,24 @@ limitations under the License.
 package controllers
 
 import (
+	"context"
 	"testing"
 	"time"
 
 	. "github.com/onsi/gomega"
 
 	corev1 "k8s.io/api/core/v1"
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	clusterv1 "sigs.k8s.io/cluster-api/api/v1alpha4"
+	"k8s.io/client-go/kubernetes/scheme"
+	clusterv1 "sigs.k8s.io/cluster-api/api/v1alpha3"
 	"sigs.k8s.io/cluster-api/controllers/external"
 	capierrors "sigs.k8s.io/cluster-api/errors"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/log"
 )
 
 func TestClusterReconcilePhases(t *testing.T) {
@@ -49,7 +53,7 @@ func TestClusterReconcilePhases(t *testing.T) {
 					Port: 8443,
 				},
 				InfrastructureRef: &corev1.ObjectReference{
-					APIVersion: "infrastructure.cluster.x-k8s.io/v1alpha4",
+					APIVersion: "infrastructure.cluster.x-k8s.io/v1alpha3",
 					Kind:       "InfrastructureMachine",
 					Name:       "test",
 				},
@@ -79,7 +83,7 @@ func TestClusterReconcilePhases(t *testing.T) {
 				cluster: cluster,
 				infraRef: map[string]interface{}{
 					"kind":       "InfrastructureMachine",
-					"apiVersion": "infrastructure.cluster.x-k8s.io/v1alpha4",
+					"apiVersion": "infrastructure.cluster.x-k8s.io/v1alpha3",
 					"metadata": map[string]interface{}{
 						"name":              "test",
 						"namespace":         "test-namespace",
@@ -93,7 +97,7 @@ func TestClusterReconcilePhases(t *testing.T) {
 				cluster: cluster,
 				infraRef: map[string]interface{}{
 					"kind":       "InfrastructureMachine",
-					"apiVersion": "infrastructure.cluster.x-k8s.io/v1alpha4",
+					"apiVersion": "infrastructure.cluster.x-k8s.io/v1alpha3",
 					"metadata": map[string]interface{}{
 						"name":              "test",
 						"namespace":         "test-namespace",
@@ -107,7 +111,7 @@ func TestClusterReconcilePhases(t *testing.T) {
 				cluster: cluster,
 				infraRef: map[string]interface{}{
 					"kind":       "InfrastructureMachine",
-					"apiVersion": "infrastructure.cluster.x-k8s.io/v1alpha4",
+					"apiVersion": "infrastructure.cluster.x-k8s.io/v1alpha3",
 					"metadata": map[string]interface{}{
 						"name":      "test",
 						"namespace": "test-namespace",
@@ -123,23 +127,23 @@ func TestClusterReconcilePhases(t *testing.T) {
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
 				g := NewWithT(t)
+				g.Expect(clusterv1.AddToScheme(scheme.Scheme)).To(Succeed())
+				g.Expect(apiextensionsv1.AddToScheme(scheme.Scheme)).To(Succeed())
 
 				var c client.Client
 				if tt.infraRef != nil {
 					infraConfig := &unstructured.Unstructured{Object: tt.infraRef}
-					c = fake.NewClientBuilder().
-						WithObjects(external.TestGenericInfrastructureCRD.DeepCopy(), tt.cluster, infraConfig).
-						Build()
+					c = fake.NewFakeClientWithScheme(scheme.Scheme, external.TestGenericInfrastructureCRD.DeepCopy(), tt.cluster, infraConfig)
 				} else {
-					c = fake.NewClientBuilder().
-						WithObjects(external.TestGenericInfrastructureCRD.DeepCopy(), tt.cluster).
-						Build()
+					c = fake.NewFakeClientWithScheme(scheme.Scheme, external.TestGenericInfrastructureCRD.DeepCopy(), tt.cluster)
 				}
 				r := &ClusterReconciler{
 					Client: c,
+					Log:    log.Log,
+					scheme: scheme.Scheme,
 				}
 
-				res, err := r.reconcileInfrastructure(ctx, tt.cluster)
+				res, err := r.reconcileInfrastructure(context.Background(), tt.cluster)
 				g.Expect(res).To(Equal(tt.expectResult))
 				if tt.expectErr {
 					g.Expect(err).To(HaveOccurred())
@@ -148,6 +152,7 @@ func TestClusterReconcilePhases(t *testing.T) {
 				}
 			})
 		}
+
 	})
 
 	t.Run("reconcile kubeconfig", func(t *testing.T) {
@@ -205,19 +210,18 @@ func TestClusterReconcilePhases(t *testing.T) {
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
 				g := NewWithT(t)
+				g.Expect(clusterv1.AddToScheme(scheme.Scheme)).To(Succeed())
 
-				c := fake.NewClientBuilder().
-					WithObjects(tt.cluster).
-					Build()
+				c := fake.NewFakeClientWithScheme(scheme.Scheme, tt.cluster)
 				if tt.secret != nil {
-					c = fake.NewClientBuilder().
-						WithObjects(tt.cluster, tt.secret).
-						Build()
+					c = fake.NewFakeClientWithScheme(scheme.Scheme, tt.cluster, tt.secret)
 				}
 				r := &ClusterReconciler{
 					Client: c,
+					scheme: scheme.Scheme,
+					Log:    log.Log,
 				}
-				res, err := r.reconcileKubeconfig(ctx, tt.cluster)
+				res, err := r.reconcileKubeconfig(context.Background(), tt.cluster)
 				if tt.wantErr {
 					g.Expect(err).To(HaveOccurred())
 				} else {
@@ -359,14 +363,15 @@ func TestClusterReconciler_reconcilePhase(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			g := NewWithT(t)
 
-			c := fake.NewClientBuilder().
-				WithObjects(tt.cluster).
-				Build()
+			g.Expect(clusterv1.AddToScheme(scheme.Scheme)).To(Succeed())
+
+			c := fake.NewFakeClientWithScheme(scheme.Scheme, tt.cluster)
 
 			r := &ClusterReconciler{
 				Client: c,
+				scheme: scheme.Scheme,
 			}
-			r.reconcilePhase(ctx, tt.cluster)
+			r.reconcilePhase(context.TODO(), tt.cluster)
 			g.Expect(tt.cluster.Status.GetTypedPhase()).To(Equal(tt.wantPhase))
 		})
 	}

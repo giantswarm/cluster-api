@@ -20,16 +20,14 @@ import (
 	"context"
 	"strings"
 
-	"github.com/blang/semver"
-	"sigs.k8s.io/cluster-api/util/collections"
-
 	"github.com/pkg/errors"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	kerrors "k8s.io/apimachinery/pkg/util/errors"
-	clusterv1 "sigs.k8s.io/cluster-api/api/v1alpha4"
-	controlplanev1 "sigs.k8s.io/cluster-api/controlplane/kubeadm/api/v1alpha4"
+	clusterv1 "sigs.k8s.io/cluster-api/api/v1alpha3"
+	controlplanev1 "sigs.k8s.io/cluster-api/controlplane/kubeadm/api/v1alpha3"
 	"sigs.k8s.io/cluster-api/controlplane/kubeadm/internal"
+	"sigs.k8s.io/cluster-api/controlplane/kubeadm/internal/machinefilters"
 	"sigs.k8s.io/cluster-api/util"
 	"sigs.k8s.io/cluster-api/util/conditions"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -40,7 +38,7 @@ func (r *KubeadmControlPlaneReconciler) initializeControlPlane(ctx context.Conte
 
 	// Perform an uncached read of all the owned machines. This check is in place to make sure
 	// that the controller cache is not misbehaving and we end up initializing the cluster more than once.
-	ownedMachines, err := r.managementClusterUncached.GetMachinesForCluster(ctx, cluster, collections.OwnedMachines(kcp))
+	ownedMachines, err := r.managementClusterUncached.GetMachinesForCluster(ctx, util.ObjectKey(cluster), machinefilters.OwnedMachines(kcp))
 	if err != nil {
 		logger.Error(err, "failed to perform an uncached read of control plane machines for cluster")
 		return ctrl.Result{}, err
@@ -90,7 +88,7 @@ func (r *KubeadmControlPlaneReconciler) scaleDownControlPlane(
 	cluster *clusterv1.Cluster,
 	kcp *controlplanev1.KubeadmControlPlane,
 	controlPlane *internal.ControlPlane,
-	outdatedMachines collections.Machines,
+	outdatedMachines internal.FilterableMachineCollection,
 ) (ctrl.Result, error) {
 	logger := controlPlane.Logger()
 
@@ -130,12 +128,7 @@ func (r *KubeadmControlPlaneReconciler) scaleDownControlPlane(
 		}
 	}
 
-	parsedVersion, err := semver.ParseTolerant(kcp.Spec.Version)
-	if err != nil {
-		return ctrl.Result{}, errors.Wrapf(err, "failed to parse kubernetes version %q", kcp.Spec.Version)
-	}
-
-	if err := workloadCluster.RemoveMachineFromKubeadmConfigMap(ctx, machineToDelete, parsedVersion); err != nil {
+	if err := workloadCluster.RemoveMachineFromKubeadmConfigMap(ctx, machineToDelete); err != nil {
 		logger.Error(err, "Failed to remove machine from kubeadm ConfigMap")
 		return ctrl.Result{}, err
 	}
@@ -161,7 +154,7 @@ func (r *KubeadmControlPlaneReconciler) scaleDownControlPlane(
 //
 // NOTE: this func uses KCP conditions, it is required to call reconcileControlPlaneConditions before this.
 func (r *KubeadmControlPlaneReconciler) preflightChecks(_ context.Context, controlPlane *internal.ControlPlane, excludeFor ...*clusterv1.Machine) (ctrl.Result, error) { //nolint:unparam
-	logger := controlPlane.Logger()
+	logger := r.Log.WithValues("namespace", controlPlane.KCP.Namespace, "kubeadmControlPlane", controlPlane.KCP.Name, "cluster", controlPlane.Cluster.Name)
 
 	// If there is no KCP-owned control-plane machines, then control-plane has not been initialized yet,
 	// so it is considered ok to proceed.
@@ -171,7 +164,7 @@ func (r *KubeadmControlPlaneReconciler) preflightChecks(_ context.Context, contr
 
 	// If there are deleting machines, wait for the operation to complete.
 	if controlPlane.HasDeletingMachine() {
-		logger.Info("Waiting for machines to be deleted", "Machines", strings.Join(controlPlane.Machines.Filter(collections.HasDeletionTimestamp).Names(), ", "))
+		logger.Info("Waiting for machines to be deleted", "Machines", strings.Join(controlPlane.Machines.Filter(machinefilters.HasDeletionTimestamp).Names(), ", "))
 		return ctrl.Result{RequeueAfter: deleteRequeueAfter}, nil
 	}
 
@@ -191,6 +184,7 @@ func (r *KubeadmControlPlaneReconciler) preflightChecks(_ context.Context, contr
 
 loopmachines:
 	for _, machine := range controlPlane.Machines {
+
 		for _, excluded := range excludeFor {
 			// If this machine should be excluded from the individual
 			// health check, continue the out loop.
@@ -231,7 +225,7 @@ func preflightCheckCondition(kind string, obj conditions.Getter, condition clust
 	return nil
 }
 
-func selectMachineForScaleDown(controlPlane *internal.ControlPlane, outdatedMachines collections.Machines) (*clusterv1.Machine, error) {
+func selectMachineForScaleDown(controlPlane *internal.ControlPlane, outdatedMachines internal.FilterableMachineCollection) (*clusterv1.Machine, error) {
 	machines := controlPlane.Machines
 	switch {
 	case controlPlane.MachineWithDeleteAnnotation(outdatedMachines).Len() > 0:

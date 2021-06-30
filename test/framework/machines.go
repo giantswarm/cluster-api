@@ -22,18 +22,18 @@ import (
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
-	clusterv1 "sigs.k8s.io/cluster-api/api/v1alpha4"
+	clusterv1 "sigs.k8s.io/cluster-api/api/v1alpha3"
 	"sigs.k8s.io/cluster-api/util"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-// WaitForClusterMachineNodeRefsInput is the input for WaitForClusterMachineNodesRefs.
+// WaitForClusterMachineNodesRefsInput is the input for WaitForClusterMachineNodesRefs.
 type WaitForClusterMachineNodeRefsInput struct {
 	GetLister GetLister
 	Cluster   *clusterv1.Cluster
 }
 
-// WaitForClusterMachineNodeRefs waits until all nodes associated with a machine deployment exist.
+// WaitForClusterMachineNodesRefs waits until all nodes associated with a machine deployment exist.
 func WaitForClusterMachineNodeRefs(ctx context.Context, input WaitForClusterMachineNodeRefsInput, intervals ...interface{}) {
 	By("Waiting for the machines' nodes to exist")
 	machines := &clusterv1.MachineList{}

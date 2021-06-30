@@ -2,7 +2,8 @@
 
 The `clusterctl completion` command outputs shell completion code for the
 specified shell (bash or zsh). The shell code must be evaluated to provide
-interactive completion of clusterctl commands.
+interactive completion of clusterctl commands. This can be done by sourcing it
+from the `~/.bash_profile`.
 
 ## Bash
 
@@ -14,10 +15,9 @@ This requires the bash-completion framework.
 
 </aside>
 
-To install `bash-completion` on macOS, use Homebrew:
-
+To install it on macOS use Homebrew:
 ```
-brew install bash-completion
+$ brew install bash-completion
 ```
 
 Once installed, bash_completion must be evaluated. This can be done by adding
@@ -53,19 +53,19 @@ Zsh completions are only supported in versions of zsh >= 5.2
 </aside>
 
 The clusterctl completion script for Zsh can be generated with the command
-`clusterctl completion zsh`.
+`clusterctl completion zsh`. Sourcing the completion script in your shell
+enables clusterctl autocompletion.
 
-If shell completion is not already enabled in your environment you will need to
-enable it. You can execute the following once:
-
-```zsh
-echo "autoload -U compinit; compinit" >> ~/.zshrc
+To do so in all your shell sessions, add the following to your `~/.zshrc` file:
+```sh
+source <(clusterctl completion zsh)
 ```
 
-To load completions for each session, execute once:
+After reloading your shell, clusterctl autocompletion should be working.
 
-```zsh
-clusterctl completion zsh > "${fpath[1]}/_clusterctl"
+If you get an error like `complete:13: command not found: compdef`, then add
+the following to the beginning of your `~/.zshrc` file:
+```sh
+autoload -Uz compinit
+compinit
 ```
-
-You will need to start a new shell for this setup to take effect.

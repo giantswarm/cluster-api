@@ -18,12 +18,13 @@ package client
 
 import (
 	"io"
+	"io/ioutil"
 	"strconv"
+
+	"k8s.io/utils/pointer"
 
 	"github.com/pkg/errors"
 	"k8s.io/apimachinery/pkg/util/version"
-	"k8s.io/utils/pointer"
-
 	clusterctlv1 "sigs.k8s.io/cluster-api/cmd/clusterctl/api/v1alpha3"
 	"sigs.k8s.io/cluster-api/cmd/clusterctl/client/cluster"
 	"sigs.k8s.io/cluster-api/cmd/clusterctl/client/repository"
@@ -46,16 +47,22 @@ func (c *clusterctlClient) GetProvidersConfig() ([]Provider, error) {
 }
 
 func (c *clusterctlClient) GetProviderComponents(provider string, providerType clusterctlv1.ProviderType, options ComponentsOptions) (Components, error) {
-	components, err := c.getComponentsByName(provider, providerType, repository.ComponentsOptions(options))
+	// ComponentsOptions is an alias for repository.ComponentsOptions; this makes the conversion
+	inputOptions := repository.ComponentsOptions{
+		Version:           options.Version,
+		TargetNamespace:   options.TargetNamespace,
+		WatchingNamespace: options.WatchingNamespace,
+		SkipVariables:     options.SkipVariables,
+	}
+	components, err := c.getComponentsByName(provider, providerType, inputOptions)
 	if err != nil {
 		return nil, err
 	}
-
 	return components, nil
 }
 
 // ReaderSourceOptions define the options to be used when reading a template
-// from an arbitrary reader.
+// from an arbitrary reader
 type ReaderSourceOptions struct {
 	Reader io.Reader
 }
@@ -66,16 +73,16 @@ type ProcessYAMLOptions struct {
 	// URLSource to be used for reading the template
 	URLSource *URLSourceOptions
 
-	// SkipTemplateProcess return the list of variables expected by the template
+	// ListVariablesOnly return the list of variables expected by the template
 	// without executing any further processing.
-	SkipTemplateProcess bool
+	ListVariablesOnly bool
 }
 
 func (c *clusterctlClient) ProcessYAML(options ProcessYAMLOptions) (YamlPrinter, error) {
 	if options.ReaderSource != nil {
 		// NOTE: Beware of potentially reading in large files all at once
 		// since this is inefficient and increases memory utilziation.
-		content, err := io.ReadAll(options.ReaderSource.Reader)
+		content, err := ioutil.ReadAll(options.ReaderSource.Reader)
 		if err != nil {
 			return nil, err
 		}
@@ -84,7 +91,7 @@ func (c *clusterctlClient) ProcessYAML(options ProcessYAMLOptions) (YamlPrinter,
 			ConfigVariablesClient: c.configClient.Variables(),
 			Processor:             yaml.NewSimpleProcessor(),
 			TargetNamespace:       "",
-			SkipTemplateProcess:   options.SkipTemplateProcess,
+			ListVariablesOnly:     options.ListVariablesOnly,
 		})
 	}
 
@@ -92,7 +99,7 @@ func (c *clusterctlClient) ProcessYAML(options ProcessYAMLOptions) (YamlPrinter,
 	// leveraging the template client which exposes GetFromURL() is available
 	// on the cluster client so we create a cluster client with default
 	// configs to access it.
-	clstr, err := c.clusterClientFactory(
+	cluster, err := c.clusterClientFactory(
 		ClusterClientFactoryInput{
 			// use the default kubeconfig
 			Kubeconfig: Kubeconfig{},
@@ -103,7 +110,7 @@ func (c *clusterctlClient) ProcessYAML(options ProcessYAMLOptions) (YamlPrinter,
 	}
 
 	if options.URLSource != nil {
-		return c.getTemplateFromURL(clstr, *options.URLSource, "", options.SkipTemplateProcess)
+		return c.getTemplateFromURL(cluster, *options.URLSource, "", options.ListVariablesOnly)
 	}
 
 	return nil, errors.New("unable to read custom template. Please specify a template source")
@@ -217,14 +224,14 @@ func (c *clusterctlClient) GetClusterTemplate(options GetClusterTemplateOptions)
 	}
 
 	// Gets  the client for the current management cluster
-	clusterClient, err := c.clusterClientFactory(ClusterClientFactoryInput{options.Kubeconfig, options.YamlProcessor})
+	cluster, err := c.clusterClientFactory(ClusterClientFactoryInput{options.Kubeconfig, options.YamlProcessor})
 	if err != nil {
 		return nil, err
 	}
 
 	// If the option specifying the targetNamespace is empty, try to detect it.
 	if options.TargetNamespace == "" {
-		currentNamespace, err := clusterClient.Proxy().CurrentNamespace()
+		currentNamespace, err := cluster.Proxy().CurrentNamespace()
 		if err != nil {
 			return nil, err
 		}
@@ -241,22 +248,13 @@ func (c *clusterctlClient) GetClusterTemplate(options GetClusterTemplateOptions)
 
 	// Gets the workload cluster template from the selected source
 	if options.ProviderRepositorySource != nil {
-		// Ensure this command only runs against management clusters with the current Cluster API contract.
-		// NOTE: This command tolerates also not existing cluster (Kubeconfig.Path=="") or clusters not yet initialized in order to allow
-		// users to dry-run the command and take a look at what the cluster will look like; in both scenarios, it is required
-		// to pass provider:version given that auto-discovery can't work without a provider inventory installed in a cluster.
-		if options.Kubeconfig.Path != "" {
-			if err := clusterClient.ProviderInventory().CheckCAPIContract(cluster.AllowCAPINotInstalled{}); err != nil {
-				return nil, err
-			}
-		}
-		return c.getTemplateFromRepository(clusterClient, options)
+		return c.getTemplateFromRepository(cluster, options)
 	}
 	if options.ConfigMapSource != nil {
-		return c.getTemplateFromConfigMap(clusterClient, *options.ConfigMapSource, options.TargetNamespace, options.ListVariablesOnly)
+		return c.getTemplateFromConfigMap(cluster, *options.ConfigMapSource, options.TargetNamespace, options.ListVariablesOnly)
 	}
 	if options.URLSource != nil {
-		return c.getTemplateFromURL(clusterClient, *options.URLSource, options.TargetNamespace, options.ListVariablesOnly)
+		return c.getTemplateFromURL(cluster, *options.URLSource, options.TargetNamespace, options.ListVariablesOnly)
 	}
 
 	return nil, errors.New("unable to read custom template. Please specify a template source")
@@ -305,15 +303,15 @@ func (c *clusterctlClient) getTemplateFromRepository(cluster cluster.Client, opt
 			}
 		}
 
-		inventoryVersion, err := cluster.ProviderInventory().GetProviderVersion(name, clusterctlv1.InfrastructureProviderType)
+		defaultProviderVersion, err := cluster.ProviderInventory().GetDefaultProviderVersion(name, clusterctlv1.InfrastructureProviderType)
 		if err != nil {
 			return nil, err
 		}
 
-		if inventoryVersion == "" {
-			return nil, errors.Errorf("Unable to identify version for the provider %q automatically. Please specify a version", name)
+		if defaultProviderVersion == "" {
+			return nil, errors.Errorf("failed to identify the default version for the provider %q. Please specify a version", name)
 		}
-		version = inventoryVersion
+		version = defaultProviderVersion
 	}
 
 	// Get the template from the template repository.
@@ -360,6 +358,7 @@ func (c *clusterctlClient) getTemplateFromURL(cluster cluster.Client, source URL
 
 // templateOptionsToVariables injects some of the templateOptions to the configClient so they can be consumed as a variables from the template.
 func (c *clusterctlClient) templateOptionsToVariables(options GetClusterTemplateOptions) error {
+
 	// the TargetNamespace, if valid, can be used in templates using the ${ NAMESPACE } variable.
 	if err := validateDNS1123Label(options.TargetNamespace); err != nil {
 		return errors.Wrapf(err, "invalid target-namespace")

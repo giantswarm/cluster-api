@@ -1,5 +1,5 @@
 # Creates a cluster with one control-plane node and one worker node
-apiVersion: cluster.x-k8s.io/v1alpha4
+apiVersion: cluster.x-k8s.io/v1alpha3
 kind: Cluster
 metadata:
   name: my-cluster
@@ -12,50 +12,46 @@ spec:
       cidrBlocks: ["192.168.0.0/16"]
     serviceDomain: cluster.local
   controlPlaneRef:
-    apiVersion: controlplane.cluster.x-k8s.io/v1alpha4
+    apiVersion: controlplane.cluster.x-k8s.io/v1alpha3
     kind: KubeadmControlPlane
     name: controlplane
     namespace: default
   infrastructureRef:
-    apiVersion: infrastructure.cluster.x-k8s.io/v1alpha4
+    apiVersion: infrastructure.cluster.x-k8s.io/v1alpha3
     kind: DockerCluster
     name: my-cluster
     namespace: default
 ---
-apiVersion: controlplane.cluster.x-k8s.io/v1alpha4
+apiVersion: controlplane.cluster.x-k8s.io/v1alpha3
 kind: KubeadmControlPlane
 metadata:
   name: controlplane
   namespace: default
 spec:
   replicas: 1
-  version: v1.19.11
-  machineTemplate:
-    infrastructureRef:
-      apiVersion: infrastructure.cluster.x-k8s.io/v1alpha4
-      kind: DockerMachineTemplate
-      name: controlplane
-      namespace: default
+  version: v1.18.8
+  infrastructureTemplate:
+    apiVersion: infrastructure.cluster.x-k8s.io/v1alpha3
+    kind: DockerMachineTemplate
+    name: controlplane
+    namespace: default
   kubeadmConfigSpec:
     clusterConfiguration:
       controllerManager:
         extraArgs:
-          enable-hostpath-provisioner: "true"
+          enable-hostpath-provisioner: true
     initConfiguration:
       nodeRegistration:
         kubeletExtraArgs:
-          # We have to pin the cgroupDriver to cgroupfs as kubeadm >=1.21 defaults to systemd
-          # kind will implement systemd support in: https://github.com/kubernetes-sigs/kind/issues/1726
-          cgroup-driver: cgroupfs
           eviction-hard: nodefs.available<0%,nodefs.inodesFree<0%,imagefs.available<0%
 ---
-apiVersion: infrastructure.cluster.x-k8s.io/v1alpha4
+apiVersion: infrastructure.cluster.x-k8s.io/v1alpha3
 kind: DockerCluster
 metadata:
   name: my-cluster
   namespace: default
 ---
-apiVersion: infrastructure.cluster.x-k8s.io/v1alpha4
+apiVersion: infrastructure.cluster.x-k8s.io/v1alpha3
 kind: DockerMachineTemplate
 metadata:
   name: controlplane
@@ -64,7 +60,7 @@ spec:
   template:
     spec: {}
 ---
-apiVersion: cluster.x-k8s.io/v1alpha4
+apiVersion: exp.cluster.x-k8s.io/v1alpha3
 kind: MachinePool
 metadata:
   name: worker-mp-0
@@ -76,25 +72,25 @@ spec:
     spec:
       bootstrap:
         configRef:
-          apiVersion: bootstrap.cluster.x-k8s.io/v1alpha4
+          apiVersion: bootstrap.cluster.x-k8s.io/v1alpha3
           kind: KubeadmConfig
           name: worker-mp-0-config
           namespace: default
       clusterName: my-cluster
       infrastructureRef:
-        apiVersion: infrastructure.cluster.x-k8s.io/v1alpha4
+        apiVersion: exp.infrastructure.cluster.x-k8s.io/v1alpha3
         kind: DockerMachinePool
         name: worker-dmp-0
         namespace: default
-      version: v1.19.11
+      version: v1.18.8
 ---
-apiVersion: infrastructure.cluster.x-k8s.io/v1alpha4
+apiVersion: exp.infrastructure.cluster.x-k8s.io/v1alpha3
 kind: DockerMachinePool
 metadata:
   name: worker-dmp-0
   namespace: default
 ---
-apiVersion: bootstrap.cluster.x-k8s.io/v1alpha4
+apiVersion: bootstrap.cluster.x-k8s.io/v1alpha3
 kind: KubeadmConfig
 metadata:
   name: worker-mp-0-config
@@ -103,7 +99,4 @@ spec:
   joinConfiguration:
     nodeRegistration:
       kubeletExtraArgs:
-        # We have to pin the cgroupDriver to cgroupfs as kubeadm >=1.21 defaults to systemd
-        # kind will implement systemd support in: https://github.com/kubernetes-sigs/kind/issues/1726
-        cgroup-driver: cgroupfs
         eviction-hard: nodefs.available<0%,nodefs.inodesFree<0%,imagefs.available<0%

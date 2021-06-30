@@ -14,7 +14,6 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-// Package resource implements resource utilites.
 package resource
 
 import "k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -46,7 +45,7 @@ var defaultCreatePriorities = []string{
 	"Endpoints",
 }
 
-// SortForCreate sorts objects by creation priority.
+// SortForCreate sorts objects by creation priority
 func SortForCreate(resources []unstructured.Unstructured) []unstructured.Unstructured {
 	var ret []unstructured.Unstructured
 

@@ -21,19 +21,18 @@ import (
 
 	. "github.com/onsi/gomega"
 	"github.com/pkg/errors"
-
-	pb "go.etcd.io/etcd/api/v3/etcdserverpb"
-	clientv3 "go.etcd.io/etcd/client/v3"
+	"go.etcd.io/etcd/clientv3"
+	pb "go.etcd.io/etcd/etcdserver/etcdserverpb"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
-	clusterv1 "sigs.k8s.io/cluster-api/api/v1alpha4"
-	bootstrapv1 "sigs.k8s.io/cluster-api/bootstrap/kubeadm/api/v1alpha4"
-	controlplanev1 "sigs.k8s.io/cluster-api/controlplane/kubeadm/api/v1alpha4"
+	clusterv1 "sigs.k8s.io/cluster-api/api/v1alpha3"
+	bootstrapv1 "sigs.k8s.io/cluster-api/bootstrap/kubeadm/api/v1alpha3"
+	"sigs.k8s.io/cluster-api/bootstrap/kubeadm/types/v1beta1"
+	controlplanev1 "sigs.k8s.io/cluster-api/controlplane/kubeadm/api/v1alpha3"
 	"sigs.k8s.io/cluster-api/controlplane/kubeadm/internal/etcd"
 	fake2 "sigs.k8s.io/cluster-api/controlplane/kubeadm/internal/etcd/fake"
-	"sigs.k8s.io/cluster-api/util/collections"
 	"sigs.k8s.io/cluster-api/util/conditions"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -451,9 +450,9 @@ func TestUpdateEtcdConditions(t *testing.T) {
 			kcp: &controlplanev1.KubeadmControlPlane{
 				Spec: controlplanev1.KubeadmControlPlaneSpec{
 					KubeadmConfigSpec: bootstrapv1.KubeadmConfigSpec{
-						ClusterConfiguration: &bootstrapv1.ClusterConfiguration{
-							Etcd: bootstrapv1.Etcd{
-								External: &bootstrapv1.ExternalEtcd{},
+						ClusterConfiguration: &v1beta1.ClusterConfiguration{
+							Etcd: v1beta1.Etcd{
+								External: &v1beta1.ExternalEtcd{},
 							},
 						},
 					},
@@ -475,7 +474,7 @@ func TestUpdateEtcdConditions(t *testing.T) {
 			}
 			controlPane := &ControlPlane{
 				KCP:      tt.kcp,
-				Machines: collections.FromMachines(tt.machines...),
+				Machines: NewFilterableMachineCollection(tt.machines...),
 			}
 			w.UpdateEtcdConditions(ctx, controlPane)
 
@@ -527,13 +526,13 @@ func TestUpdateStaticPodConditions(t *testing.T) {
 			injectClient: &fakeClient{
 				listErr: errors.New("failed to list nodes"),
 			},
-			expectedKCPCondition: conditions.UnknownCondition(controlplanev1.ControlPlaneComponentsHealthyCondition, controlplanev1.ControlPlaneComponentsInspectionFailedReason, "Failed to list nodes which are hosting control plane components: failed to list nodes"),
+			expectedKCPCondition: conditions.UnknownCondition(controlplanev1.ControlPlaneComponentsHealthyCondition, controlplanev1.ControlPlaneComponentsInspectionFailedReason, "Failed to list nodes which are hosting control plane components"),
 			expectedMachineConditions: map[string]clusterv1.Conditions{
 				"m1": {
-					*conditions.UnknownCondition(controlplanev1.MachineAPIServerPodHealthyCondition, controlplanev1.PodInspectionFailedReason, "Failed to get the node which is hosting this component: failed to list nodes"),
-					*conditions.UnknownCondition(controlplanev1.MachineControllerManagerPodHealthyCondition, controlplanev1.PodInspectionFailedReason, "Failed to get the node which is hosting this component: failed to list nodes"),
-					*conditions.UnknownCondition(controlplanev1.MachineSchedulerPodHealthyCondition, controlplanev1.PodInspectionFailedReason, "Failed to get the node which is hosting this component: failed to list nodes"),
-					*conditions.UnknownCondition(controlplanev1.MachineEtcdPodHealthyCondition, controlplanev1.PodInspectionFailedReason, "Failed to get the node which is hosting this component: failed to list nodes"),
+					*conditions.UnknownCondition(controlplanev1.MachineAPIServerPodHealthyCondition, controlplanev1.PodInspectionFailedReason, "Failed to get the node which is hosting this component"),
+					*conditions.UnknownCondition(controlplanev1.MachineControllerManagerPodHealthyCondition, controlplanev1.PodInspectionFailedReason, "Failed to get the node which is hosting this component"),
+					*conditions.UnknownCondition(controlplanev1.MachineSchedulerPodHealthyCondition, controlplanev1.PodInspectionFailedReason, "Failed to get the node which is hosting this component"),
+					*conditions.UnknownCondition(controlplanev1.MachineEtcdPodHealthyCondition, controlplanev1.PodInspectionFailedReason, "Failed to get the node which is hosting this component"),
 				},
 			},
 		},
@@ -692,9 +691,9 @@ func TestUpdateStaticPodConditions(t *testing.T) {
 			kcp: &controlplanev1.KubeadmControlPlane{
 				Spec: controlplanev1.KubeadmControlPlaneSpec{
 					KubeadmConfigSpec: bootstrapv1.KubeadmConfigSpec{
-						ClusterConfiguration: &bootstrapv1.ClusterConfiguration{
-							Etcd: bootstrapv1.Etcd{
-								External: &bootstrapv1.ExternalEtcd{},
+						ClusterConfiguration: &v1beta1.ClusterConfiguration{
+							Etcd: v1beta1.Etcd{
+								External: &v1beta1.ExternalEtcd{},
 							},
 						},
 					},
@@ -747,7 +746,7 @@ func TestUpdateStaticPodConditions(t *testing.T) {
 			}
 			controlPane := &ControlPlane{
 				KCP:      tt.kcp,
-				Machines: collections.FromMachines(tt.machines...),
+				Machines: NewFilterableMachineCollection(tt.machines...),
 			}
 			w.UpdateStaticPodConditions(ctx, controlPane)
 
@@ -764,10 +763,14 @@ func TestUpdateStaticPodConditions(t *testing.T) {
 
 func TestUpdateStaticPodCondition(t *testing.T) {
 	machine := &clusterv1.Machine{}
-	nodeName := "node"
+	node := corev1.Node{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "node",
+		},
+	}
 	component := "kube-component"
 	condition := clusterv1.ConditionType("kubeComponentHealthy")
-	podName := staticPodName(component, nodeName)
+	podName := staticPodName(component, node.Name)
 	podkey := client.ObjectKey{
 		Namespace: metav1.NamespaceSystem,
 		Name:      podName,
@@ -776,20 +779,13 @@ func TestUpdateStaticPodCondition(t *testing.T) {
 	tests := []struct {
 		name              string
 		injectClient      client.Client // This test is injecting a fake client because it is required to create pods with a controlled Status or to fail with a specific error.
-		node              *corev1.Node
 		expectedCondition clusterv1.Condition
 	}{
-		{
-			name:              "if node Ready is unknown, assume pod status is stale",
-			node:              fakeNode(nodeName, withReadyCondition(corev1.ConditionUnknown)),
-			expectedCondition: *conditions.UnknownCondition(condition, controlplanev1.PodInspectionFailedReason, "Node Ready condition is unknown, pod data might be stale"),
-		},
 		{
 			name: "if gets pod return a NotFound error should report PodCondition=False, PodMissing",
 			injectClient: &fakeClient{
 				getErr: apierrors.NewNotFound(schema.ParseGroupResource("Pod"), component),
 			},
-			node:              fakeNode(nodeName),
 			expectedCondition: *conditions.FalseCondition(condition, controlplanev1.PodMissingReason, clusterv1.ConditionSeverityError, "Pod kube-component-node is missing"),
 		},
 		{
@@ -797,7 +793,6 @@ func TestUpdateStaticPodCondition(t *testing.T) {
 			injectClient: &fakeClient{
 				getErr: errors.New("get failure"),
 			},
-			node:              fakeNode(nodeName),
 			expectedCondition: *conditions.UnknownCondition(condition, controlplanev1.PodInspectionFailedReason, "Failed to get pod status"),
 		},
 		{
@@ -810,7 +805,6 @@ func TestUpdateStaticPodCondition(t *testing.T) {
 					),
 				},
 			},
-			node:              fakeNode(nodeName),
 			expectedCondition: *conditions.FalseCondition(condition, controlplanev1.PodProvisioningReason, clusterv1.ConditionSeverityInfo, "Waiting to be scheduled"),
 		},
 		{
@@ -824,7 +818,6 @@ func TestUpdateStaticPodCondition(t *testing.T) {
 					),
 				},
 			},
-			node:              fakeNode(nodeName),
 			expectedCondition: *conditions.FalseCondition(condition, controlplanev1.PodProvisioningReason, clusterv1.ConditionSeverityInfo, "Running init containers"),
 		},
 		{
@@ -838,7 +831,6 @@ func TestUpdateStaticPodCondition(t *testing.T) {
 					),
 				},
 			},
-			node:              fakeNode(nodeName),
 			expectedCondition: *conditions.FalseCondition(condition, controlplanev1.PodProvisioningReason, clusterv1.ConditionSeverityInfo, ""),
 		},
 		{
@@ -851,7 +843,6 @@ func TestUpdateStaticPodCondition(t *testing.T) {
 					),
 				},
 			},
-			node:              fakeNode(nodeName),
 			expectedCondition: *conditions.TrueCondition(condition),
 		},
 		{
@@ -868,7 +859,6 @@ func TestUpdateStaticPodCondition(t *testing.T) {
 					),
 				},
 			},
-			node:              fakeNode(nodeName),
 			expectedCondition: *conditions.FalseCondition(condition, controlplanev1.PodProvisioningReason, clusterv1.ConditionSeverityInfo, "Waiting something"),
 		},
 		{
@@ -890,7 +880,6 @@ func TestUpdateStaticPodCondition(t *testing.T) {
 					),
 				},
 			},
-			node:              fakeNode(nodeName),
 			expectedCondition: *conditions.FalseCondition(condition, controlplanev1.PodFailedReason, clusterv1.ConditionSeverityError, "Waiting something"),
 		},
 		{
@@ -907,7 +896,6 @@ func TestUpdateStaticPodCondition(t *testing.T) {
 					),
 				},
 			},
-			node:              fakeNode(nodeName),
 			expectedCondition: *conditions.FalseCondition(condition, controlplanev1.PodFailedReason, clusterv1.ConditionSeverityError, "Something failed"),
 		},
 		{
@@ -919,7 +907,6 @@ func TestUpdateStaticPodCondition(t *testing.T) {
 					),
 				},
 			},
-			node:              fakeNode(nodeName),
 			expectedCondition: *conditions.FalseCondition(condition, controlplanev1.PodProvisioningReason, clusterv1.ConditionSeverityInfo, "Waiting for startup or readiness probes"),
 		},
 		{
@@ -931,7 +918,6 @@ func TestUpdateStaticPodCondition(t *testing.T) {
 					),
 				},
 			},
-			node:              fakeNode(nodeName),
 			expectedCondition: *conditions.FalseCondition(condition, controlplanev1.PodFailedReason, clusterv1.ConditionSeverityError, "All the containers have been terminated"),
 		},
 		{
@@ -943,7 +929,6 @@ func TestUpdateStaticPodCondition(t *testing.T) {
 					),
 				},
 			},
-			node:              fakeNode(nodeName),
 			expectedCondition: *conditions.FalseCondition(condition, controlplanev1.PodFailedReason, clusterv1.ConditionSeverityError, "All the containers have been terminated"),
 		},
 		{
@@ -955,7 +940,6 @@ func TestUpdateStaticPodCondition(t *testing.T) {
 					),
 				},
 			},
-			node:              fakeNode(nodeName),
 			expectedCondition: *conditions.UnknownCondition(condition, controlplanev1.PodInspectionFailedReason, "Pod is reporting unknown status"),
 		},
 	}
@@ -967,7 +951,7 @@ func TestUpdateStaticPodCondition(t *testing.T) {
 			w := &Workload{
 				Client: tt.injectClient,
 			}
-			w.updateStaticPodCondition(ctx, machine, *tt.node, component, condition)
+			w.updateStaticPodCondition(ctx, machine, node, component, condition)
 
 			g.Expect(*conditions.Get(machine, condition)).To(conditions.MatchCondition(tt.expectedCondition))
 		})
@@ -993,15 +977,6 @@ func withUnreachableTaint() fakeNodeOption {
 		node.Spec.Taints = append(node.Spec.Taints, corev1.Taint{
 			Key:    corev1.TaintNodeUnreachable,
 			Effect: corev1.TaintEffectNoExecute,
-		})
-	}
-}
-
-func withReadyCondition(status corev1.ConditionStatus) fakeNodeOption {
-	return func(node *corev1.Node) {
-		node.Status.Conditions = append(node.Status.Conditions, corev1.NodeCondition{
-			Type:   corev1.NodeReady,
-			Status: status,
 		})
 	}
 }

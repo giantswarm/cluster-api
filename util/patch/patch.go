@@ -26,20 +26,17 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/runtime/schema"
 	kerrors "k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/apimachinery/pkg/util/wait"
-	clusterv1 "sigs.k8s.io/cluster-api/api/v1alpha4"
+	clusterv1 "sigs.k8s.io/cluster-api/api/v1alpha3"
 	"sigs.k8s.io/cluster-api/util/conditions"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
 )
 
 // Helper is a utility for ensuring the proper patching of objects.
 type Helper struct {
 	client       client.Client
-	gvk          schema.GroupVersionKind
-	beforeObject client.Object
+	beforeObject runtime.Object
 	before       *unstructured.Unstructured
 	after        *unstructured.Unstructured
 	changes      map[string]bool
@@ -47,18 +44,13 @@ type Helper struct {
 	isConditionsSetter bool
 }
 
-// NewHelper returns an initialized Helper.
-func NewHelper(obj client.Object, crClient client.Client) (*Helper, error) {
+// NewHelper returns an initialized Helper
+func NewHelper(obj runtime.Object, crClient client.Client) (*Helper, error) {
 	// Return early if the object is nil.
-	if err := checkNilObject(obj); err != nil {
-		return nil, err
-	}
-
-	// Get the GroupVersionKind of the object,
-	// used to validate against later on.
-	gvk, err := apiutil.GVKForObject(obj, crClient.Scheme())
-	if err != nil {
-		return nil, err
+	// If you're wondering why we need reflection to do this check, see https://golang.org/doc/faq#nil_error.
+	// TODO(vincepri): Remove this check and let it panic if used improperly in a future minor release.
+	if obj == nil || (reflect.ValueOf(obj).IsValid() && reflect.ValueOf(obj).IsNil()) {
+		return nil, errors.Errorf("expected non-nil object")
 	}
 
 	// Convert the object to unstructured to compare against our before copy.
@@ -72,27 +64,16 @@ func NewHelper(obj client.Object, crClient client.Client) (*Helper, error) {
 
 	return &Helper{
 		client:             crClient,
-		gvk:                gvk,
 		before:             unstructuredObj,
-		beforeObject:       obj.DeepCopyObject().(client.Object),
+		beforeObject:       obj.DeepCopyObject(),
 		isConditionsSetter: canInterfaceConditions,
 	}, nil
 }
 
 // Patch will attempt to patch the given object, including its status.
-func (h *Helper) Patch(ctx context.Context, obj client.Object, opts ...Option) error {
-	// Return early if the object is nil.
-	if err := checkNilObject(obj); err != nil {
-		return err
-	}
-
-	// Get the GroupVersionKind of the object that we want to patch.
-	gvk, err := apiutil.GVKForObject(obj, h.client.Scheme())
-	if err != nil {
-		return err
-	}
-	if gvk != h.gvk {
-		return errors.Errorf("unmatched GroupVersionKind, expected %q got %q", h.gvk, gvk)
+func (h *Helper) Patch(ctx context.Context, obj runtime.Object, opts ...Option) error {
+	if obj == nil {
+		return errors.Errorf("expected non-nil object")
 	}
 
 	// Calculate the options.
@@ -102,6 +83,7 @@ func (h *Helper) Patch(ctx context.Context, obj client.Object, opts ...Option) e
 	}
 
 	// Convert the object to unstructured to compare against our before copy.
+	var err error
 	h.after, err = toUnstructured(obj)
 	if err != nil {
 		return err
@@ -144,7 +126,7 @@ func (h *Helper) Patch(ctx context.Context, obj client.Object, opts ...Option) e
 }
 
 // patch issues a patch for metadata and spec.
-func (h *Helper) patch(ctx context.Context, obj client.Object) error {
+func (h *Helper) patch(ctx context.Context, obj runtime.Object) error {
 	if !h.shouldPatch("metadata") && !h.shouldPatch("spec") {
 		return nil
 	}
@@ -156,7 +138,7 @@ func (h *Helper) patch(ctx context.Context, obj client.Object) error {
 }
 
 // patchStatus issues a patch if the status has changed.
-func (h *Helper) patchStatus(ctx context.Context, obj client.Object) error {
+func (h *Helper) patchStatus(ctx context.Context, obj runtime.Object) error {
 	if !h.shouldPatch("status") {
 		return nil
 	}
@@ -176,7 +158,7 @@ func (h *Helper) patchStatus(ctx context.Context, obj client.Object) error {
 //
 // Condition changes are then applied to the latest version of the object, and if there are
 // no unresolvable conflicts, the patch is sent again.
-func (h *Helper) patchStatusConditions(ctx context.Context, obj client.Object, forceOverwrite bool, ownedConditions []clusterv1.ConditionType) error {
+func (h *Helper) patchStatusConditions(ctx context.Context, obj runtime.Object, forceOverwrite bool, ownedConditions []clusterv1.ConditionType) error {
 	// Nothing to do if the object isn't a condition patcher.
 	if !h.isConditionsSetter {
 		return nil
@@ -205,7 +187,10 @@ func (h *Helper) patchStatusConditions(ctx context.Context, obj client.Object, f
 	}
 
 	// Make a copy of the object and store the key used if we have conflicts.
-	key := client.ObjectKeyFromObject(after)
+	key, err := client.ObjectKeyFromObject(after)
+	if err != nil {
+		return err
+	}
 
 	// Define and start a backoff loop to handle conflicts
 	// between controllers working on the same object.
@@ -230,7 +215,7 @@ func (h *Helper) patchStatusConditions(ctx context.Context, obj client.Object, f
 		}
 
 		// Create the condition patch before merging conditions.
-		conditionsPatch := client.MergeFromWithOptions(latest.DeepCopyObject().(conditions.Setter), client.MergeFromWithOptimisticLock{})
+		conditionsPatch := client.MergeFromWithOptions(latest.DeepCopyObject(), client.MergeFromWithOptimisticLock{})
 
 		// Set the condition patch previously created on the new object.
 		if err := diff.Apply(latest, conditions.WithForceOverwrite(forceOverwrite), conditions.WithOwnedConditions(ownedConditions...)); err != nil {
@@ -252,18 +237,18 @@ func (h *Helper) patchStatusConditions(ctx context.Context, obj client.Object, f
 }
 
 // calculatePatch returns the before/after objects to be given in a controller-runtime patch, scoped down to the absolute necessary.
-func (h *Helper) calculatePatch(afterObj client.Object, focus patchType) (client.Object, client.Object, error) {
+func (h *Helper) calculatePatch(afterObj runtime.Object, focus patchType) (runtime.Object, runtime.Object, error) {
 	// Get a shallow unsafe copy of the before/after object in unstructured form.
 	before := unsafeUnstructuredCopy(h.before, focus, h.isConditionsSetter)
 	after := unsafeUnstructuredCopy(h.after, focus, h.isConditionsSetter)
 
 	// We've now applied all modifications to local unstructured objects,
 	// make copies of the original objects and convert them back.
-	beforeObj := h.beforeObject.DeepCopyObject().(client.Object)
+	beforeObj := h.beforeObject.DeepCopyObject()
 	if err := runtime.DefaultUnstructuredConverter.FromUnstructured(before.Object, beforeObj); err != nil {
 		return nil, nil, err
 	}
-	afterObj = afterObj.DeepCopyObject().(client.Object)
+	afterObj = afterObj.DeepCopyObject()
 	if err := runtime.DefaultUnstructuredConverter.FromUnstructured(after.Object, afterObj); err != nil {
 		return nil, nil, err
 	}
@@ -276,7 +261,7 @@ func (h *Helper) shouldPatch(in string) bool {
 
 // calculate changes tries to build a patch from the before/after objects we have
 // and store in a map which top-level fields (e.g. `metadata`, `spec`, `status`, etc.) have changed.
-func (h *Helper) calculateChanges(after client.Object) (map[string]bool, error) {
+func (h *Helper) calculateChanges(after runtime.Object) (map[string]bool, error) {
 	// Calculate patch data.
 	patch := client.MergeFrom(h.beforeObject)
 	diff, err := patch.Data(after)
@@ -296,13 +281,4 @@ func (h *Helper) calculateChanges(after client.Object) (map[string]bool, error) 
 		res[key] = true
 	}
 	return res, nil
-}
-
-func checkNilObject(obj client.Object) error {
-	// If you're wondering why we need reflection to do this check, see https://golang.org/doc/faq#nil_error.
-	// TODO(vincepri): Remove this check and let it panic if used improperly in a future minor release.
-	if obj == nil || (reflect.ValueOf(obj).IsValid() && reflect.ValueOf(obj).IsNil()) {
-		return errors.Errorf("expected non-nil object")
-	}
-	return nil
 }

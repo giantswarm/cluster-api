@@ -14,7 +14,6 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-// Package kubeconfig implements utilities for working with kubeconfigs.
 package kubeconfig
 
 import (
@@ -30,7 +29,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/client-go/tools/clientcmd/api"
-	clusterv1 "sigs.k8s.io/cluster-api/api/v1alpha4"
+	clusterv1 "sigs.k8s.io/cluster-api/api/v1alpha3"
 	"sigs.k8s.io/cluster-api/util"
 	"sigs.k8s.io/cluster-api/util/certs"
 	"sigs.k8s.io/cluster-api/util/secret"
@@ -38,7 +37,6 @@ import (
 )
 
 var (
-	// ErrDependentCertificateNotFound signals that a CA secret could not be found.
 	ErrDependentCertificateNotFound = errors.New("could not find secret ca")
 )
 
@@ -53,6 +51,7 @@ func FromSecret(ctx context.Context, c client.Reader, cluster client.ObjectKey) 
 
 // New creates a new Kubeconfig using the cluster name and specified endpoint.
 func New(clusterName, endpoint string, caCert *x509.Certificate, caKey crypto.Signer) (*api.Config, error) {
+
 	cfg := &certs.Config{
 		CommonName:   "kubernetes-admin",
 		Organization: []string{"system:masters"},
@@ -144,7 +143,6 @@ func GenerateSecretWithOwner(clusterName client.ObjectKey, data []byte, owner me
 		Data: map[string][]byte{
 			secret.KubeconfigDataName: data,
 		},
-		Type: clusterv1.ClusterSecretType,
 	}
 }
 
@@ -203,7 +201,7 @@ func RegenerateSecret(ctx context.Context, c client.Client, configSecret *corev1
 func generateKubeconfig(ctx context.Context, c client.Client, clusterName client.ObjectKey, endpoint string) ([]byte, error) {
 	clusterCA, err := secret.GetFromNamespacedName(ctx, c, clusterName, secret.ClusterCA)
 	if err != nil {
-		if apierrors.IsNotFound(err) {
+		if apierrors.IsNotFound(errors.Cause(err)) {
 			return nil, ErrDependentCertificateNotFound
 		}
 		return nil, err

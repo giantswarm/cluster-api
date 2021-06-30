@@ -17,20 +17,20 @@ limitations under the License.
 package test
 
 import (
-	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
+	apiextensionslv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
-	clusterv1 "sigs.k8s.io/cluster-api/api/v1alpha4"
+	clusterv1 "sigs.k8s.io/cluster-api/api/v1alpha3"
 	clusterctlv1 "sigs.k8s.io/cluster-api/cmd/clusterctl/api/v1alpha3"
 	fakebootstrap "sigs.k8s.io/cluster-api/cmd/clusterctl/internal/test/providers/bootstrap"
 	fakecontrolplane "sigs.k8s.io/cluster-api/cmd/clusterctl/internal/test/providers/controlplane"
 	fakeexternal "sigs.k8s.io/cluster-api/cmd/clusterctl/internal/test/providers/external"
 	fakeinfrastructure "sigs.k8s.io/cluster-api/cmd/clusterctl/internal/test/providers/infrastructure"
-	addonsv1 "sigs.k8s.io/cluster-api/exp/addons/api/v1alpha4"
-	expv1 "sigs.k8s.io/cluster-api/exp/api/v1alpha4"
+	addonsv1alpha3 "sigs.k8s.io/cluster-api/exp/addons/api/v1alpha3"
+	expv1 "sigs.k8s.io/cluster-api/exp/api/v1alpha3"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
@@ -38,11 +38,11 @@ import (
 type FakeProxy struct {
 	cs        client.Client
 	namespace string
-	objs      []client.Object
+	objs      []runtime.Object
 }
 
 var (
-	FakeScheme = runtime.NewScheme() //nolint:revive
+	FakeScheme = runtime.NewScheme()
 )
 
 func init() {
@@ -50,8 +50,8 @@ func init() {
 	_ = clusterctlv1.AddToScheme(FakeScheme)
 	_ = clusterv1.AddToScheme(FakeScheme)
 	_ = expv1.AddToScheme(FakeScheme)
-	_ = addonsv1.AddToScheme(FakeScheme)
-	_ = apiextensionsv1.AddToScheme(FakeScheme)
+	_ = addonsv1alpha3.AddToScheme(FakeScheme)
+	_ = apiextensionslv1.AddToScheme(FakeScheme)
 
 	_ = fakebootstrap.AddToScheme(FakeScheme)
 	_ = fakecontrolplane.AddToScheme(FakeScheme)
@@ -75,11 +75,12 @@ func (f *FakeProxy) NewClient() (client.Client, error) {
 	if f.cs != nil {
 		return f.cs, nil
 	}
-	f.cs = fake.NewClientBuilder().WithScheme(FakeScheme).WithObjects(f.objs...).Build()
+	f.cs = fake.NewFakeClientWithScheme(FakeScheme, f.objs...)
+
 	return f.cs, nil
 }
 
-// ListResources returns all the resources known by the FakeProxy.
+// ListResources returns all the resources known by the FakeProxy
 func (f *FakeProxy) ListResources(labels map[string]string, namespaces ...string) ([]unstructured.Unstructured, error) {
 	var ret []unstructured.Unstructured //nolint
 	for _, o := range f.objs {
@@ -128,7 +129,7 @@ func NewFakeProxy() *FakeProxy {
 	}
 }
 
-func (f *FakeProxy) WithObjs(objs ...client.Object) *FakeProxy {
+func (f *FakeProxy) WithObjs(objs ...runtime.Object) *FakeProxy {
 	f.objs = append(f.objs, objs...)
 	return f
 }
@@ -142,55 +143,26 @@ func (f *FakeProxy) WithNamespace(n string) *FakeProxy {
 // NB. this method adds an items to the Provider inventory, but it doesn't install the corresponding provider; if the
 // test case requires the actual provider to be installed, use the the fake client to install both the provider
 // components and the corresponding inventory item.
-func (f *FakeProxy) WithProviderInventory(name string, providerType clusterctlv1.ProviderType, version, targetNamespace string) *FakeProxy {
+func (f *FakeProxy) WithProviderInventory(name string, providerType clusterctlv1.ProviderType, version, targetNamespace, watchingNamespace string) *FakeProxy {
 	f.objs = append(f.objs, &clusterctlv1.Provider{
 		TypeMeta: metav1.TypeMeta{
 			APIVersion: clusterctlv1.GroupVersion.String(),
 			Kind:       "Provider",
 		},
 		ObjectMeta: metav1.ObjectMeta{
-			ResourceVersion: "999",
-			Namespace:       targetNamespace,
-			Name:            clusterctlv1.ManifestLabel(name, providerType),
+			Namespace: targetNamespace,
+			Name:      clusterctlv1.ManifestLabel(name, providerType),
 			Labels: map[string]string{
 				clusterctlv1.ClusterctlLabelName:     "",
 				clusterv1.ProviderLabelName:          clusterctlv1.ManifestLabel(name, providerType),
-				clusterctlv1.ClusterctlCoreLabelName: clusterctlv1.ClusterctlCoreLabelInventoryValue,
+				clusterctlv1.ClusterctlCoreLabelName: "inventory",
 			},
 		},
-		ProviderName: name,
-		Type:         string(providerType),
-		Version:      version,
+		ProviderName:     name,
+		Type:             string(providerType),
+		Version:          version,
+		WatchedNamespace: watchingNamespace,
 	})
 
 	return f
-}
-
-// WithFakeCAPISetup adds required objects in order to make kubeadm pass checks
-// ensuring that management cluster has a proper release of Cluster API installed.
-// NOTE: When using the fake client it is not required to install CRDs, given that type information are
-// derived from the schema. However, CheckCAPIContract looks for CRDs to be installed, so this
-// helper provide a way to get around to this difference between fake client and a real API server.
-func (f *FakeProxy) WithFakeCAPISetup() *FakeProxy {
-	f.objs = append(f.objs, FakeCAPISetupObjects()...)
-
-	return f
-}
-
-// FakeCAPISetupObjects return required objects in order to make kubeadm pass checks
-// ensuring that management cluster has a proper release of Cluster API installed.
-func FakeCAPISetupObjects() []client.Object {
-	return []client.Object{
-		&apiextensionsv1.CustomResourceDefinition{
-			ObjectMeta: metav1.ObjectMeta{Name: "clusters.cluster.x-k8s.io"},
-			Spec: apiextensionsv1.CustomResourceDefinitionSpec{
-				Versions: []apiextensionsv1.CustomResourceDefinitionVersion{
-					{
-						Name:    clusterv1.GroupVersion.Version, // Current Cluster API contract
-						Storage: true,
-					},
-				},
-			},
-		},
-	}
 }

@@ -1,18 +1,17 @@
 
 ---
-apiVersion: admissionregistration.k8s.io/v1
+apiVersion: admissionregistration.k8s.io/v1beta1
 kind: MutatingWebhookConfiguration
 metadata:
   creationTimestamp: null
   name: mutating-webhook-configuration
 webhooks:
-- admissionReviewVersions:
-  - v1beta1
-  clientConfig:
+- clientConfig:
+    caBundle: Cg==
     service:
       name: webhook-service
       namespace: system
-      path: /mutate-cluster-x-k8s-io-v1alpha4-cluster
+      path: /mutate-cluster-x-k8s-io-v1alpha3-cluster
   failurePolicy: Fail
   matchPolicy: Equivalent
   name: default.cluster.cluster.x-k8s.io
@@ -20,20 +19,19 @@ webhooks:
   - apiGroups:
     - cluster.x-k8s.io
     apiVersions:
-    - v1alpha4
+    - v1alpha3
     operations:
     - CREATE
     - UPDATE
     resources:
     - clusters
   sideEffects: None
-- admissionReviewVersions:
-  - v1beta1
-  clientConfig:
+- clientConfig:
+    caBundle: Cg==
     service:
       name: webhook-service
       namespace: system
-      path: /mutate-cluster-x-k8s-io-v1alpha4-machine
+      path: /mutate-cluster-x-k8s-io-v1alpha3-machine
   failurePolicy: Fail
   matchPolicy: Equivalent
   name: default.machine.cluster.x-k8s.io
@@ -41,20 +39,19 @@ webhooks:
   - apiGroups:
     - cluster.x-k8s.io
     apiVersions:
-    - v1alpha4
+    - v1alpha3
     operations:
     - CREATE
     - UPDATE
     resources:
     - machines
   sideEffects: None
-- admissionReviewVersions:
-  - v1beta1
-  clientConfig:
+- clientConfig:
+    caBundle: Cg==
     service:
       name: webhook-service
       namespace: system
-      path: /mutate-cluster-x-k8s-io-v1alpha4-machinedeployment
+      path: /mutate-cluster-x-k8s-io-v1alpha3-machinedeployment
   failurePolicy: Fail
   matchPolicy: Equivalent
   name: default.machinedeployment.cluster.x-k8s.io
@@ -62,20 +59,19 @@ webhooks:
   - apiGroups:
     - cluster.x-k8s.io
     apiVersions:
-    - v1alpha4
+    - v1alpha3
     operations:
     - CREATE
     - UPDATE
     resources:
     - machinedeployments
   sideEffects: None
-- admissionReviewVersions:
-  - v1beta1
-  clientConfig:
+- clientConfig:
+    caBundle: Cg==
     service:
       name: webhook-service
       namespace: system
-      path: /mutate-cluster-x-k8s-io-v1alpha4-machinehealthcheck
+      path: /mutate-cluster-x-k8s-io-v1alpha3-machinehealthcheck
   failurePolicy: Fail
   matchPolicy: Equivalent
   name: default.machinehealthcheck.cluster.x-k8s.io
@@ -83,20 +79,19 @@ webhooks:
   - apiGroups:
     - cluster.x-k8s.io
     apiVersions:
-    - v1alpha4
+    - v1alpha3
     operations:
     - CREATE
     - UPDATE
     resources:
     - machinehealthchecks
   sideEffects: None
-- admissionReviewVersions:
-  - v1beta1
-  clientConfig:
+- clientConfig:
+    caBundle: Cg==
     service:
       name: webhook-service
       namespace: system
-      path: /mutate-cluster-x-k8s-io-v1alpha4-machineset
+      path: /mutate-cluster-x-k8s-io-v1alpha3-machineset
   failurePolicy: Fail
   matchPolicy: Equivalent
   name: default.machineset.cluster.x-k8s.io
@@ -104,41 +99,39 @@ webhooks:
   - apiGroups:
     - cluster.x-k8s.io
     apiVersions:
-    - v1alpha4
+    - v1alpha3
     operations:
     - CREATE
     - UPDATE
     resources:
     - machinesets
   sideEffects: None
-- admissionReviewVersions:
-  - v1beta1
-  clientConfig:
+- clientConfig:
+    caBundle: Cg==
     service:
       name: webhook-service
       namespace: system
-      path: /mutate-cluster-x-k8s-io-v1alpha4-machinepool
+      path: /mutate-exp-cluster-x-k8s-io-v1alpha3-machinepool
   failurePolicy: Fail
   matchPolicy: Equivalent
-  name: default.machinepool.cluster.x-k8s.io
+  name: default.exp.machinepool.cluster.x-k8s.io
   rules:
   - apiGroups:
-    - cluster.x-k8s.io
+    - exp.cluster.x-k8s.io
     apiVersions:
-    - v1alpha4
+    - v1alpha3
     operations:
     - CREATE
     - UPDATE
     resources:
     - machinepools
   sideEffects: None
-- admissionReviewVersions:
-  - v1beta1
-  clientConfig:
+- clientConfig:
+    caBundle: Cg==
     service:
       name: webhook-service
       namespace: system
-      path: /mutate-addons-cluster-x-k8s-io-v1alpha4-clusterresourceset
+      path: /mutate-addons-cluster-x-k8s-io-v1alpha3-clusterresourceset
   failurePolicy: Fail
   matchPolicy: Equivalent
   name: default.clusterresourceset.addons.cluster.x-k8s.io
@@ -146,7 +139,7 @@ webhooks:
   - apiGroups:
     - addons.cluster.x-k8s.io
     apiVersions:
-    - v1alpha4
+    - v1alpha3
     operations:
     - CREATE
     - UPDATE
@@ -155,19 +148,18 @@ webhooks:
   sideEffects: None
 
 ---
-apiVersion: admissionregistration.k8s.io/v1
+apiVersion: admissionregistration.k8s.io/v1beta1
 kind: ValidatingWebhookConfiguration
 metadata:
   creationTimestamp: null
   name: validating-webhook-configuration
 webhooks:
-- admissionReviewVersions:
-  - v1beta1
-  clientConfig:
+- clientConfig:
+    caBundle: Cg==
     service:
       name: webhook-service
       namespace: system
-      path: /validate-cluster-x-k8s-io-v1alpha4-cluster
+      path: /validate-cluster-x-k8s-io-v1alpha3-cluster
   failurePolicy: Fail
   matchPolicy: Equivalent
   name: validation.cluster.cluster.x-k8s.io
@@ -175,20 +167,19 @@ webhooks:
   - apiGroups:
     - cluster.x-k8s.io
     apiVersions:
-    - v1alpha4
+    - v1alpha3
     operations:
     - CREATE
     - UPDATE
     resources:
     - clusters
   sideEffects: None
-- admissionReviewVersions:
-  - v1beta1
-  clientConfig:
+- clientConfig:
+    caBundle: Cg==
     service:
       name: webhook-service
       namespace: system
-      path: /validate-cluster-x-k8s-io-v1alpha4-machine
+      path: /validate-cluster-x-k8s-io-v1alpha3-machine
   failurePolicy: Fail
   matchPolicy: Equivalent
   name: validation.machine.cluster.x-k8s.io
@@ -196,20 +187,19 @@ webhooks:
   - apiGroups:
     - cluster.x-k8s.io
     apiVersions:
-    - v1alpha4
+    - v1alpha3
     operations:
     - CREATE
     - UPDATE
     resources:
     - machines
   sideEffects: None
-- admissionReviewVersions:
-  - v1beta1
-  clientConfig:
+- clientConfig:
+    caBundle: Cg==
     service:
       name: webhook-service
       namespace: system
-      path: /validate-cluster-x-k8s-io-v1alpha4-machinedeployment
+      path: /validate-cluster-x-k8s-io-v1alpha3-machinedeployment
   failurePolicy: Fail
   matchPolicy: Equivalent
   name: validation.machinedeployment.cluster.x-k8s.io
@@ -217,20 +207,19 @@ webhooks:
   - apiGroups:
     - cluster.x-k8s.io
     apiVersions:
-    - v1alpha4
+    - v1alpha3
     operations:
     - CREATE
     - UPDATE
     resources:
     - machinedeployments
   sideEffects: None
-- admissionReviewVersions:
-  - v1beta1
-  clientConfig:
+- clientConfig:
+    caBundle: Cg==
     service:
       name: webhook-service
       namespace: system
-      path: /validate-cluster-x-k8s-io-v1alpha4-machinehealthcheck
+      path: /validate-cluster-x-k8s-io-v1alpha3-machinehealthcheck
   failurePolicy: Fail
   matchPolicy: Equivalent
   name: validation.machinehealthcheck.cluster.x-k8s.io
@@ -238,20 +227,19 @@ webhooks:
   - apiGroups:
     - cluster.x-k8s.io
     apiVersions:
-    - v1alpha4
+    - v1alpha3
     operations:
     - CREATE
     - UPDATE
     resources:
     - machinehealthchecks
   sideEffects: None
-- admissionReviewVersions:
-  - v1beta1
-  clientConfig:
+- clientConfig:
+    caBundle: Cg==
     service:
       name: webhook-service
       namespace: system
-      path: /validate-cluster-x-k8s-io-v1alpha4-machineset
+      path: /validate-cluster-x-k8s-io-v1alpha3-machineset
   failurePolicy: Fail
   matchPolicy: Equivalent
   name: validation.machineset.cluster.x-k8s.io
@@ -259,41 +247,39 @@ webhooks:
   - apiGroups:
     - cluster.x-k8s.io
     apiVersions:
-    - v1alpha4
+    - v1alpha3
     operations:
     - CREATE
     - UPDATE
     resources:
     - machinesets
   sideEffects: None
-- admissionReviewVersions:
-  - v1beta1
-  clientConfig:
+- clientConfig:
+    caBundle: Cg==
     service:
       name: webhook-service
       namespace: system
-      path: /validate-cluster-x-k8s-io-v1alpha4-machinepool
+      path: /validate-exp-cluster-x-k8s-io-v1alpha3-machinepool
   failurePolicy: Fail
   matchPolicy: Equivalent
-  name: validation.machinepool.cluster.x-k8s.io
+  name: validation.exp.machinepool.cluster.x-k8s.io
   rules:
   - apiGroups:
-    - cluster.x-k8s.io
+    - exp.cluster.x-k8s.io
     apiVersions:
-    - v1alpha4
+    - v1alpha3
     operations:
     - CREATE
     - UPDATE
     resources:
     - machinepools
   sideEffects: None
-- admissionReviewVersions:
-  - v1beta1
-  clientConfig:
+- clientConfig:
+    caBundle: Cg==
     service:
       name: webhook-service
       namespace: system
-      path: /validate-addons-cluster-x-k8s-io-v1alpha4-clusterresourceset
+      path: /validate-addons-cluster-x-k8s-io-v1alpha3-clusterresourceset
   failurePolicy: Fail
   matchPolicy: Equivalent
   name: validation.clusterresourceset.addons.cluster.x-k8s.io
@@ -301,7 +287,7 @@ webhooks:
   - apiGroups:
     - addons.cluster.x-k8s.io
     apiVersions:
-    - v1alpha4
+    - v1alpha3
     operations:
     - CREATE
     - UPDATE

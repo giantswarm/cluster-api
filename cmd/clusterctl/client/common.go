@@ -26,8 +26,9 @@ import (
 )
 
 // getComponentsByName is a utility method that returns components
-// for a given provider with options including targetNamespace.
+// for a given provider with options including targetNamespace, and watchingNamespace.
 func (c *clusterctlClient) getComponentsByName(provider string, providerType clusterctlv1.ProviderType, options repository.ComponentsOptions) (repository.Components, error) {
+
 	// Parse the abbreviated syntax for name[:version]
 	name, version, err := parseProviderName(provider)
 	if err != nil {
@@ -43,7 +44,7 @@ func (c *clusterctlClient) getComponentsByName(provider string, providerType clu
 
 	// Get a client for the provider repository and read the provider components;
 	// during the process, provider components will be processed performing variable substitution, customization of target
-	// namespace etc.
+	// and watching namespace etc.
 	// Currently we are not supporting custom yaml processors for the provider
 	// components. So we revert to using the default SimpleYamlProcessor.
 	repositoryClientFactory, err := c.repositoryClientFactory(RepositoryClientFactoryInput{Provider: providerConfig})
@@ -58,7 +59,7 @@ func (c *clusterctlClient) getComponentsByName(provider string, providerType clu
 	return components, nil
 }
 
-// parseProviderName defines a utility function that parses the abbreviated syntax for name[:version].
+// parseProviderName defines a utility function that parses the abbreviated syntax for name[:version]
 func parseProviderName(provider string) (name string, version string, err error) {
 	t := strings.Split(strings.ToLower(provider), ":")
 	if len(t) > 2 {

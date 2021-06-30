@@ -14,7 +14,6 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-// Package feature implements feature functionality.
 package feature
 
 import (
@@ -27,15 +26,11 @@ const (
 	//
 	// // owner: @username
 	// // alpha: v1.X
-	// MyFeature featuregate.Feature = "MyFeature".
+	// MyFeature featuregate.Feature = "MyFeature"
 
-	// MachinePool is a feature gate for MachinePool functionality.
-	//
 	// alpha: v0.3
 	MachinePool featuregate.Feature = "MachinePool"
 
-	// ClusterResourceSet is a feature gate for the ClusterResourceSet functionality.
-	//
 	// alpha: v0.3
 	ClusterResourceSet featuregate.Feature = "ClusterResourceSet"
 )
@@ -49,5 +44,5 @@ func init() {
 var defaultClusterAPIFeatureGates = map[featuregate.Feature]featuregate.FeatureSpec{
 	// Every feature should be initiated here:
 	MachinePool:        {Default: false, PreRelease: featuregate.Alpha},
-	ClusterResourceSet: {Default: true, PreRelease: featuregate.Beta},
+	ClusterResourceSet: {Default: false, PreRelease: featuregate.Alpha},
 }

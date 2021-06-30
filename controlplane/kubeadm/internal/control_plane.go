@@ -27,19 +27,14 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	kerrors "k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/apiserver/pkg/storage/names"
-	"k8s.io/klog/v2/klogr"
-	clusterv1 "sigs.k8s.io/cluster-api/api/v1alpha4"
-	bootstrapv1 "sigs.k8s.io/cluster-api/bootstrap/kubeadm/api/v1alpha4"
+	clusterv1 "sigs.k8s.io/cluster-api/api/v1alpha3"
+	bootstrapv1 "sigs.k8s.io/cluster-api/bootstrap/kubeadm/api/v1alpha3"
 	"sigs.k8s.io/cluster-api/controllers/external"
-	controlplanev1 "sigs.k8s.io/cluster-api/controlplane/kubeadm/api/v1alpha4"
-	"sigs.k8s.io/cluster-api/util/collections"
-	"sigs.k8s.io/cluster-api/util/failuredomains"
+	controlplanev1 "sigs.k8s.io/cluster-api/controlplane/kubeadm/api/v1alpha3"
+	"sigs.k8s.io/cluster-api/controlplane/kubeadm/internal/machinefilters"
 	"sigs.k8s.io/cluster-api/util/patch"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
-
-// Log is the global logger for the internal package.
-var Log = klogr.New()
 
 // ControlPlane holds business logic around control planes.
 // It should never need to connect to a service, that responsibility lies outside of this struct.
@@ -47,7 +42,7 @@ var Log = klogr.New()
 type ControlPlane struct {
 	KCP                  *controlplanev1.KubeadmControlPlane
 	Cluster              *clusterv1.Cluster
-	Machines             collections.Machines
+	Machines             FilterableMachineCollection
 	machinesPatchHelpers map[string]*patch.Helper
 
 	// reconciliationTime is the time of the current reconciliation, and should be used for all "now" calculations
@@ -60,7 +55,7 @@ type ControlPlane struct {
 }
 
 // NewControlPlane returns an instantiated ControlPlane.
-func NewControlPlane(ctx context.Context, client client.Client, cluster *clusterv1.Cluster, kcp *controlplanev1.KubeadmControlPlane, ownedMachines collections.Machines) (*ControlPlane, error) {
+func NewControlPlane(ctx context.Context, client client.Client, cluster *clusterv1.Cluster, kcp *controlplanev1.KubeadmControlPlane, ownedMachines FilterableMachineCollection) (*ControlPlane, error) {
 	infraObjects, err := getInfraResources(ctx, client, ownedMachines)
 	if err != nil {
 		return nil, err
@@ -107,9 +102,9 @@ func (c *ControlPlane) Version() *string {
 	return &c.KCP.Spec.Version
 }
 
-// MachineInfrastructureTemplateRef returns the KubeadmControlPlane's infrastructure template for Machines.
-func (c *ControlPlane) MachineInfrastructureTemplateRef() *corev1.ObjectReference {
-	return &c.KCP.Spec.MachineTemplate.InfrastructureRef
+// InfrastructureTemplate returns the KubeadmControlPlane's infrastructure template.
+func (c *ControlPlane) InfrastructureTemplate() *corev1.ObjectReference {
+	return &c.KCP.Spec.InfrastructureTemplate
 }
 
 // AsOwnerReference returns an owner reference to the KubeadmControlPlane.
@@ -132,9 +127,9 @@ func (c *ControlPlane) EtcdImageData() (string, string) {
 }
 
 // MachineInFailureDomainWithMostMachines returns the first matching failure domain with machines that has the most control-plane machines on it.
-func (c *ControlPlane) MachineInFailureDomainWithMostMachines(machines collections.Machines) (*clusterv1.Machine, error) {
+func (c *ControlPlane) MachineInFailureDomainWithMostMachines(machines FilterableMachineCollection) (*clusterv1.Machine, error) {
 	fd := c.FailureDomainWithMostMachines(machines)
-	machinesInFailureDomain := machines.Filter(collections.InFailureDomains(fd))
+	machinesInFailureDomain := machines.Filter(machinefilters.InFailureDomains(fd))
 	machineToMark := machinesInFailureDomain.Oldest()
 	if machineToMark == nil {
 		return nil, errors.New("failed to pick control plane Machine to mark for deletion")
@@ -143,19 +138,19 @@ func (c *ControlPlane) MachineInFailureDomainWithMostMachines(machines collectio
 }
 
 // MachineWithDeleteAnnotation returns a machine that has been annotated with DeleteMachineAnnotation key.
-func (c *ControlPlane) MachineWithDeleteAnnotation(machines collections.Machines) collections.Machines {
+func (c *ControlPlane) MachineWithDeleteAnnotation(machines FilterableMachineCollection) FilterableMachineCollection {
 	// See if there are any machines with DeleteMachineAnnotation key.
-	annotatedMachines := machines.Filter(collections.HasAnnotationKey(clusterv1.DeleteMachineAnnotation))
+	annotatedMachines := machines.Filter(machinefilters.HasAnnotationKey(clusterv1.DeleteMachineAnnotation))
 	// If there are, return list of annotated machines.
 	return annotatedMachines
 }
 
 // FailureDomainWithMostMachines returns a fd which exists both in machines and control-plane machines and has the most
 // control-plane machines on it.
-func (c *ControlPlane) FailureDomainWithMostMachines(machines collections.Machines) *string {
+func (c *ControlPlane) FailureDomainWithMostMachines(machines FilterableMachineCollection) *string {
 	// See if there are any Machines that are not in currently defined failure domains first.
 	notInFailureDomains := machines.Filter(
-		collections.Not(collections.InFailureDomains(c.FailureDomains().FilterControlPlane().GetIDs()...)),
+		machinefilters.Not(machinefilters.InFailureDomains(c.FailureDomains().FilterControlPlane().GetIDs()...)),
 	)
 	if len(notInFailureDomains) > 0 {
 		// return the failure domain for the oldest Machine not in the current list of failure domains
@@ -163,7 +158,7 @@ func (c *ControlPlane) FailureDomainWithMostMachines(machines collections.Machin
 		// in the cluster status.
 		return notInFailureDomains.Oldest().Spec.FailureDomain
 	}
-	return failuredomains.PickMost(c.Cluster.Status.FailureDomains.FilterControlPlane(), c.Machines, machines)
+	return PickMost(c, machines)
 }
 
 // NextFailureDomainForScaleUp returns the failure domain with the fewest number of up-to-date machines.
@@ -171,7 +166,7 @@ func (c *ControlPlane) NextFailureDomainForScaleUp() *string {
 	if len(c.Cluster.Status.FailureDomains.FilterControlPlane()) == 0 {
 		return nil
 	}
-	return failuredomains.PickFewest(c.FailureDomains().FilterControlPlane(), c.UpToDateMachines())
+	return PickFewest(c.FailureDomains().FilterControlPlane(), c.UpToDateMachines())
 }
 
 // InitialControlPlaneConfig returns a new KubeadmConfigSpec that is to be used for an initializing control plane.
@@ -205,8 +200,7 @@ func (c *ControlPlane) GenerateKubeadmConfig(spec *bootstrapv1.KubeadmConfigSpec
 		ObjectMeta: metav1.ObjectMeta{
 			Name:            names.SimpleNameGenerator.GenerateName(c.KCP.Name + "-"),
 			Namespace:       c.KCP.Namespace,
-			Labels:          ControlPlaneMachineLabelsForCluster(c.KCP, c.Cluster.Name),
-			Annotations:     c.KCP.Spec.MachineTemplate.ObjectMeta.Annotations,
+			Labels:          ControlPlaneLabelsForCluster(c.Cluster.Name),
 			OwnerReferences: []metav1.OwnerReference{owner},
 		},
 		Spec: *spec,
@@ -218,10 +212,9 @@ func (c *ControlPlane) GenerateKubeadmConfig(spec *bootstrapv1.KubeadmConfigSpec
 func (c *ControlPlane) NewMachine(infraRef, bootstrapRef *corev1.ObjectReference, failureDomain *string) *clusterv1.Machine {
 	return &clusterv1.Machine{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:        names.SimpleNameGenerator.GenerateName(c.KCP.Name + "-"),
-			Namespace:   c.KCP.Namespace,
-			Labels:      ControlPlaneMachineLabelsForCluster(c.KCP, c.Cluster.Name),
-			Annotations: c.KCP.Spec.MachineTemplate.ObjectMeta.Annotations,
+			Name:      names.SimpleNameGenerator.GenerateName(c.KCP.Name + "-"),
+			Namespace: c.KCP.Namespace,
+			Labels:    ControlPlaneLabelsForCluster(c.Cluster.Name),
 			OwnerReferences: []metav1.OwnerReference{
 				*metav1.NewControllerRef(c.KCP, controlplanev1.GroupVersion.WithKind("KubeadmControlPlane")),
 			},
@@ -250,31 +243,31 @@ func (c *ControlPlane) NeedsReplacementNode() bool {
 
 // HasDeletingMachine returns true if any machine in the control plane is in the process of being deleted.
 func (c *ControlPlane) HasDeletingMachine() bool {
-	return len(c.Machines.Filter(collections.HasDeletionTimestamp)) > 0
+	return len(c.Machines.Filter(machinefilters.HasDeletionTimestamp)) > 0
 }
 
 // MachinesNeedingRollout return a list of machines that need to be rolled out.
-func (c *ControlPlane) MachinesNeedingRollout() collections.Machines {
+func (c *ControlPlane) MachinesNeedingRollout() FilterableMachineCollection {
 	// Ignore machines to be deleted.
-	machines := c.Machines.Filter(collections.Not(collections.HasDeletionTimestamp))
+	machines := c.Machines.Filter(machinefilters.Not(machinefilters.HasDeletionTimestamp))
 
 	// Return machines if they are scheduled for rollout or if with an outdated configuration.
 	return machines.AnyFilter(
-		// Machines that are scheduled for rollout (KCP.Spec.RolloutAfter set, the RolloutAfter deadline is expired, and the machine was created before the deadline).
-		collections.ShouldRolloutAfter(&c.reconciliationTime, c.KCP.Spec.RolloutAfter),
+		// Machines that are scheduled for rollout (KCP.Spec.UpgradeAfter set, the UpgradeAfter deadline is expired, and the machine was created before the deadline).
+		machinefilters.ShouldRolloutAfter(&c.reconciliationTime, c.KCP.Spec.UpgradeAfter),
 		// Machines that do not match with KCP config.
-		collections.Not(MatchesMachineSpec(c.infraResources, c.kubeadmConfigs, c.KCP)),
+		machinefilters.Not(machinefilters.MatchesKCPConfiguration(c.infraResources, c.kubeadmConfigs, c.KCP)),
 	)
 }
 
 // UpToDateMachines returns the machines that are up to date with the control
 // plane's configuration and therefore do not require rollout.
-func (c *ControlPlane) UpToDateMachines() collections.Machines {
+func (c *ControlPlane) UpToDateMachines() FilterableMachineCollection {
 	return c.Machines.Difference(c.MachinesNeedingRollout())
 }
 
 // getInfraResources fetches the external infrastructure resource for each machine in the collection and returns a map of machine.Name -> infraResource.
-func getInfraResources(ctx context.Context, cl client.Client, machines collections.Machines) (map[string]*unstructured.Unstructured, error) {
+func getInfraResources(ctx context.Context, cl client.Client, machines FilterableMachineCollection) (map[string]*unstructured.Unstructured, error) {
 	result := map[string]*unstructured.Unstructured{}
 	for _, m := range machines {
 		infraObj, err := external.Get(ctx, cl, &m.Spec.InfrastructureRef, m.Namespace)
@@ -290,7 +283,7 @@ func getInfraResources(ctx context.Context, cl client.Client, machines collectio
 }
 
 // getKubeadmConfigs fetches the kubeadm config for each machine in the collection and returns a map of machine.Name -> KubeadmConfig.
-func getKubeadmConfigs(ctx context.Context, cl client.Client, machines collections.Machines) (map[string]*bootstrapv1.KubeadmConfig, error) {
+func getKubeadmConfigs(ctx context.Context, cl client.Client, machines FilterableMachineCollection) (map[string]*bootstrapv1.KubeadmConfig, error) {
 	result := map[string]*bootstrapv1.KubeadmConfig{}
 	for _, m := range machines {
 		bootstrapRef := m.Spec.Bootstrap.ConfigRef
@@ -315,13 +308,13 @@ func (c *ControlPlane) IsEtcdManaged() bool {
 }
 
 // UnhealthyMachines returns the list of control plane machines marked as unhealthy by MHC.
-func (c *ControlPlane) UnhealthyMachines() collections.Machines {
-	return c.Machines.Filter(collections.HasUnhealthyCondition)
+func (c *ControlPlane) UnhealthyMachines() FilterableMachineCollection {
+	return c.Machines.Filter(machinefilters.HasUnhealthyCondition)
 }
 
 // HealthyMachines returns the list of control plane machines not marked as unhealthy by MHC.
-func (c *ControlPlane) HealthyMachines() collections.Machines {
-	return c.Machines.Filter(collections.Not(collections.HasUnhealthyCondition))
+func (c *ControlPlane) HealthyMachines() FilterableMachineCollection {
+	return c.Machines.Filter(machinefilters.Not(machinefilters.HasUnhealthyCondition))
 }
 
 // HasUnhealthyMachine returns true if any machine in the control plane is marked as unhealthy by MHC.
@@ -329,7 +322,6 @@ func (c *ControlPlane) HasUnhealthyMachine() bool {
 	return len(c.UnhealthyMachines()) > 0
 }
 
-// PatchMachines patches all the machines conditions.
 func (c *ControlPlane) PatchMachines(ctx context.Context) error {
 	errList := []error{}
 	for i := range c.Machines {

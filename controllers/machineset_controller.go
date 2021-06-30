@@ -22,15 +22,17 @@ import (
 	"strings"
 	"time"
 
+	"github.com/go-logr/logr"
 	"github.com/pkg/errors"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/runtime"
 	kerrors "k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/record"
-	clusterv1 "sigs.k8s.io/cluster-api/api/v1alpha4"
+	clusterv1 "sigs.k8s.io/cluster-api/api/v1alpha3"
 	"sigs.k8s.io/cluster-api/controllers/external"
 	"sigs.k8s.io/cluster-api/controllers/noderefutil"
 	"sigs.k8s.io/cluster-api/controllers/remote"
@@ -65,17 +67,18 @@ var (
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io;bootstrap.cluster.x-k8s.io,resources=*,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=cluster.x-k8s.io,resources=machinesets;machinesets/status,verbs=get;list;watch;create;update;patch;delete
 
-// MachineSetReconciler reconciles a MachineSet object.
+// MachineSetReconciler reconciles a MachineSet object
 type MachineSetReconciler struct {
-	Client           client.Client
-	Tracker          *remote.ClusterCacheTracker
-	WatchFilterValue string
+	Client  client.Client
+	Log     logr.Logger
+	Tracker *remote.ClusterCacheTracker
 
 	recorder   record.EventRecorder
+	scheme     *runtime.Scheme
 	restConfig *rest.Config
 }
 
-func (r *MachineSetReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Manager, options controller.Options) error {
+func (r *MachineSetReconciler) SetupWithManager(mgr ctrl.Manager, options controller.Options) error {
 	clusterToMachineSets, err := util.ClusterToObjectsMapper(mgr.GetClient(), &clusterv1.MachineSetList{}, mgr.GetScheme())
 	if err != nil {
 		return err
@@ -86,10 +89,10 @@ func (r *MachineSetReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Ma
 		Owns(&clusterv1.Machine{}).
 		Watches(
 			&source.Kind{Type: &clusterv1.Machine{}},
-			handler.EnqueueRequestsFromMapFunc(r.MachineToMachineSets),
+			&handler.EnqueueRequestsFromMapFunc{ToRequests: handler.ToRequestsFunc(r.MachineToMachineSets)},
 		).
 		WithOptions(options).
-		WithEventFilter(predicates.ResourceNotPausedAndHasFilterLabel(ctrl.LoggerFrom(ctx), r.WatchFilterValue)).
+		WithEventFilter(predicates.ResourceNotPaused(r.Log)).
 		Build(r)
 	if err != nil {
 		return errors.Wrap(err, "failed setting up with a controller manager")
@@ -97,21 +100,23 @@ func (r *MachineSetReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Ma
 
 	err = c.Watch(
 		&source.Kind{Type: &clusterv1.Cluster{}},
-		handler.EnqueueRequestsFromMapFunc(clusterToMachineSets),
+		&handler.EnqueueRequestsFromMapFunc{ToRequests: clusterToMachineSets},
 		// TODO: should this wait for Cluster.Status.InfrastructureReady similar to Infra Machine resources?
-		predicates.ClusterUnpaused(ctrl.LoggerFrom(ctx)),
+		predicates.ClusterUnpaused(r.Log),
 	)
 	if err != nil {
 		return errors.Wrap(err, "failed to add Watch for Clusters to controller manager")
 	}
 
 	r.recorder = mgr.GetEventRecorderFor("machineset-controller")
+	r.scheme = mgr.GetScheme()
 	r.restConfig = mgr.GetConfig()
 	return nil
 }
 
-func (r *MachineSetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (_ ctrl.Result, reterr error) {
-	log := ctrl.LoggerFrom(ctx)
+func (r *MachineSetReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
+	ctx := context.Background()
+	logger := r.Log.WithValues("machineset", req.Name, "namespace", req.Namespace)
 
 	machineSet := &clusterv1.MachineSet{}
 	if err := r.Client.Get(ctx, req.NamespacedName, machineSet); err != nil {
@@ -131,22 +136,9 @@ func (r *MachineSetReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 
 	// Return early if the object or Cluster is paused.
 	if annotations.IsPaused(cluster, machineSet) {
-		log.Info("Reconciliation is paused for this object")
+		logger.Info("Reconciliation is paused for this object")
 		return ctrl.Result{}, nil
 	}
-
-	// Initialize the patch helper
-	patchHelper, err := patch.NewHelper(machineSet, r.Client)
-	if err != nil {
-		return ctrl.Result{}, err
-	}
-
-	defer func() {
-		// Always attempt to patch the object and status after each reconciliation.
-		if err := patchHelper.Patch(ctx, machineSet); err != nil {
-			reterr = kerrors.NewAggregate([]error{reterr, err})
-		}
-	}()
 
 	// Ignore deleted MachineSets, this can happen when foregroundDeletion
 	// is enabled
@@ -156,15 +148,15 @@ func (r *MachineSetReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 
 	result, err := r.reconcile(ctx, cluster, machineSet)
 	if err != nil {
-		log.Error(err, "Failed to reconcile MachineSet")
+		logger.Error(err, "Failed to reconcile MachineSet")
 		r.recorder.Eventf(machineSet, corev1.EventTypeWarning, "ReconcileError", "%v", err)
 	}
 	return result, err
 }
 
 func (r *MachineSetReconciler) reconcile(ctx context.Context, cluster *clusterv1.Cluster, machineSet *clusterv1.MachineSet) (ctrl.Result, error) {
-	log := ctrl.LoggerFrom(ctx)
-	log.V(4).Info("Reconcile MachineSet")
+	logger := r.Log.WithValues("machineset", machineSet.Name, "namespace", machineSet.Namespace)
+	logger.V(4).Info("Reconcile MachineSet")
 
 	// Reconcile and retrieve the Cluster object.
 	if machineSet.Labels == nil {
@@ -173,34 +165,31 @@ func (r *MachineSetReconciler) reconcile(ctx context.Context, cluster *clusterv1
 	machineSet.Labels[clusterv1.ClusterLabelName] = machineSet.Spec.ClusterName
 
 	if r.shouldAdopt(machineSet) {
+		patch := client.MergeFrom(machineSet.DeepCopy())
 		machineSet.OwnerReferences = util.EnsureOwnerRef(machineSet.OwnerReferences, metav1.OwnerReference{
 			APIVersion: clusterv1.GroupVersion.String(),
 			Kind:       "Cluster",
 			Name:       cluster.Name,
 			UID:        cluster.UID,
 		})
+		// Patch using a deep copy to avoid overwriting any unexpected Status changes from the returned result
+		if err := r.Client.Patch(ctx, machineSet.DeepCopy(), patch); err != nil {
+			return ctrl.Result{}, errors.Wrapf(err, "failed to add OwnerReference to MachineSet %s/%s", machineSet.Namespace, machineSet.Name)
+		}
 	}
 
 	// Make sure to reconcile the external infrastructure reference.
-	if err := reconcileExternalTemplateReference(ctx, r.Client, r.restConfig, cluster, &machineSet.Spec.Template.Spec.InfrastructureRef); err != nil {
+	if err := reconcileExternalTemplateReference(ctx, logger, r.Client, r.restConfig, cluster, &machineSet.Spec.Template.Spec.InfrastructureRef); err != nil {
 		return ctrl.Result{}, err
 	}
 	// Make sure to reconcile the external bootstrap reference, if any.
 	if machineSet.Spec.Template.Spec.Bootstrap.ConfigRef != nil {
-		if err := reconcileExternalTemplateReference(ctx, r.Client, r.restConfig, cluster, machineSet.Spec.Template.Spec.Bootstrap.ConfigRef); err != nil {
+		if err := reconcileExternalTemplateReference(ctx, logger, r.Client, r.restConfig, cluster, machineSet.Spec.Template.Spec.Bootstrap.ConfigRef); err != nil {
 			return ctrl.Result{}, err
 		}
 	}
 
 	// Make sure selector and template to be in the same cluster.
-	if machineSet.Spec.Selector.MatchLabels == nil {
-		machineSet.Spec.Selector.MatchLabels = make(map[string]string)
-	}
-
-	if machineSet.Spec.Template.Labels == nil {
-		machineSet.Spec.Template.Labels = make(map[string]string)
-	}
-
 	machineSet.Spec.Selector.MatchLabels[clusterv1.ClusterLabelName] = machineSet.Spec.ClusterName
 	machineSet.Spec.Template.Labels[clusterv1.ClusterLabelName] = machineSet.Spec.ClusterName
 
@@ -211,8 +200,8 @@ func (r *MachineSetReconciler) reconcile(ctx context.Context, cluster *clusterv1
 
 	// Get all Machines linked to this MachineSet.
 	allMachines := &clusterv1.MachineList{}
-	err = r.Client.List(ctx,
-		allMachines,
+	err = r.Client.List(
+		context.Background(), allMachines,
 		client.InNamespace(machineSet.Namespace),
 		client.MatchingLabels(selectorMap),
 	)
@@ -224,18 +213,18 @@ func (r *MachineSetReconciler) reconcile(ctx context.Context, cluster *clusterv1
 	filteredMachines := make([]*clusterv1.Machine, 0, len(allMachines.Items))
 	for idx := range allMachines.Items {
 		machine := &allMachines.Items[idx]
-		if shouldExcludeMachine(machineSet, machine) {
+		if shouldExcludeMachine(machineSet, machine, logger) {
 			continue
 		}
 
 		// Attempt to adopt machine if it meets previous conditions and it has no controller references.
 		if metav1.GetControllerOf(machine) == nil {
 			if err := r.adoptOrphan(ctx, machineSet, machine); err != nil {
-				log.Error(err, "Failed to adopt Machine", "machine", machine.Name)
+				logger.Error(err, "Failed to adopt Machine", "machine", machine.Name)
 				r.recorder.Eventf(machineSet, corev1.EventTypeWarning, "FailedAdopt", "Failed to adopt Machine %q: %v", machine.Name, err)
 				continue
 			}
-			log.Info("Adopted Machine", "machine", machine.Name)
+			logger.Info("Adopted Machine", "machine", machine.Name)
 			r.recorder.Eventf(machineSet, corev1.EventTypeNormal, "SuccessfulAdopt", "Adopted Machine %q", machine.Name)
 		}
 
@@ -244,13 +233,8 @@ func (r *MachineSetReconciler) reconcile(ctx context.Context, cluster *clusterv1
 
 	var errs []error
 	for _, machine := range filteredMachines {
-		// filteredMachines contains machines in deleting status to calculate correct status.
-		// skip remediation for those in deleting status.
-		if !machine.DeletionTimestamp.IsZero() {
-			continue
-		}
 		if conditions.IsFalse(machine, clusterv1.MachineOwnerRemediatedCondition) {
-			log.Info("Deleting unhealthy machine", "machine", machine.GetName())
+			logger.Info("Deleting unhealthy machine", "machine", machine.GetName())
 			patch := client.MergeFrom(machine.DeepCopy())
 			if err := r.Client.Delete(ctx, machine); err != nil {
 				errs = append(errs, errors.Wrap(err, "failed to delete"))
@@ -265,15 +249,25 @@ func (r *MachineSetReconciler) reconcile(ctx context.Context, cluster *clusterv1
 
 	err = kerrors.NewAggregate(errs)
 	if err != nil {
-		log.Info("Failed while deleting unhealthy machines", "err", err)
+		logger.Info("Failed while deleting unhealthy machines", "err", err)
 		return ctrl.Result{}, errors.Wrap(err, "failed to remediate machines")
 	}
 
 	syncErr := r.syncReplicas(ctx, machineSet, filteredMachines)
 
+	ms := machineSet.DeepCopy()
+	newStatus, err := r.calculateStatus(ctx, cluster, ms, filteredMachines)
+	if err != nil {
+		return ctrl.Result{}, errors.Wrapf(err, "failed to calculate MachineSet's Status")
+	}
+
 	// Always updates status as machines come up or die.
-	if err := r.updateStatus(ctx, cluster, machineSet, filteredMachines); err != nil {
-		return ctrl.Result{}, errors.Wrapf(kerrors.NewAggregate([]error{err, syncErr}), "failed to update MachineSet's Status")
+	updatedMS, err := r.patchMachineSetStatus(ctx, machineSet, newStatus)
+	if err != nil {
+		if syncErr != nil {
+			return ctrl.Result{}, errors.Wrapf(err, "failed to sync machines: %v. failed to patch MachineSet's Status", syncErr)
+		}
+		return ctrl.Result{}, errors.Wrap(err, "failed to patch MachineSet's Status")
 	}
 
 	if syncErr != nil {
@@ -281,8 +275,8 @@ func (r *MachineSetReconciler) reconcile(ctx context.Context, cluster *clusterv1
 	}
 
 	var replicas int32
-	if machineSet.Spec.Replicas != nil {
-		replicas = *machineSet.Spec.Replicas
+	if updatedMS.Spec.Replicas != nil {
+		replicas = *updatedMS.Spec.Replicas
 	}
 
 	// Resync the MachineSet after MinReadySeconds as a last line of defense to guard against clock-skew.
@@ -292,15 +286,16 @@ func (r *MachineSetReconciler) reconcile(ctx context.Context, cluster *clusterv1
 	// exceeds MinReadySeconds could be incorrect.
 	// To avoid an available replica stuck in the ready state, we force a reconcile after MinReadySeconds,
 	// at which point it should confirm any available replica to be available.
-	if machineSet.Spec.MinReadySeconds > 0 &&
-		machineSet.Status.ReadyReplicas == replicas &&
-		machineSet.Status.AvailableReplicas != replicas {
-		return ctrl.Result{RequeueAfter: time.Duration(machineSet.Spec.MinReadySeconds) * time.Second}, nil
+	if updatedMS.Spec.MinReadySeconds > 0 &&
+		updatedMS.Status.ReadyReplicas == replicas &&
+		updatedMS.Status.AvailableReplicas != replicas {
+
+		return ctrl.Result{RequeueAfter: time.Duration(updatedMS.Spec.MinReadySeconds) * time.Second}, nil
 	}
 
-	// Quickly reconcile until the nodes become Ready.
-	if machineSet.Status.ReadyReplicas != replicas {
-		log.V(4).Info("Some nodes are not ready yet, requeuing until they are ready")
+	// Quickly rereconcile until the nodes become Ready.
+	if updatedMS.Status.ReadyReplicas != replicas {
+		logger.V(4).Info("Some nodes are not ready yet, requeuing until they are ready")
 		return ctrl.Result{RequeueAfter: 15 * time.Second}, nil
 	}
 
@@ -309,28 +304,24 @@ func (r *MachineSetReconciler) reconcile(ctx context.Context, cluster *clusterv1
 
 // syncReplicas scales Machine resources up or down.
 func (r *MachineSetReconciler) syncReplicas(ctx context.Context, ms *clusterv1.MachineSet, machines []*clusterv1.Machine) error {
-	log := ctrl.LoggerFrom(ctx)
+	logger := r.Log.WithValues("machineset", ms.Name, "namespace", ms.Namespace)
 	if ms.Spec.Replicas == nil {
 		return errors.Errorf("the Replicas field in Spec for machineset %v is nil, this should not be allowed", ms.Name)
 	}
+
 	diff := len(machines) - int(*(ms.Spec.Replicas))
 	switch {
 	case diff < 0:
 		diff *= -1
-		log.Info("Too few replicas", "need", *(ms.Spec.Replicas), "creating", diff)
-		if ms.Annotations != nil {
-			if _, ok := ms.Annotations[clusterv1.DisableMachineCreate]; ok {
-				log.V(2).Info("Automatic creation of new machines disabled for machine set")
-				return nil
-			}
-		}
+		logger.Info("Too few replicas", "need", *(ms.Spec.Replicas), "creating", diff)
+
 		var (
 			machineList []*clusterv1.Machine
 			errs        []error
 		)
 
 		for i := 0; i < diff; i++ {
-			log.Info(fmt.Sprintf("Creating machine %d of %d, ( spec.replicas(%d) > currentMachineCount(%d) )",
+			logger.Info(fmt.Sprintf("Creating machine %d of %d, ( spec.replicas(%d) > currentMachineCount(%d) )",
 				i+1, diff, *(ms.Spec.Replicas), len(machines)))
 
 			machine := r.getNewMachine(ms)
@@ -361,7 +352,6 @@ func (r *MachineSetReconciler) syncReplicas(ctx context.Context, ms *clusterv1.M
 				Namespace:   machine.Namespace,
 				ClusterName: machine.Spec.ClusterName,
 				Labels:      machine.Labels,
-				Annotations: machine.Annotations,
 			})
 			if err != nil {
 				return errors.Wrapf(err, "failed to clone infrastructure configuration for MachineSet %q in namespace %q", ms.Name, ms.Namespace)
@@ -369,23 +359,23 @@ func (r *MachineSetReconciler) syncReplicas(ctx context.Context, ms *clusterv1.M
 			machine.Spec.InfrastructureRef = *infraRef
 
 			if err := r.Client.Create(ctx, machine); err != nil {
-				log.Error(err, "Unable to create Machine", "machine", machine.Name)
+				logger.Error(err, "Unable to create Machine", "machine", machine.Name)
 				r.recorder.Eventf(ms, corev1.EventTypeWarning, "FailedCreate", "Failed to create machine %q: %v", machine.Name, err)
 				errs = append(errs, err)
 
 				// Try to cleanup the external objects if the Machine creation failed.
 				if err := r.Client.Delete(ctx, util.ObjectReferenceToUnstructured(*infraRef)); !apierrors.IsNotFound(err) {
-					log.Error(err, "Failed to cleanup infrastructure configuration object after Machine creation error")
+					logger.Error(err, "Failed to cleanup infrastructure configuration object after Machine creation error")
 				}
 				if bootstrapRef != nil {
 					if err := r.Client.Delete(ctx, util.ObjectReferenceToUnstructured(*bootstrapRef)); !apierrors.IsNotFound(err) {
-						log.Error(err, "Failed to cleanup bootstrap configuration object after Machine creation error")
+						logger.Error(err, "Failed to cleanup bootstrap configuration object after Machine creation error")
 					}
 				}
 				continue
 			}
 
-			log.Info(fmt.Sprintf("Created machine %d of %d with name %q", i+1, diff, machine.Name))
+			logger.Info(fmt.Sprintf("Created machine %d of %d with name %q", i+1, diff, machine.Name))
 			r.recorder.Eventf(ms, corev1.EventTypeNormal, "SuccessfulCreate", "Created machine %q", machine.Name)
 			machineList = append(machineList, machine)
 		}
@@ -393,33 +383,33 @@ func (r *MachineSetReconciler) syncReplicas(ctx context.Context, ms *clusterv1.M
 		if len(errs) > 0 {
 			return kerrors.NewAggregate(errs)
 		}
-		return r.waitForMachineCreation(ctx, machineList)
+		return r.waitForMachineCreation(machineList)
 	case diff > 0:
-		log.Info("Too many replicas", "need", *(ms.Spec.Replicas), "deleting", diff)
+		logger.Info("Too many replicas", "need", *(ms.Spec.Replicas), "deleting", diff)
 
 		deletePriorityFunc, err := getDeletePriorityFunc(ms)
 		if err != nil {
 			return err
 		}
-		log.Info("Found delete policy", "delete-policy", ms.Spec.DeletePolicy)
+		logger.Info("Found delete policy", "delete-policy", ms.Spec.DeletePolicy)
 
 		var errs []error
 		machinesToDelete := getMachinesToDeletePrioritized(machines, diff, deletePriorityFunc)
 		for _, machine := range machinesToDelete {
 			if err := r.Client.Delete(ctx, machine); err != nil {
-				log.Error(err, "Unable to delete Machine", "machine", machine.Name)
+				logger.Error(err, "Unable to delete Machine", "machine", machine.Name)
 				r.recorder.Eventf(ms, corev1.EventTypeWarning, "FailedDelete", "Failed to delete machine %q: %v", machine.Name, err)
 				errs = append(errs, err)
 				continue
 			}
-			log.Info("Deleted machine", "machine", machine.Name)
+			logger.Info("Deleted machine", "machine", machine.Name)
 			r.recorder.Eventf(ms, corev1.EventTypeNormal, "SuccessfulDelete", "Deleted machine %q", machine.Name)
 		}
 
 		if len(errs) > 0 {
 			return kerrors.NewAggregate(errs)
 		}
-		return r.waitForMachineDeletion(ctx, machinesToDelete)
+		return r.waitForMachineDeletion(machinesToDelete)
 	}
 
 	return nil
@@ -451,12 +441,12 @@ func (r *MachineSetReconciler) getNewMachine(machineSet *clusterv1.MachineSet) *
 }
 
 // shouldExcludeMachine returns true if the machine should be filtered out, false otherwise.
-func shouldExcludeMachine(machineSet *clusterv1.MachineSet, machine *clusterv1.Machine) bool {
+func shouldExcludeMachine(machineSet *clusterv1.MachineSet, machine *clusterv1.Machine, logger logr.Logger) bool {
 	if metav1.GetControllerOf(machine) != nil && !metav1.IsControlledBy(machine, machineSet) {
+		logger.V(4).Info("Machine is not controlled by machineset", "machine", machine.Name)
 		return true
 	}
-
-	return false
+	return !machine.ObjectMeta.DeletionTimestamp.IsZero()
 }
 
 // adoptOrphan sets the MachineSet as a controller OwnerReference to the Machine.
@@ -467,14 +457,12 @@ func (r *MachineSetReconciler) adoptOrphan(ctx context.Context, machineSet *clus
 	return r.Client.Patch(ctx, machine, patch)
 }
 
-func (r *MachineSetReconciler) waitForMachineCreation(ctx context.Context, machineList []*clusterv1.Machine) error {
-	log := ctrl.LoggerFrom(ctx)
-
+func (r *MachineSetReconciler) waitForMachineCreation(machineList []*clusterv1.Machine) error {
 	for i := 0; i < len(machineList); i++ {
 		machine := machineList[i]
 		pollErr := util.PollImmediate(stateConfirmationInterval, stateConfirmationTimeout, func() (bool, error) {
 			key := client.ObjectKey{Namespace: machine.Namespace, Name: machine.Name}
-			if err := r.Client.Get(ctx, key, &clusterv1.Machine{}); err != nil {
+			if err := r.Client.Get(context.Background(), key, &clusterv1.Machine{}); err != nil {
 				if apierrors.IsNotFound(err) {
 					return false, nil
 				}
@@ -485,7 +473,7 @@ func (r *MachineSetReconciler) waitForMachineCreation(ctx context.Context, machi
 		})
 
 		if pollErr != nil {
-			log.Error(pollErr, "Failed waiting for machine object to be created")
+			r.Log.Error(pollErr, "Failed waiting for machine object to be created")
 			return errors.Wrap(pollErr, "failed waiting for machine object to be created")
 		}
 	}
@@ -493,15 +481,13 @@ func (r *MachineSetReconciler) waitForMachineCreation(ctx context.Context, machi
 	return nil
 }
 
-func (r *MachineSetReconciler) waitForMachineDeletion(ctx context.Context, machineList []*clusterv1.Machine) error {
-	log := ctrl.LoggerFrom(ctx)
-
+func (r *MachineSetReconciler) waitForMachineDeletion(machineList []*clusterv1.Machine) error {
 	for i := 0; i < len(machineList); i++ {
 		machine := machineList[i]
 		pollErr := util.PollImmediate(stateConfirmationInterval, stateConfirmationTimeout, func() (bool, error) {
 			m := &clusterv1.Machine{}
 			key := client.ObjectKey{Namespace: machine.Namespace, Name: machine.Name}
-			err := r.Client.Get(ctx, key, m)
+			err := r.Client.Get(context.Background(), key, m)
 			if apierrors.IsNotFound(err) || !m.DeletionTimestamp.IsZero() {
 				return true, nil
 			}
@@ -509,7 +495,7 @@ func (r *MachineSetReconciler) waitForMachineDeletion(ctx context.Context, machi
 		})
 
 		if pollErr != nil {
-			log.Error(pollErr, "Failed waiting for machine object to be deleted")
+			r.Log.Error(pollErr, "Failed waiting for machine object to be deleted")
 			return errors.Wrap(pollErr, "failed waiting for machine object to be deleted")
 		}
 	}
@@ -518,15 +504,13 @@ func (r *MachineSetReconciler) waitForMachineDeletion(ctx context.Context, machi
 
 // MachineToMachineSets is a handler.ToRequestsFunc to be used to enqeue requests for reconciliation
 // for MachineSets that might adopt an orphaned Machine.
-func (r *MachineSetReconciler) MachineToMachineSets(o client.Object) []ctrl.Request {
-	ctx := context.Background()
-	// This won't log unless the global logger is set
-	log := ctrl.LoggerFrom(ctx, "object", client.ObjectKeyFromObject(o))
+func (r *MachineSetReconciler) MachineToMachineSets(o handler.MapObject) []ctrl.Request {
 	result := []ctrl.Request{}
 
-	m, ok := o.(*clusterv1.Machine)
+	m, ok := o.Object.(*clusterv1.Machine)
 	if !ok {
-		panic(fmt.Sprintf("Expected a Machine but got a %T", o))
+		r.Log.Error(nil, fmt.Sprintf("Expected a Machine but got a %T", o.Object))
+		return nil
 	}
 
 	// Check if the controller reference is already set and
@@ -537,12 +521,9 @@ func (r *MachineSetReconciler) MachineToMachineSets(o client.Object) []ctrl.Requ
 		}
 	}
 
-	mss, err := r.getMachineSetsForMachine(ctx, m)
-	if err != nil {
-		log.Error(err, "Failed getting MachineSets for Machine")
-		return nil
-	}
+	mss := r.getMachineSetsForMachine(m)
 	if len(mss) == 0 {
+		r.Log.V(4).Info("Found no MachineSet for Machine", "machine", m.Name)
 		return nil
 	}
 
@@ -554,42 +535,68 @@ func (r *MachineSetReconciler) MachineToMachineSets(o client.Object) []ctrl.Requ
 	return result
 }
 
-func (r *MachineSetReconciler) getMachineSetsForMachine(ctx context.Context, m *clusterv1.Machine) ([]*clusterv1.MachineSet, error) {
+func (r *MachineSetReconciler) getMachineSetsForMachine(m *clusterv1.Machine) []*clusterv1.MachineSet {
+	logger := r.Log.WithValues("machine", m.Name, "namespace", m.Namespace)
+
 	if len(m.Labels) == 0 {
-		return nil, fmt.Errorf("machine %v has no labels, this is unexpected", client.ObjectKeyFromObject(m))
+		logger.Info("No machine sets found because it has no labels")
+		return nil
 	}
 
 	msList := &clusterv1.MachineSetList{}
-	if err := r.Client.List(ctx, msList, client.InNamespace(m.Namespace)); err != nil {
-		return nil, errors.Wrapf(err, "failed to list MachineSets")
+	err := r.Client.List(context.Background(), msList, client.InNamespace(m.Namespace))
+	if err != nil {
+		logger.Error(err, "Failed to list machine sets")
+		return nil
 	}
 
 	var mss []*clusterv1.MachineSet
 	for idx := range msList.Items {
 		ms := &msList.Items[idx]
-		if hasMatchingLabels(ms.Spec.Selector, m.Labels) {
+		if r.hasMatchingLabels(ms, m) {
 			mss = append(mss, ms)
 		}
 	}
 
-	return mss, nil
+	return mss
+}
+
+func (r *MachineSetReconciler) hasMatchingLabels(machineSet *clusterv1.MachineSet, machine *clusterv1.Machine) bool {
+	logger := r.Log.WithValues("machineset", machineSet.Name, "namespace", machineSet.Namespace, "machine", machine.Name)
+
+	selector, err := metav1.LabelSelectorAsSelector(&machineSet.Spec.Selector)
+	if err != nil {
+		logger.Error(err, "Unable to convert selector")
+		return false
+	}
+
+	// If a deployment with a nil or empty selector creeps in, it should match nothing, not everything.
+	if selector.Empty() {
+		logger.V(2).Info("Machineset has empty selector")
+		return false
+	}
+
+	if !selector.Matches(labels.Set(machine.Labels)) {
+		logger.V(4).Info("Machine has mismatch labels")
+		return false
+	}
+
+	return true
 }
 
 func (r *MachineSetReconciler) shouldAdopt(ms *clusterv1.MachineSet) bool {
 	return !util.HasOwner(ms.OwnerReferences, clusterv1.GroupVersion.String(), []string{"MachineDeployment", "Cluster"})
 }
 
-// updateStatus updates the Status field for the MachineSet
-// It checks for the current state of the replicas and updates the Status of the MachineSet.
-func (r *MachineSetReconciler) updateStatus(ctx context.Context, cluster *clusterv1.Cluster, ms *clusterv1.MachineSet, filteredMachines []*clusterv1.Machine) error {
-	log := ctrl.LoggerFrom(ctx)
+func (r *MachineSetReconciler) calculateStatus(ctx context.Context, cluster *clusterv1.Cluster, ms *clusterv1.MachineSet, filteredMachines []*clusterv1.Machine) (*clusterv1.MachineSetStatus, error) {
+	logger := r.Log.WithValues("machineset", ms.Name, "namespace", ms.Namespace)
 	newStatus := ms.Status.DeepCopy()
 
 	// Copy label selector to its status counterpart in string format.
 	// This is necessary for CRDs including scale subresources.
 	selector, err := metav1.LabelSelectorAsSelector(&ms.Spec.Selector)
 	if err != nil {
-		return errors.Wrapf(err, "failed to update status for MachineSet %s/%s", ms.Namespace, ms.Name)
+		return nil, errors.Wrapf(err, "failed to calculate status for MachineSet %s/%s", ms.Namespace, ms.Name)
 	}
 	newStatus.Selector = selector.String()
 
@@ -609,13 +616,13 @@ func (r *MachineSetReconciler) updateStatus(ctx context.Context, cluster *cluste
 		}
 
 		if machine.Status.NodeRef == nil {
-			log.V(2).Info("Unable to retrieve Node status, missing NodeRef", "machine", machine.Name)
+			logger.V(2).Info("Unable to retrieve Node status, missing NodeRef", "machine", machine.Name)
 			continue
 		}
 
 		node, err := r.getMachineNode(ctx, cluster, machine)
 		if err != nil {
-			log.Error(err, "Unable to retrieve Node status")
+			logger.Error(err, "Unable to retrieve Node status")
 			continue
 		}
 
@@ -631,27 +638,47 @@ func (r *MachineSetReconciler) updateStatus(ctx context.Context, cluster *cluste
 	newStatus.FullyLabeledReplicas = int32(fullyLabeledReplicasCount)
 	newStatus.ReadyReplicas = int32(readyReplicasCount)
 	newStatus.AvailableReplicas = int32(availableReplicasCount)
+	return newStatus, nil
+}
 
-	// Copy the newly calculated status into the machineset
-	if ms.Status.Replicas != newStatus.Replicas ||
-		ms.Status.FullyLabeledReplicas != newStatus.FullyLabeledReplicas ||
-		ms.Status.ReadyReplicas != newStatus.ReadyReplicas ||
-		ms.Status.AvailableReplicas != newStatus.AvailableReplicas ||
-		ms.Generation != ms.Status.ObservedGeneration {
-		// Save the generation number we acted on, otherwise we might wrongfully indicate
-		// that we've seen a spec update when we retry.
-		newStatus.ObservedGeneration = ms.Generation
-		newStatus.DeepCopyInto(&ms.Status)
+// patchMachineSetStatus attempts to update the Status.Replicas of the given MachineSet.
+func (r *MachineSetReconciler) patchMachineSetStatus(ctx context.Context, ms *clusterv1.MachineSet, newStatus *clusterv1.MachineSetStatus) (*clusterv1.MachineSet, error) {
+	logger := r.Log.WithValues("machineset", ms.Name, "namespace", ms.Namespace)
 
-		log.V(4).Info(fmt.Sprintf("Updating status for %v: %s/%s, ", ms.Kind, ms.Namespace, ms.Name) +
-			fmt.Sprintf("replicas %d->%d (need %d), ", ms.Status.Replicas, newStatus.Replicas, *ms.Spec.Replicas) +
-			fmt.Sprintf("fullyLabeledReplicas %d->%d, ", ms.Status.FullyLabeledReplicas, newStatus.FullyLabeledReplicas) +
-			fmt.Sprintf("readyReplicas %d->%d, ", ms.Status.ReadyReplicas, newStatus.ReadyReplicas) +
-			fmt.Sprintf("availableReplicas %d->%d, ", ms.Status.AvailableReplicas, newStatus.AvailableReplicas) +
-			fmt.Sprintf("sequence No: %v->%v", ms.Status.ObservedGeneration, newStatus.ObservedGeneration))
+	// This is the steady state. It happens when the MachineSet doesn't have any expectations, since
+	// we do a periodic relist every 10 minutes. If the generations differ but the replicas are
+	// the same, a caller might've resized to the same replica count.
+	if ms.Status.Replicas == newStatus.Replicas &&
+		ms.Status.FullyLabeledReplicas == newStatus.FullyLabeledReplicas &&
+		ms.Status.ReadyReplicas == newStatus.ReadyReplicas &&
+		ms.Status.AvailableReplicas == newStatus.AvailableReplicas &&
+		ms.Generation == ms.Status.ObservedGeneration {
+		return ms, nil
 	}
 
-	return nil
+	patch := client.MergeFrom(ms.DeepCopyObject())
+
+	// Save the generation number we acted on, otherwise we might wrongfully indicate
+	// that we've seen a spec update when we retry.
+	newStatus.ObservedGeneration = ms.Generation
+
+	// Calculate the replicas for logging.
+	var replicas int32
+	if ms.Spec.Replicas != nil {
+		replicas = *ms.Spec.Replicas
+	}
+	logger.V(4).Info(fmt.Sprintf("Updating status for %v: %s/%s, ", ms.Kind, ms.Namespace, ms.Name) +
+		fmt.Sprintf("replicas %d->%d (need %d), ", ms.Status.Replicas, newStatus.Replicas, replicas) +
+		fmt.Sprintf("fullyLabeledReplicas %d->%d, ", ms.Status.FullyLabeledReplicas, newStatus.FullyLabeledReplicas) +
+		fmt.Sprintf("readyReplicas %d->%d, ", ms.Status.ReadyReplicas, newStatus.ReadyReplicas) +
+		fmt.Sprintf("availableReplicas %d->%d, ", ms.Status.AvailableReplicas, newStatus.AvailableReplicas) +
+		fmt.Sprintf("sequence No: %v->%v", ms.Status.ObservedGeneration, newStatus.ObservedGeneration))
+
+	newStatus.DeepCopyInto(&ms.Status)
+	if err := r.Client.Status().Patch(ctx, ms, patch); err != nil {
+		return nil, err
+	}
+	return ms, nil
 }
 
 func (r *MachineSetReconciler) getMachineNode(ctx context.Context, cluster *clusterv1.Cluster, machine *clusterv1.Machine) (*corev1.Node, error) {
@@ -666,12 +693,12 @@ func (r *MachineSetReconciler) getMachineNode(ctx context.Context, cluster *clus
 	return node, nil
 }
 
-func reconcileExternalTemplateReference(ctx context.Context, c client.Client, restConfig *rest.Config, cluster *clusterv1.Cluster, ref *corev1.ObjectReference) error {
+func reconcileExternalTemplateReference(ctx context.Context, logger logr.Logger, c client.Client, restConfig *rest.Config, cluster *clusterv1.Cluster, ref *corev1.ObjectReference) error {
 	if !strings.HasSuffix(ref.Kind, external.TemplateSuffix) {
 		return nil
 	}
 
-	if err := utilconversion.ConvertReferenceAPIContract(ctx, c, restConfig, ref); err != nil {
+	if err := utilconversion.ConvertReferenceAPIContract(ctx, logger, c, restConfig, ref); err != nil {
 		return err
 	}
 
@@ -692,5 +719,8 @@ func reconcileExternalTemplateReference(ctx context.Context, c client.Client, re
 		UID:        cluster.UID,
 	}))
 
-	return patchHelper.Patch(ctx, obj)
+	if err := patchHelper.Patch(ctx, obj); err != nil {
+		return err
+	}
+	return nil
 }

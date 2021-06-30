@@ -108,7 +108,7 @@ func runGetRepositories(cfgFile string, out io.Writer) error {
 		if err != nil {
 			return err
 		}
-		fmt.Fprint(w, string(y))
+		fmt.Fprintf(w, string(y))
 	}
 	w.Flush()
 	return nil

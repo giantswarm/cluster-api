@@ -58,7 +58,7 @@ func MachineDeploymentUpgradesSpec(ctx context.Context, inputGetter func() Machi
 		Expect(input.E2EConfig).ToNot(BeNil(), "Invalid argument. input.E2EConfig can't be nil when calling %s spec", specName)
 		Expect(input.ClusterctlConfigPath).To(BeAnExistingFile(), "Invalid argument. input.ClusterctlConfigPath must be an existing file when calling %s spec", specName)
 		Expect(input.BootstrapClusterProxy).ToNot(BeNil(), "Invalid argument. input.BootstrapClusterProxy can't be nil when calling %s spec", specName)
-		Expect(os.MkdirAll(input.ArtifactFolder, 0750)).To(Succeed(), "Invalid argument. input.ArtifactFolder can't be created for %s spec", specName)
+		Expect(os.MkdirAll(input.ArtifactFolder, 0755)).To(Succeed(), "Invalid argument. input.ArtifactFolder can't be created for %s spec", specName)
 		Expect(input.E2EConfig.Variables).To(HaveKey(KubernetesVersion))
 		Expect(input.E2EConfig.Variables).To(HaveValidVersion(input.E2EConfig.GetVariable(KubernetesVersion)))
 		Expect(input.E2EConfig.Variables).To(HaveKey(KubernetesVersionUpgradeFrom))
@@ -66,12 +66,12 @@ func MachineDeploymentUpgradesSpec(ctx context.Context, inputGetter func() Machi
 
 		// Setup a Namespace where to host objects for this spec and create a watcher for the namespace events.
 		namespace, cancelWatches = setupSpecNamespace(ctx, specName, input.BootstrapClusterProxy, input.ArtifactFolder)
-		clusterResources = new(clusterctl.ApplyClusterTemplateAndWaitResult)
 	})
 
 	It("Should successfully upgrade Machines upon changes in relevant MachineDeployment fields", func() {
+
 		By("Creating a workload cluster")
-		clusterctl.ApplyClusterTemplateAndWait(ctx, clusterctl.ApplyClusterTemplateAndWaitInput{
+		clusterResources = clusterctl.ApplyClusterTemplateAndWait(ctx, clusterctl.ApplyClusterTemplateAndWaitInput{
 			ClusterProxy: input.BootstrapClusterProxy,
 			ConfigCluster: clusterctl.ConfigClusterInput{
 				LogFolder:                filepath.Join(input.ArtifactFolder, "clusters", input.BootstrapClusterProxy.GetName()),
@@ -88,10 +88,10 @@ func MachineDeploymentUpgradesSpec(ctx context.Context, inputGetter func() Machi
 			WaitForClusterIntervals:      input.E2EConfig.GetIntervals(specName, "wait-cluster"),
 			WaitForControlPlaneIntervals: input.E2EConfig.GetIntervals(specName, "wait-control-plane"),
 			WaitForMachineDeployments:    input.E2EConfig.GetIntervals(specName, "wait-worker-nodes"),
-		}, clusterResources)
+		})
 
 		By("Upgrading MachineDeployment's Kubernetes version to a valid version")
-		framework.UpgradeMachineDeploymentsAndWait(ctx, framework.UpgradeMachineDeploymentsAndWaitInput{
+		framework.UpgradeMachineDeploymentsAndWait(context.TODO(), framework.UpgradeMachineDeploymentsAndWaitInput{
 			ClusterProxy:                input.BootstrapClusterProxy,
 			Cluster:                     clusterResources.Cluster,
 			UpgradeVersion:              input.E2EConfig.GetVariable(KubernetesVersion),
@@ -100,7 +100,7 @@ func MachineDeploymentUpgradesSpec(ctx context.Context, inputGetter func() Machi
 		})
 
 		By("Upgrading MachineDeployment Infrastructure ref and wait for rolling upgrade")
-		framework.UpgradeMachineDeploymentInfrastructureRefAndWait(ctx, framework.UpgradeMachineDeploymentInfrastructureRefAndWaitInput{
+		framework.UpgradeMachineDeploymentInfrastructureRefAndWait(context.TODO(), framework.UpgradeMachineDeploymentInfrastructureRefAndWaitInput{
 			ClusterProxy:                input.BootstrapClusterProxy,
 			Cluster:                     clusterResources.Cluster,
 			WaitForMachinesToBeUpgraded: input.E2EConfig.GetIntervals(specName, "wait-machine-upgrade"),

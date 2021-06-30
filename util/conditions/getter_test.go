@@ -20,7 +20,10 @@ import (
 	"testing"
 
 	. "github.com/onsi/gomega"
-	clusterv1 "sigs.k8s.io/cluster-api/api/v1alpha4"
+	"github.com/onsi/gomega/format"
+	"github.com/onsi/gomega/types"
+	"github.com/pkg/errors"
+	clusterv1 "sigs.k8s.io/cluster-api/api/v1alpha3"
 )
 
 var (
@@ -43,7 +46,7 @@ func TestGetAndHas(t *testing.T) {
 	cluster.SetConditions(conditionList(TrueCondition("conditionBaz")))
 
 	g.Expect(Has(cluster, "conditionBaz")).To(BeTrue())
-	g.Expect(Get(cluster, "conditionBaz")).To(HaveSameStateOf(TrueCondition("conditionBaz")))
+	g.Expect(Get(cluster, "conditionBaz")).To(haveSameStateOf(TrueCondition("conditionBaz")))
 }
 
 func TestIsMethods(t *testing.T) {
@@ -122,7 +125,7 @@ func TestMirror(t *testing.T) {
 				g.Expect(got).To(BeNil())
 				return
 			}
-			g.Expect(got).To(HaveSameStateOf(tt.want))
+			g.Expect(got).To(haveSameStateOf(tt.want))
 		})
 	}
 }
@@ -131,7 +134,7 @@ func TestSummary(t *testing.T) {
 	foo := TrueCondition("foo")
 	bar := FalseCondition("bar", "reason falseInfo1", clusterv1.ConditionSeverityInfo, "message falseInfo1")
 	baz := FalseCondition("baz", "reason falseInfo2", clusterv1.ConditionSeverityInfo, "message falseInfo2")
-	existingReady := FalseCondition(clusterv1.ReadyCondition, "reason falseError1", clusterv1.ConditionSeverityError, "message falseError1") // NB. existing ready has higher priority than other conditions
+	existingReady := FalseCondition(clusterv1.ReadyCondition, "reason falseError1", clusterv1.ConditionSeverityError, "message falseError1") //NB. existing ready has higher priority than other conditions
 
 	tests := []struct {
 		name    string
@@ -231,7 +234,7 @@ func TestSummary(t *testing.T) {
 				g.Expect(got).To(BeNil())
 				return
 			}
-			g.Expect(got).To(HaveSameStateOf(tt.want))
+			g.Expect(got).To(haveSameStateOf(tt.want))
 		})
 	}
 }
@@ -239,7 +242,7 @@ func TestSummary(t *testing.T) {
 func TestAggregate(t *testing.T) {
 	ready1 := TrueCondition(clusterv1.ReadyCondition)
 	ready2 := FalseCondition(clusterv1.ReadyCondition, "reason falseInfo1", clusterv1.ConditionSeverityInfo, "message falseInfo1")
-	bar := FalseCondition("bar", "reason falseError1", clusterv1.ConditionSeverityError, "message falseError1") // NB. bar has higher priority than other conditions
+	bar := FalseCondition("bar", "reason falseError1", clusterv1.ConditionSeverityError, "message falseError1") //NB. bar has higher priority than other conditions
 
 	tests := []struct {
 		name string
@@ -275,7 +278,7 @@ func TestAggregate(t *testing.T) {
 				g.Expect(got).To(BeNil())
 				return
 			}
-			g.Expect(got).To(HaveSameStateOf(tt.want))
+			g.Expect(got).To(haveSameStateOf(tt.want))
 		})
 	}
 }
@@ -294,4 +297,30 @@ func conditionList(conditions ...*clusterv1.Condition) clusterv1.Conditions {
 		}
 	}
 	return cs
+}
+
+func haveSameStateOf(expected *clusterv1.Condition) types.GomegaMatcher {
+	return &ConditionMatcher{
+		Expected: expected,
+	}
+}
+
+type ConditionMatcher struct {
+	Expected *clusterv1.Condition
+}
+
+func (matcher *ConditionMatcher) Match(actual interface{}) (success bool, err error) {
+	actualCondition, ok := actual.(*clusterv1.Condition)
+	if !ok {
+		return false, errors.New("Value should be a condition")
+	}
+
+	return hasSameState(actualCondition, matcher.Expected), nil
+}
+
+func (matcher *ConditionMatcher) FailureMessage(actual interface{}) (message string) {
+	return format.Message(actual, "to have the same state of", matcher.Expected)
+}
+func (matcher *ConditionMatcher) NegatedFailureMessage(actual interface{}) (message string) {
+	return format.Message(actual, "not to have the same state of", matcher.Expected)
 }

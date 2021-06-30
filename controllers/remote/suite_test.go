@@ -17,44 +17,54 @@ limitations under the License.
 package remote
 
 import (
-	"fmt"
-	"os"
+	"context"
 	"testing"
 	"time"
 
-	"sigs.k8s.io/cluster-api/internal/envtest"
-	ctrl "sigs.k8s.io/controller-runtime"
+	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/gomega"
+
+	"sigs.k8s.io/cluster-api/test/helpers"
+	"sigs.k8s.io/controller-runtime/pkg/envtest/printer"
 	// +kubebuilder:scaffold:imports
 )
+
+// These tests use Ginkgo (BDD-style Go testing framework). Refer to
+// http://onsi.github.io/ginkgo/ to learn more about Ginkgo.
 
 const (
 	timeout = time.Second * 10
 )
 
 var (
-	env *envtest.Environment
-	ctx = ctrl.SetupSignalHandler()
+	testEnv *helpers.TestEnvironment
+	ctx     = context.Background()
 )
 
-func TestMain(m *testing.M) {
-	fmt.Println("Creating a new test environment")
-	env = envtest.New()
+func TestGinkgoSuite(t *testing.T) {
+	RegisterFailHandler(Fail)
 
-	go func() {
-		fmt.Println("Starting the test environment manager")
-		if err := env.Start(ctx); err != nil {
-			panic(fmt.Sprintf("Failed to start the test environment manager: %v", err))
-		}
-	}()
-	<-env.Manager.Elected()
-	env.WaitForWebhooks()
-
-	code := m.Run()
-
-	fmt.Println("Stopping the test environment")
-	if err := env.Stop(); err != nil {
-		panic(fmt.Sprintf("Failed to stop the test environment: %v", err))
-	}
-
-	os.Exit(code)
+	RunSpecsWithDefaultAndCustomReporters(t,
+		"Remote Controller Suite",
+		[]Reporter{printer.NewlineReporter{}})
 }
+
+var _ = BeforeSuite(func(done Done) {
+	By("bootstrapping test environment")
+	testEnv = helpers.NewTestEnvironment()
+
+	By("starting the manager")
+	go func() {
+		defer GinkgoRecover()
+		Expect(testEnv.StartManager()).To(Succeed())
+	}()
+
+	close(done)
+}, 60)
+
+var _ = AfterSuite(func() {
+	if testEnv != nil {
+		By("tearing down the test environment")
+		Expect(testEnv.Stop()).To(Succeed())
+	}
+})

@@ -14,7 +14,6 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-// Package locking implements locking functionality.
 package locking
 
 import (
@@ -24,10 +23,10 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/pkg/errors"
-	corev1 "k8s.io/api/core/v1"
+	apicorev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	clusterv1 "sigs.k8s.io/cluster-api/api/v1alpha4"
+	clusterv1 "sigs.k8s.io/cluster-api/api/v1alpha3"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -47,7 +46,7 @@ func NewControlPlaneInitMutex(log logr.Logger, client client.Client) *ControlPla
 	}
 }
 
-// Lock allows a control plane node to be the first and only node to run kubeadm init.
+// Lock allows a control plane node to be the first and only node to run kubeadm init
 func (c *ControlPlaneInitMutex) Lock(ctx context.Context, cluster *clusterv1.Cluster, machine *clusterv1.Machine) bool {
 	sema := newSemaphore()
 	cmName := configMapName(cluster.Name)
@@ -98,7 +97,7 @@ func (c *ControlPlaneInitMutex) Lock(ctx context.Context, cluster *clusterv1.Clu
 	}
 }
 
-// Unlock releases the lock.
+// Unlock releases the lock
 func (c *ControlPlaneInitMutex) Unlock(ctx context.Context, cluster *clusterv1.Cluster) bool {
 	sema := newSemaphore()
 	cmName := configMapName(cluster.Name)
@@ -133,11 +132,11 @@ type information struct {
 }
 
 type semaphore struct {
-	*corev1.ConfigMap
+	*apicorev1.ConfigMap
 }
 
 func newSemaphore() *semaphore {
-	return &semaphore{&corev1.ConfigMap{}}
+	return &semaphore{&apicorev1.ConfigMap{}}
 }
 
 func configMapName(clusterName string) string {

@@ -25,73 +25,61 @@ import (
 
 	"github.com/pkg/errors"
 	corev1 "k8s.io/api/core/v1"
-	clusterv1 "sigs.k8s.io/cluster-api/api/v1alpha4"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/client-go/kubernetes/scheme"
+	clusterv1 "sigs.k8s.io/cluster-api/api/v1alpha3"
 	"sigs.k8s.io/cluster-api/controllers/remote"
-	expv1 "sigs.k8s.io/cluster-api/exp/api/v1alpha4"
-	"sigs.k8s.io/cluster-api/util/collections"
+	"sigs.k8s.io/cluster-api/controlplane/kubeadm/internal/machinefilters"
 	"sigs.k8s.io/cluster-api/util/secret"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-)
-
-const (
-	// KubeadmControlPlaneControllerName defines the controller used when creating clients.
-	KubeadmControlPlaneControllerName = "kubeadm-controlplane-controller"
+	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 // ManagementCluster defines all behaviors necessary for something to function as a management cluster.
 type ManagementCluster interface {
-	client.Reader
+	ctrlclient.Reader
 
-	GetMachinesForCluster(ctx context.Context, cluster *clusterv1.Cluster, filters ...collections.Func) (collections.Machines, error)
-	GetMachinePoolsForCluster(ctx context.Context, cluster *clusterv1.Cluster) (*expv1.MachinePoolList, error)
+	GetMachinesForCluster(ctx context.Context, cluster client.ObjectKey, filters ...machinefilters.Func) (FilterableMachineCollection, error)
 	GetWorkloadCluster(ctx context.Context, clusterKey client.ObjectKey) (WorkloadCluster, error)
 }
 
 // Management holds operations on the management cluster.
 type Management struct {
-	Client  client.Reader
-	Tracker *remote.ClusterCacheTracker
+	Client ctrlclient.Reader
 }
 
-// RemoteClusterConnectionError represents a failure to connect to a remote cluster.
+// RemoteClusterConnectionError represents a failure to connect to a remote cluster
 type RemoteClusterConnectionError struct {
 	Name string
 	Err  error
 }
 
-// Error satisfies the error interface.
 func (e *RemoteClusterConnectionError) Error() string { return e.Name + ": " + e.Err.Error() }
-
-// Unwrap satisfies the unwrap error inteface.
 func (e *RemoteClusterConnectionError) Unwrap() error { return e.Err }
 
-// Get implements client.Reader.
-func (m *Management) Get(ctx context.Context, key client.ObjectKey, obj client.Object) error {
+// Get implements ctrlclient.Reader
+func (m *Management) Get(ctx context.Context, key ctrlclient.ObjectKey, obj runtime.Object) error {
 	return m.Client.Get(ctx, key, obj)
 }
 
-// List implements client.Reader.
-func (m *Management) List(ctx context.Context, list client.ObjectList, opts ...client.ListOption) error {
+// List implements ctrlclient.Reader
+func (m *Management) List(ctx context.Context, list runtime.Object, opts ...ctrlclient.ListOption) error {
 	return m.Client.List(ctx, list, opts...)
 }
 
 // GetMachinesForCluster returns a list of machines that can be filtered or not.
 // If no filter is supplied then all machines associated with the target cluster are returned.
-func (m *Management) GetMachinesForCluster(ctx context.Context, cluster *clusterv1.Cluster, filters ...collections.Func) (collections.Machines, error) {
-	return collections.GetFilteredMachinesForCluster(ctx, m.Client, cluster, filters...)
-}
-
-// GetMachinePoolsForCluster returns a list of machine pools owned by the cluster.
-func (m *Management) GetMachinePoolsForCluster(ctx context.Context, cluster *clusterv1.Cluster) (*expv1.MachinePoolList, error) {
-	selectors := []client.ListOption{
-		client.InNamespace(cluster.GetNamespace()),
-		client.MatchingLabels{
-			clusterv1.ClusterLabelName: cluster.GetName(),
-		},
+func (m *Management) GetMachinesForCluster(ctx context.Context, cluster client.ObjectKey, filters ...machinefilters.Func) (FilterableMachineCollection, error) {
+	selector := map[string]string{
+		clusterv1.ClusterLabelName: cluster.Name,
 	}
-	machinePoolList := &expv1.MachinePoolList{}
-	err := m.Client.List(ctx, machinePoolList, selectors...)
-	return machinePoolList, err
+	ml := &clusterv1.MachineList{}
+	if err := m.Client.List(ctx, ml, client.InNamespace(cluster.Namespace), client.MatchingLabels(selector)); err != nil {
+		return nil, errors.Wrap(err, "failed to list machines")
+	}
+
+	machines := NewFilterableMachineCollectionFromMachineList(ml)
+	return machines.Filter(filters...), nil
 }
 
 // GetWorkloadCluster builds a cluster object.
@@ -99,19 +87,15 @@ func (m *Management) GetMachinePoolsForCluster(ctx context.Context, cluster *clu
 func (m *Management) GetWorkloadCluster(ctx context.Context, clusterKey client.ObjectKey) (WorkloadCluster, error) {
 	// TODO(chuckha): Inject this dependency.
 	// TODO(chuckha): memoize this function. The workload client only exists as long as a reconciliation loop.
-	restConfig, err := remote.RESTConfig(ctx, KubeadmControlPlaneControllerName, m.Client, clusterKey)
+	restConfig, err := remote.RESTConfig(ctx, m.Client, clusterKey)
 	if err != nil {
 		return nil, err
 	}
 	restConfig.Timeout = 30 * time.Second
 
-	if m.Tracker == nil {
-		return nil, errors.New("Cannot get WorkloadCluster: No remote Cluster Cache")
-	}
-
-	c, err := m.Tracker.GetClient(ctx, clusterKey)
+	c, err := client.New(restConfig, client.Options{Scheme: scheme.Scheme})
 	if err != nil {
-		return nil, err
+		return nil, &RemoteClusterConnectionError{Name: clusterKey.String(), Err: err}
 	}
 
 	// Retrieves the etcd CA key Pair
@@ -132,7 +116,7 @@ func (m *Management) GetWorkloadCluster(ctx context.Context, clusterKey client.O
 			return nil, err
 		}
 	} else {
-		clientCert, err = m.getAPIServerEtcdClientCert(ctx, clusterKey)
+		clientCert, err = m.getApiServerEtcdClientCert(ctx, clusterKey)
 		if err != nil {
 			return nil, err
 		}
@@ -140,22 +124,24 @@ func (m *Management) GetWorkloadCluster(ctx context.Context, clusterKey client.O
 
 	caPool := x509.NewCertPool()
 	caPool.AppendCertsFromPEM(crtData)
-	tlsConfig := &tls.Config{
+	cfg := &tls.Config{
 		RootCAs:      caPool,
 		Certificates: []tls.Certificate{clientCert},
-		MinVersion:   tls.VersionTLS12,
 	}
-	tlsConfig.InsecureSkipVerify = true
+	cfg.InsecureSkipVerify = true
 	return &Workload{
-		Client:              c,
-		CoreDNSMigrator:     &CoreDNSMigrator{},
-		etcdClientGenerator: NewEtcdClientGenerator(restConfig, tlsConfig),
+		Client:          c,
+		CoreDNSMigrator: &CoreDNSMigrator{},
+		etcdClientGenerator: &etcdClientGenerator{
+			restConfig: restConfig,
+			tlsConfig:  cfg,
+		},
 	}, nil
 }
 
-func (m *Management) getEtcdCAKeyPair(ctx context.Context, clusterKey client.ObjectKey) ([]byte, []byte, error) {
+func (m *Management) getEtcdCAKeyPair(ctx context.Context, clusterKey ctrlclient.ObjectKey) ([]byte, []byte, error) {
 	etcdCASecret := &corev1.Secret{}
-	etcdCAObjectKey := client.ObjectKey{
+	etcdCAObjectKey := ctrlclient.ObjectKey{
 		Namespace: clusterKey.Namespace,
 		Name:      fmt.Sprintf("%s-etcd", clusterKey.Name),
 	}
@@ -170,9 +156,9 @@ func (m *Management) getEtcdCAKeyPair(ctx context.Context, clusterKey client.Obj
 	return crtData, keyData, nil
 }
 
-func (m *Management) getAPIServerEtcdClientCert(ctx context.Context, clusterKey client.ObjectKey) (tls.Certificate, error) {
+func (m *Management) getApiServerEtcdClientCert(ctx context.Context, clusterKey ctrlclient.ObjectKey) (tls.Certificate, error) {
 	apiServerEtcdClientCertificateSecret := &corev1.Secret{}
-	apiServerEtcdClientCertificateObjectKey := client.ObjectKey{
+	apiServerEtcdClientCertificateObjectKey := ctrlclient.ObjectKey{
 		Namespace: clusterKey.Namespace,
 		Name:      fmt.Sprintf("%s-apiserver-etcd-client", clusterKey.Name),
 	}

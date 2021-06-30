@@ -1,10 +1,7 @@
-version: "2"
 domain: cluster.x-k8s.io
 repo: sigs.k8s.io/cluster-api/test/infrastructure/docker/exp
 resources:
-- group: infrastructure
+- group: exp.infrastructure
   kind: DockerMachinePool
   version: v1alpha3
-- group: infrastructure
-  kind: DockerMachinePool
-  version: v1alpha4
+version: "2"
