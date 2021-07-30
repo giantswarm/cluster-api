@@ -18,9 +18,9 @@ jobs:
       - run:
           name: Push images to quay
           command: |
-            docker push quay.io/$CIRCLE_PROJECT_USERNAME/cluster-api-controller:$CIRCLE_SHA1
-            docker push quay.io/$CIRCLE_PROJECT_USERNAME/kubeadm-control-plane-controller:$CIRCLE_SHA1
-            docker push quay.io/$CIRCLE_PROJECT_USERNAME/kubeadm-bootstrap-controller:$CIRCLE_SHA1
+            docker push quay.io/$CIRCLE_PROJECT_USERNAME/cluster-api-controller:${CIRCLE_TAG:-$CIRCLE_SHA1}
+            docker push quay.io/$CIRCLE_PROJECT_USERNAME/kubeadm-control-plane-controller:${CIRCLE_TAG:-$CIRCLE_SHA1}
+            docker push quay.io/$CIRCLE_PROJECT_USERNAME/kubeadm-bootstrap-controller:${CIRCLE_TAG:-$CIRCLE_SHA1}
       - run:
           name: Login to aliyun
           command: |
@@ -28,9 +28,9 @@ jobs:
       - run:
           name: Push image to aliyun
           command: |
-            docker push registry-intl.cn-shanghai.aliyuncs.com/$CIRCLE_PROJECT_USERNAME/cluster-api-controller:$CIRCLE_SHA1
-            docker push registry-intl.cn-shanghai.aliyuncs.com/$CIRCLE_PROJECT_USERNAME/kubeadm-control-plane-controller:$CIRCLE_SHA1
-            docker push registry-intl.cn-shanghai.aliyuncs.com/$CIRCLE_PROJECT_USERNAME/kubeadm-bootstrap-controller:$CIRCLE_SHA1
+            docker push registry-intl.cn-shanghai.aliyuncs.com/$CIRCLE_PROJECT_USERNAME/cluster-api-controller:${CIRCLE_TAG:-$CIRCLE_SHA1}
+            docker push registry-intl.cn-shanghai.aliyuncs.com/$CIRCLE_PROJECT_USERNAME/kubeadm-control-plane-controller:${CIRCLE_TAG:-$CIRCLE_SHA1}
+            docker push registry-intl.cn-shanghai.aliyuncs.com/$CIRCLE_PROJECT_USERNAME/kubeadm-bootstrap-controller:${CIRCLE_TAG:-$CIRCLE_SHA1}
 
 
 workflows:
