@@ -23,6 +23,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/blang/semver"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 
@@ -172,6 +173,61 @@ func TestClusterToKubeadmControlPlaneOtherControlPlane(t *testing.T) {
 		},
 	)
 	g.Expect(got).To(BeNil())
+}
+
+func TestReconcileUpdateObservedGeneration(t *testing.T) {
+	g := NewWithT(t)
+	r := &KubeadmControlPlaneReconciler{
+		Client:            testEnv,
+		recorder:          record.NewFakeRecorder(32),
+		managementCluster: &internal.Management{Client: testEnv.Client},
+		Log:               log.NullLogger{},
+	}
+	ctx := context.TODO()
+
+	cluster, kcp, _ := createClusterWithControlPlane()
+	g.Expect(testEnv.CreateObj(ctx, cluster)).To(Succeed())
+	g.Expect(testEnv.CreateObj(ctx, kcp)).To(Succeed())
+
+	// read kcp.Generation after create
+	errGettingObject := testEnv.Get(ctx, util.ObjectKey(kcp), kcp)
+	g.Expect(errGettingObject).NotTo(HaveOccurred())
+	generation := kcp.Generation
+
+	// Set cluster.status.InfrastructureReady so we actually enter in the reconcile loop
+	patch := client.RawPatch(types.MergePatchType, []byte(fmt.Sprintf("{\"status\":{\"infrastructureReady\":%t}}", true)))
+	g.Expect(testEnv.Status().Patch(ctx, cluster, patch)).To(Succeed())
+
+	// call reconcile the first time, so we can check if observedGeneration is set when adding a finalizer
+	result, err := r.Reconcile(ctrl.Request{NamespacedName: util.ObjectKey(kcp)})
+	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(result).To(Equal(ctrl.Result{}))
+
+	g.Eventually(func() int64 {
+		errGettingObject = testEnv.Get(ctx, util.ObjectKey(kcp), kcp)
+		g.Expect(errGettingObject).NotTo(HaveOccurred())
+		return kcp.Status.ObservedGeneration
+	}, 10*time.Second).Should(Equal(generation))
+
+	// triggers a generation change by changing the spec
+	kcp.Spec.Replicas = pointer.Int32Ptr(*kcp.Spec.Replicas + 2)
+	g.Expect(testEnv.Update(ctx, kcp)).To(Succeed())
+
+	// read kcp.Generation after the update
+	errGettingObject = testEnv.Get(ctx, util.ObjectKey(kcp), kcp)
+	g.Expect(errGettingObject).NotTo(HaveOccurred())
+	generation = kcp.Generation
+
+	// call reconcile the second time, so we can check if observedGeneration is set when calling defer patch
+	// NB. The call to reconcile fails because KCP is not properly setup (e.g. missing InfrastructureTemplate)
+	// but this is not important because what we want is KCP to be patched
+	_, _ = r.Reconcile(ctrl.Request{NamespacedName: util.ObjectKey(kcp)})
+
+	g.Eventually(func() int64 {
+		errGettingObject = testEnv.Get(ctx, util.ObjectKey(kcp), kcp)
+		g.Expect(errGettingObject).NotTo(HaveOccurred())
+		return kcp.Status.ObservedGeneration
+	}, 10*time.Second).Should(Equal(generation))
 }
 
 func TestReconcileNoClusterOwnerRef(t *testing.T) {
@@ -984,7 +1040,7 @@ kubernetesVersion: metav1.16.1`,
 			},
 		}
 
-		g.Expect(workloadCluster.UpdateCoreDNS(context.TODO(), kcp)).To(Succeed())
+		g.Expect(workloadCluster.UpdateCoreDNS(context.TODO(), kcp, semver.MustParse("1.19.1"))).To(Succeed())
 
 		var actualCoreDNSCM corev1.ConfigMap
 		g.Expect(fakeClient.Get(context.TODO(), client.ObjectKey{Name: "coredns", Namespace: metav1.NamespaceSystem}, &actualCoreDNSCM)).To(Succeed())
@@ -1042,7 +1098,7 @@ kubernetesVersion: metav1.16.1`,
 			},
 		}
 
-		g.Expect(workloadCluster.UpdateCoreDNS(context.TODO(), kcp)).To(Succeed())
+		g.Expect(workloadCluster.UpdateCoreDNS(context.TODO(), kcp, semver.MustParse("1.19.1"))).To(Succeed())
 	})
 
 	t.Run("should not return an error when there is no CoreDNS configmap", func(t *testing.T) {
@@ -1066,7 +1122,7 @@ kubernetesVersion: metav1.16.1`,
 			},
 		}
 
-		g.Expect(workloadCluster.UpdateCoreDNS(context.TODO(), kcp)).To(Succeed())
+		g.Expect(workloadCluster.UpdateCoreDNS(context.TODO(), kcp, semver.MustParse("1.19.1"))).To(Succeed())
 	})
 
 	t.Run("should not return an error when there is no CoreDNS deployment", func(t *testing.T) {
@@ -1090,7 +1146,7 @@ kubernetesVersion: metav1.16.1`,
 			},
 		}
 
-		g.Expect(workloadCluster.UpdateCoreDNS(context.TODO(), kcp)).To(Succeed())
+		g.Expect(workloadCluster.UpdateCoreDNS(context.TODO(), kcp, semver.MustParse("1.19.1"))).To(Succeed())
 	})
 
 	t.Run("should not return an error when no DNS upgrade is requested", func(t *testing.T) {
@@ -1117,7 +1173,7 @@ kubernetesVersion: metav1.16.1`,
 			},
 		}
 
-		g.Expect(workloadCluster.UpdateCoreDNS(context.TODO(), kcp)).To(Succeed())
+		g.Expect(workloadCluster.UpdateCoreDNS(context.TODO(), kcp, semver.MustParse("1.19.1"))).To(Succeed())
 
 		var actualCoreDNSCM corev1.ConfigMap
 		g.Expect(fakeClient.Get(context.TODO(), client.ObjectKey{Name: "coredns", Namespace: metav1.NamespaceSystem}, &actualCoreDNSCM)).To(Succeed())
@@ -1153,7 +1209,7 @@ kubernetesVersion: metav1.16.1`,
 			},
 		}
 
-		g.Expect(workloadCluster.UpdateCoreDNS(context.TODO(), kcp)).ToNot(Succeed())
+		g.Expect(workloadCluster.UpdateCoreDNS(context.TODO(), kcp, semver.MustParse("1.19.1"))).ToNot(Succeed())
 	})
 }
 
