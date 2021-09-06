@@ -43,6 +43,13 @@ capi:buildDockerImages () {
 # k8s::prepareKindestImages checks all the e2e test variables representing a Kubernetes version,
 # and makes sure a corresponding kindest/node image is available locally.
 k8s::prepareKindestImages() {
+  if [ -n "${KUBERNETES_VERSION_MANAGEMENT:-}" ]; then
+    k8s::resolveVersion "KUBERNETES_VERSION_MANAGEMENT" "$KUBERNETES_VERSION_MANAGEMENT"
+    export KUBERNETES_VERSION_MANAGEMENT=$resolveVersion
+
+    kind::prepareKindestImage "$resolveVersion"
+  fi
+
   if [ -n "${KUBERNETES_VERSION:-}" ]; then
     k8s::resolveVersion "KUBERNETES_VERSION" "$KUBERNETES_VERSION"
     export KUBERNETES_VERSION=$resolveVersion
@@ -87,9 +94,9 @@ k8s::resolveVersion() {
   fi
 
   if [[ "$version" =~ ^ci/ ]]; then
-    resolveVersion=$(curl -LsS "http://gcsweb.k8s.io/gcs/kubernetes-release-dev/ci/${version#ci/}.txt")
+    resolveVersion=$(curl -LsS "http://dl.k8s.io/ci/${version#ci/}.txt")
   else
-    resolveVersion=$(curl -LsS "http://gcsweb.k8s.io/gcs/kubernetes-release/release/${version}.txt")
+    resolveVersion=$(curl -LsS "http://dl.k8s.io/release/${version}.txt")
   fi
   echo "+ $variableName=\"$version\" resolved to \"$resolveVersion\""
 }
@@ -198,9 +205,9 @@ EOL
 # the actual test run less sensible to the network speed.
 kind:prepullAdditionalImages () {
   # Pulling cert manager images so we can pre-load in kind nodes
-  kind::prepullImage "quay.io/jetstack/cert-manager-cainjector:v1.1.0"
-  kind::prepullImage "quay.io/jetstack/cert-manager-webhook:v1.1.0"
-  kind::prepullImage "quay.io/jetstack/cert-manager-controller:v1.1.0"
+  kind::prepullImage "quay.io/jetstack/cert-manager-cainjector:v1.5.0"
+  kind::prepullImage "quay.io/jetstack/cert-manager-webhook:v1.5.0"
+  kind::prepullImage "quay.io/jetstack/cert-manager-controller:v1.5.0"
 }
 
 # kind:prepullImage pre-pull a docker image if no already present locally.

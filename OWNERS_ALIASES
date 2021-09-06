@@ -28,6 +28,16 @@ aliases:
   - JoelSpeed
   - sbueringer
   - enxebre
+  - stmcginnis
+
+  # -----------------------------------------------------------
+  # OWNER_ALIASES for controllers/topology
+  # -----------------------------------------------------------
+
+  cluster-api-topology-maintainers:
+  cluster-api-topology-reviewers:
+  - ykakarap
+  - killianmuldoon
 
   # -----------------------------------------------------------
   # OWNER_ALIASES for bootstrap/kubeadm

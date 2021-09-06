@@ -123,6 +123,12 @@ const (
 
 	// WaitingExternalHookReason (Severity=Info) provide evidence that we are waiting for an external hook to complete.
 	WaitingExternalHookReason = "WaitingExternalHook"
+
+	// VolumeDetachSucceededCondition reports a machine waiting for volumes to be detached.
+	VolumeDetachSucceededCondition ConditionType = "VolumeDetachSucceeded"
+
+	// WaitingForVolumeDetachReason (Severity=Info) provide evidence that a machine node waiting for volumes to be attached.
+	WaitingForVolumeDetachReason = "WaitingForVolumeDetach"
 )
 
 const (
@@ -200,4 +206,15 @@ const (
 	// TooManyUnhealthyReason is the reason used when too many Machines are unhealthy and the MachineHealthCheck is blocked
 	// from making any further remediations.
 	TooManyUnhealthyReason = "TooManyUnhealthy"
+)
+
+// Conditions and condition Reasons for  MachineDeployments
+
+const (
+	// MachineDeploymentAvailableCondition means the MachineDeployment is available, that is, at least the minimum available
+	// machines required (i.e. Spec.Replicas-MaxUnavailable when MachineDeploymentStrategyType = RollingUpdate) are up and running for at least minReadySeconds.
+	MachineDeploymentAvailableCondition ConditionType = "Available"
+
+	// WaitingForAvailableMachinesReason (Severity=Warning) reflects the fact that the required minimum number of machines for a machinedeployment are not available.
+	WaitingForAvailableMachinesReason = "WaitingForAvailableMachines"
 )

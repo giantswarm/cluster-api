@@ -6,7 +6,6 @@
 cmd/clusterctl/clusterctl
 bin
 hack/tools/bin
-out
 
 # Test binary, build with `go test -c`
 *.test
@@ -24,6 +23,7 @@ test/e2e/data/infrastructure-docker/v1alpha4/cluster-template*.yaml
 
 # VSCode
 .vscode/
+*.code-workspace
 
 # kubeconfigs
 minikube.kubeconfig
@@ -67,3 +67,7 @@ clusterctl-settings.json
 
 # test results
 _artifacts
+
+#release artifacts
+out
+_releasenotes

@@ -31,6 +31,7 @@ linters:
   - staticcheck
   - structcheck
   - stylecheck
+  - thelper
   - typecheck
   - unconvert
   - unparam
@@ -62,6 +63,13 @@ linters-settings:
     go: "1.16"
   stylecheck:
     go: "1.16"
+  gosec:
+    excludes:
+    - G307 # Deferring unsafe method "Close" on type "\*os.File"
+    - G108 # Profiling endpoint is automatically exposed on /debug/pprof
+  gocritic:
+    disabled-checks:
+    - appendAssign
 
 issues:
   max-same-issues: 0
@@ -69,28 +77,13 @@ issues:
   # We are disabling default golangci exclusions because we want to help reviewers to focus on reviewing the most relevant
   # changes in PRs and avoid nitpicking.
   exclude-use-default: false
-  # List of regexps of issue texts to exclude, empty list by default.
-  exclude:
-  # The following are being worked on to remove their exclusion. This list should be reduced or go away all together over time.
-  # If it is decided they will not be addressed they should be moved above this comment.
-  - Subprocess launch(ed with variable|ing should be audited)
-  - (G104|G307)
   exclude-rules:
-  - linters:
-    - gosec
-    text: "G108: Profiling endpoint is automatically exposed on /debug/pprof"
   - linters:
     - revive
     text: "exported: exported method .*\\.(Reconcile|SetupWithManager|SetupWebhookWithManager) should have comment or be unexported"
   - linters:
     - errcheck
     text: Error return value of .((os\.)?std(out|err)\..*|.*Close|.*Flush|os\.Remove(All)?|.*print(f|ln)?|os\.(Un)?Setenv). is not checked
-  # With Go 1.16, the new embed directive can be used with an un-named import,
-  # revive (previously, golint) only allows these to be imported in a main.go, which wouldn't work for us.
-  # This directive allows the embed package to be imported with an underscore everywhere.
-  - linters:
-    - revive
-    source: _ "embed"
   # Exclude some packages or code to require comments, for example test code, or fake clients.
   - linters:
     - revive

@@ -21,6 +21,7 @@ rules:
 - apiGroups:
   - addons.cluster.x-k8s.io
   resources:
+  - clusterresourcesets/finalizers
   - clusterresourcesets/status
   verbs:
   - get
@@ -64,6 +65,29 @@ rules:
 - apiGroups:
   - cluster.x-k8s.io
   resources:
+  - clusterclasses
+  - machinedeployments
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - cluster.x-k8s.io
+  resources:
+  - clusters
+  - clusters/finalizers
+  - clusters/status
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - cluster.x-k8s.io
+  resources:
   - clusters
   - clusters/status
   verbs:
@@ -78,6 +102,7 @@ rules:
   - cluster.x-k8s.io
   resources:
   - machinedeployments
+  - machinedeployments/finalizers
   - machinedeployments/status
   verbs:
   - create
@@ -91,6 +116,7 @@ rules:
   - cluster.x-k8s.io
   resources:
   - machinehealthchecks
+  - machinehealthchecks/finalizers
   - machinehealthchecks/status
   verbs:
   - get
@@ -102,7 +128,22 @@ rules:
   - cluster.x-k8s.io
   resources:
   - machinepools
+  - machinepools/finalizers
   - machinepools/status
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - cluster.x-k8s.io
+  resources:
+  - machines
+  - machines/finalizers
+  - machines/status
   verbs:
   - create
   - delete
@@ -117,17 +158,15 @@ rules:
   - machines
   - machines/status
   verbs:
-  - create
   - delete
   - get
   - list
-  - patch
-  - update
   - watch
 - apiGroups:
   - cluster.x-k8s.io
   resources:
   - machinesets
+  - machinesets/finalizers
   - machinesets/status
   verbs:
   - create

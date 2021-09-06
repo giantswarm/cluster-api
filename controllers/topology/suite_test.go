@@ -1,7 +1,5 @@
-// +build e2e
-
 /*
-Copyright 2020 The Kubernetes Authors.
+Copyright 2021 The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -16,22 +14,24 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package e2e
+package topology
 
 import (
-	. "github.com/onsi/ginkgo"
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
+	ctrl "sigs.k8s.io/controller-runtime"
+
+	clusterv1 "sigs.k8s.io/cluster-api/api/v1alpha4"
 )
 
-var _ = Describe("When testing MachineDeployment upgrades", func() {
+var (
+	ctx        = ctrl.SetupSignalHandler()
+	fakeScheme = runtime.NewScheme()
+)
 
-	MachineDeploymentUpgradesSpec(ctx, func() MachineDeploymentUpgradesSpecInput {
-		return MachineDeploymentUpgradesSpecInput{
-			E2EConfig:             e2eConfig,
-			ClusterctlConfigPath:  clusterctlConfigPath,
-			BootstrapClusterProxy: bootstrapClusterProxy,
-			ArtifactFolder:        artifactFolder,
-			SkipCleanup:           skipCleanup,
-		}
-	})
-
-})
+func init() {
+	_ = clientgoscheme.AddToScheme(fakeScheme)
+	_ = clusterv1.AddToScheme(fakeScheme)
+	_ = apiextensionsv1.AddToScheme(fakeScheme)
+}

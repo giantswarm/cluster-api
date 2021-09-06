@@ -36,6 +36,8 @@ type DefaultingValidator interface { //nolint:revive
 // update and delete.
 func DefaultValidateTest(object DefaultingValidator) func(*testing.T) {
 	return func(t *testing.T) {
+		t.Helper()
+
 		createCopy := object.DeepCopyObject().(DefaultingValidator)
 		updateCopy := object.DeepCopyObject().(DefaultingValidator)
 		deleteCopy := object.DeepCopyObject().(DefaultingValidator)
@@ -49,6 +51,7 @@ func DefaultValidateTest(object DefaultingValidator) func(*testing.T) {
 		t.Run("validate-on-update", func(t *testing.T) {
 			g := gomega.NewWithT(t)
 			defaultingUpdateCopy.Default()
+			updateCopy.Default()
 			g.Expect(defaultingUpdateCopy.ValidateUpdate(updateCopy)).To(gomega.Succeed())
 		})
 		t.Run("validate-on-delete", func(t *testing.T) {

@@ -18,7 +18,8 @@ spec:
       containers:
       - args:
         - "--leader-elect"
-        - "--feature-gates=MachinePool=${EXP_MACHINE_POOL:=false}"
+        - "--metrics-bind-addr=localhost:8080"
+        - "--feature-gates=MachinePool=${EXP_MACHINE_POOL:=false},ClusterTopology=${CLUSTER_TOPOLOGY:=false}"
         image: controller:latest
         name: manager
         ports:

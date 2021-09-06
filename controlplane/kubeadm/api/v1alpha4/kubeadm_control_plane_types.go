@@ -79,6 +79,7 @@ type KubeadmControlPlaneSpec struct {
 	// The RolloutStrategy to use to replace control plane machines with
 	// new ones.
 	// +optional
+	// +kubebuilder:default={type: "RollingUpdate", rollingUpdate: {maxSurge: 1}}
 	RolloutStrategy *RolloutStrategy `json:"rolloutStrategy,omitempty"`
 }
 
@@ -143,6 +144,11 @@ type KubeadmControlPlaneStatus struct {
 	// +optional
 	Replicas int32 `json:"replicas,omitempty"`
 
+	// Version represents the minimum Kubernetes version for the control plane machines
+	// in the cluster.
+	// +optional
+	Version *string `json:"version,omitempty"`
+
 	// Total number of non-terminated machines targeted by this control plane
 	// that have the desired template spec.
 	// +optional
@@ -195,6 +201,7 @@ type KubeadmControlPlaneStatus struct {
 // +kubebuilder:storageversion
 // +kubebuilder:subresource:status
 // +kubebuilder:subresource:scale:specpath=.spec.replicas,statuspath=.status.replicas,selectorpath=.status.selector
+// +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp",description="Time duration since creation of KubeadmControlPlane"
 // +kubebuilder:printcolumn:name="Initialized",type=boolean,JSONPath=".status.initialized",description="This denotes whether or not the control plane has the uploaded kubeadm-config configmap"
 // +kubebuilder:printcolumn:name="API Server Available",type=boolean,JSONPath=".status.ready",description="KubeadmControlPlane API Server is ready to receive requests"
 // +kubebuilder:printcolumn:name="Version",type=string,JSONPath=".spec.version",description="Kubernetes version associated with this control plane"

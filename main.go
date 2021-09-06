@@ -35,9 +35,10 @@ import (
 	"k8s.io/klog/v2/klogr"
 	clusterv1old "sigs.k8s.io/cluster-api/api/v1alpha3"
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1alpha4"
+	"sigs.k8s.io/cluster-api/api/v1alpha4/index"
 	"sigs.k8s.io/cluster-api/controllers"
-	"sigs.k8s.io/cluster-api/controllers/noderefutil"
 	"sigs.k8s.io/cluster-api/controllers/remote"
+	"sigs.k8s.io/cluster-api/controllers/topology"
 	addonsv1old "sigs.k8s.io/cluster-api/exp/addons/api/v1alpha3"
 	addonsv1 "sigs.k8s.io/cluster-api/exp/addons/api/v1alpha4"
 	addonscontrollers "sigs.k8s.io/cluster-api/exp/addons/controllers"
@@ -49,7 +50,6 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
-	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -66,6 +66,7 @@ var (
 	watchNamespace                string
 	watchFilterValue              string
 	profilerAddress               string
+	clusterTopologyConcurrency    int
 	clusterConcurrency            int
 	machineConcurrency            int
 	machineSetConcurrency         int
@@ -118,6 +119,9 @@ func InitFlags(fs *pflag.FlagSet) {
 
 	fs.StringVar(&profilerAddress, "profiler-address", "",
 		"Bind address to expose the pprof profiler (e.g. localhost:6060)")
+
+	fs.IntVar(&clusterTopologyConcurrency, "clustertopology-concurrency", 10,
+		"Number of clusters to process simultaneously")
 
 	fs.IntVar(&clusterConcurrency, "cluster-concurrency", 10,
 		"Number of clusters to process simultaneously")
@@ -214,20 +218,20 @@ func main() {
 }
 
 func setupChecks(mgr ctrl.Manager) {
-	if err := mgr.AddReadyzCheck("ping", healthz.Ping); err != nil {
+	if err := mgr.AddReadyzCheck("webhook", mgr.GetWebhookServer().StartedChecker()); err != nil {
 		setupLog.Error(err, "unable to create ready check")
 		os.Exit(1)
 	}
 
-	if err := mgr.AddHealthzCheck("ping", healthz.Ping); err != nil {
+	if err := mgr.AddHealthzCheck("webhook", mgr.GetWebhookServer().StartedChecker()); err != nil {
 		setupLog.Error(err, "unable to create health check")
 		os.Exit(1)
 	}
 }
 
 func setupIndexes(ctx context.Context, mgr ctrl.Manager) {
-	if err := noderefutil.AddMachineNodeIndex(ctx, mgr); err != nil {
-		setupLog.Error(err, "unable to setup index")
+	if err := index.AddDefaultIndexes(ctx, mgr); err != nil {
+		setupLog.Error(err, "unable to setup indexes")
 		os.Exit(1)
 	}
 }
@@ -237,21 +241,50 @@ func setupReconcilers(ctx context.Context, mgr ctrl.Manager) {
 	// requiring a connection to a remote cluster
 	tracker, err := remote.NewClusterCacheTracker(
 		mgr,
-		remote.ClusterCacheTrackerOptions{Log: ctrl.Log.WithName("remote").WithName("ClusterCacheTracker")},
+		remote.ClusterCacheTrackerOptions{
+			Log:     ctrl.Log.WithName("remote").WithName("ClusterCacheTracker"),
+			Indexes: remote.DefaultIndexes,
+		},
 	)
 	if err != nil {
 		setupLog.Error(err, "unable to create cluster cache tracker")
 		os.Exit(1)
 	}
 	if err := (&remote.ClusterCacheReconciler{
-		Client:  mgr.GetClient(),
-		Log:     ctrl.Log.WithName("remote").WithName("ClusterCacheReconciler"),
-		Tracker: tracker,
+		Client:           mgr.GetClient(),
+		Log:              ctrl.Log.WithName("remote").WithName("ClusterCacheReconciler"),
+		Tracker:          tracker,
+		WatchFilterValue: watchFilterValue,
 	}).SetupWithManager(ctx, mgr, concurrency(clusterConcurrency)); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "ClusterCacheReconciler")
 		os.Exit(1)
 	}
 
+	if feature.Gates.Enabled(feature.ClusterTopology) {
+		unstructuredCachingClient, err := client.NewDelegatingClient(
+			client.NewDelegatingClientInput{
+				// Use the default client for write operations.
+				Client: mgr.GetClient(),
+				// For read operations, use the same cache used by all the controllers but ensure
+				// unstructured objects will be also cached (this does not happen with the default client).
+				CacheReader:       mgr.GetCache(),
+				CacheUnstructured: true,
+			},
+		)
+		if err != nil {
+			setupLog.Error(err, "unable to create unstructured caching client", "controller", "ClusterTopology")
+			os.Exit(1)
+		}
+
+		if err := (&topology.ClusterReconciler{
+			Client:                    mgr.GetClient(),
+			UnstructuredCachingClient: unstructuredCachingClient,
+			WatchFilterValue:          watchFilterValue,
+		}).SetupWithManager(ctx, mgr, concurrency(clusterTopologyConcurrency)); err != nil {
+			setupLog.Error(err, "unable to create controller", "controller", "ClusterTopology")
+			os.Exit(1)
+		}
+	}
 	if err := (&controllers.ClusterReconciler{
 		Client:           mgr.GetClient(),
 		WatchFilterValue: watchFilterValue,
@@ -322,6 +355,15 @@ func setupReconcilers(ctx context.Context, mgr ctrl.Manager) {
 }
 
 func setupWebhooks(mgr ctrl.Manager) {
+	// NOTE: ClusterClass and managed topologies are behind ClusterTopology feature gate flag; the webhook
+	// is going to prevent creating or updating new objects in case the feature flag is disabled.
+	if err := (&clusterv1.ClusterClass{}).SetupWebhookWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create webhook", "webhook", "ClusterClass")
+		os.Exit(1)
+	}
+
+	// NOTE: ClusterClass and managed topologies are behind ClusterTopology feature gate flag; the webhook
+	// is going to prevent usage of Cluster.Topology in case the feature flag is disabled.
 	if err := (&clusterv1.Cluster{}).SetupWebhookWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create webhook", "webhook", "Cluster")
 		os.Exit(1)

@@ -21,7 +21,8 @@ spec:
         - /manager
         args:
         - "--leader-elect"
-        - "--feature-gates=MachinePool=${EXP_MACHINE_POOL:=false},ClusterResourceSet=${EXP_CLUSTER_RESOURCE_SET:=false}"
+        - "--metrics-bind-addr=localhost:8080"
+        - "--feature-gates=MachinePool=${EXP_MACHINE_POOL:=false},ClusterResourceSet=${EXP_CLUSTER_RESOURCE_SET:=false},ClusterTopology=${CLUSTER_TOPOLOGY:=false}"
         image: controller:latest
         name: manager
         ports:

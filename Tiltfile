@@ -54,6 +54,8 @@ providers = {
             "api",
             "controllers",
             "internal",
+            "../../go.mod",
+            "../../go.sum",
         ],
     },
     "kubeadm-control-plane": {
@@ -64,6 +66,8 @@ providers = {
             "api",
             "controllers",
             "internal",
+            "../../go.mod",
+            "../../go.sum",
         ],
     },
     "docker": {
@@ -82,10 +86,8 @@ providers = {
         ],
         "additional_docker_helper_commands": """
 RUN wget -qO- https://dl.k8s.io/v1.21.2/kubernetes-client-linux-amd64.tar.gz | tar xvz
-RUN wget -qO- https://get.docker.com | sh
 """,
         "additional_docker_build_commands": """
-COPY --from=tilt-helper /usr/bin/docker /usr/bin/docker
 COPY --from=tilt-helper /go/kubernetes/client/bin/kubectl /usr/bin/kubectl
 """,
     },
@@ -126,7 +128,7 @@ def load_provider_tiltfiles():
 
 tilt_helper_dockerfile_header = """
 # Tilt image
-FROM golang:1.16.4 as tilt-helper
+FROM golang:1.16.6 as tilt-helper
 # Support live reloading with Tilt
 RUN wget --output-document /restart.sh --quiet https://raw.githubusercontent.com/windmilleng/rerun-process-wrapper/master/restart.sh  && \
     wget --output-document /start.sh --quiet https://raw.githubusercontent.com/windmilleng/rerun-process-wrapper/master/start.sh && \
@@ -236,6 +238,6 @@ load_provider_tiltfiles()
 load("ext://cert_manager", "deploy_cert_manager")
 
 if settings.get("deploy_cert_manager"):
-    deploy_cert_manager(version = "v1.1.0")
+    deploy_cert_manager(version = "v1.5.0")
 
 enable_providers()

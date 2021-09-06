@@ -36,8 +36,8 @@ import (
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/client-go/tools/record"
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1alpha4"
+	"sigs.k8s.io/cluster-api/api/v1alpha4/index"
 	"sigs.k8s.io/cluster-api/controllers/external"
-	"sigs.k8s.io/cluster-api/controllers/noderefutil"
 	"sigs.k8s.io/cluster-api/controllers/remote"
 	"sigs.k8s.io/cluster-api/util"
 	"sigs.k8s.io/cluster-api/util/annotations"
@@ -58,12 +58,17 @@ const (
 	// EventRemediationRestricted is emitted in case when machine remediation
 	// is restricted by remediation circuit shorting logic.
 	EventRemediationRestricted string = "RemediationRestricted"
+
+	maxUnhealthyKeyLog     = "max unhealthy"
+	unhealthyTargetsKeyLog = "unhealthy targets"
+	unhealthyRangeKeyLog   = "unhealthy range"
+	totalTargetKeyLog      = "total target"
 )
 
 // +kubebuilder:rbac:groups=core,resources=events,verbs=get;list;watch;create;patch
 // +kubebuilder:rbac:groups=core,resources=secrets,verbs=get;list;watch
 // +kubebuilder:rbac:groups=cluster.x-k8s.io,resources=machines;machines/status,verbs=get;list;watch;delete
-// +kubebuilder:rbac:groups=cluster.x-k8s.io,resources=machinehealthchecks;machinehealthchecks/status,verbs=get;list;watch;update;patch
+// +kubebuilder:rbac:groups=cluster.x-k8s.io,resources=machinehealthchecks;machinehealthchecks/status;machinehealthchecks/finalizers,verbs=get;list;watch;update;patch
 
 // MachineHealthCheckReconciler reconciles a MachineHealthCheck object.
 type MachineHealthCheckReconciler struct {
@@ -219,8 +224,6 @@ func (r *MachineHealthCheckReconciler) reconcile(ctx context.Context, logger log
 	healthy, unhealthy, nextCheckTimes := r.healthCheckTargets(targets, logger, *nodeStartupTimeout)
 	m.Status.CurrentHealthy = int32(len(healthy))
 
-	var unhealthyLimitKey, unhealthyLimitValue interface{}
-
 	// check MHC current health against MaxUnhealthy
 	remediationAllowed, remediationCount, err := isAllowedRemediation(m)
 	if err != nil {
@@ -231,27 +234,28 @@ func (r *MachineHealthCheckReconciler) reconcile(ctx context.Context, logger log
 		var message string
 
 		if m.Spec.UnhealthyRange == nil {
-			unhealthyLimitKey = "max unhealthy"
-			unhealthyLimitValue = m.Spec.MaxUnhealthy
+			logger.V(3).Info(
+				"Short-circuiting remediation",
+				totalTargetKeyLog, totalTargets,
+				maxUnhealthyKeyLog, m.Spec.MaxUnhealthy,
+				unhealthyTargetsKeyLog, len(unhealthy),
+			)
 			message = fmt.Sprintf("Remediation is not allowed, the number of not started or unhealthy machines exceeds maxUnhealthy (total: %v, unhealthy: %v, maxUnhealthy: %v)",
 				totalTargets,
 				len(unhealthy),
 				m.Spec.MaxUnhealthy)
 		} else {
-			unhealthyLimitKey = "unhealthy range"
-			unhealthyLimitValue = *m.Spec.UnhealthyRange
+			logger.V(3).Info(
+				"Short-circuiting remediation",
+				totalTargetKeyLog, totalTargets,
+				unhealthyRangeKeyLog, *m.Spec.UnhealthyRange,
+				unhealthyTargetsKeyLog, len(unhealthy),
+			)
 			message = fmt.Sprintf("Remediation is not allowed, the number of not started or unhealthy machines does not fall within the range (total: %v, unhealthy: %v, unhealthyRange: %v)",
 				totalTargets,
 				len(unhealthy),
 				*m.Spec.UnhealthyRange)
 		}
-
-		logger.V(3).Info(
-			"Short-circuiting remediation",
-			"total target", totalTargets,
-			unhealthyLimitKey, unhealthyLimitValue,
-			"unhealthy targets", len(unhealthy),
-		)
 
 		// Remediation not allowed, the number of not started or unhealthy machines either exceeds maxUnhealthy (or) not within unhealthyRange
 		m.Status.RemediationsAllowed = 0
@@ -282,12 +286,21 @@ func (r *MachineHealthCheckReconciler) reconcile(ctx context.Context, logger log
 		return reconcile.Result{Requeue: true}, nil
 	}
 
-	logger.V(3).Info(
-		"Remediations are allowed",
-		"total target", totalTargets,
-		unhealthyLimitKey, unhealthyLimitValue,
-		"unhealthy targets", len(unhealthy),
-	)
+	if m.Spec.UnhealthyRange == nil {
+		logger.V(3).Info(
+			"Remediations are allowed",
+			totalTargetKeyLog, totalTargets,
+			maxUnhealthyKeyLog, m.Spec.MaxUnhealthy,
+			unhealthyTargetsKeyLog, len(unhealthy),
+		)
+	} else {
+		logger.V(3).Info(
+			"Remediations are allowed",
+			totalTargetKeyLog, totalTargets,
+			unhealthyRangeKeyLog, *m.Spec.UnhealthyRange,
+			unhealthyTargetsKeyLog, len(unhealthy),
+		)
+	}
 
 	// Remediation is allowed so unhealthyMachineCount is within unhealthyRange (or) maxUnhealthy - unhealthyMachineCount >= 0
 	m.Status.RemediationsAllowed = remediationCount
@@ -489,7 +502,7 @@ func (r *MachineHealthCheckReconciler) nodeToMachineHealthCheck(o client.Object)
 		panic(fmt.Sprintf("Expected a corev1.Node, got %T", o))
 	}
 
-	machine, err := noderefutil.GetMachineFromNode(context.TODO(), r.Client, node.Name)
+	machine, err := getMachineFromNode(context.TODO(), r.Client, node.Name)
 	if machine == nil || err != nil {
 		return nil
 	}
@@ -510,6 +523,40 @@ func (r *MachineHealthCheckReconciler) watchClusterNodes(ctx context.Context, cl
 		Kind:         &corev1.Node{},
 		EventHandler: handler.EnqueueRequestsFromMapFunc(r.nodeToMachineHealthCheck),
 	})
+}
+
+// GetMachineFromNode retrieves the machine with a nodeRef to nodeName
+// There should at most one machine with a given nodeRef, returns an error otherwise.
+func getMachineFromNode(ctx context.Context, c client.Client, nodeName string) (*clusterv1.Machine, error) {
+	machineList := &clusterv1.MachineList{}
+	if err := c.List(
+		ctx,
+		machineList,
+		client.MatchingFields{index.MachineNodeNameField: nodeName},
+	); err != nil {
+		return nil, errors.Wrap(err, "failed getting machine list")
+	}
+	// TODO(vincepri): Remove this loop once controller runtime fake client supports
+	// adding indexes on objects.
+	items := []*clusterv1.Machine{}
+	for i := range machineList.Items {
+		machine := &machineList.Items[i]
+		if machine.Status.NodeRef != nil && machine.Status.NodeRef.Name == nodeName {
+			items = append(items, machine)
+		}
+	}
+	if len(items) != 1 {
+		return nil, errors.Errorf("expecting one machine for node %v, got %v", nodeName, machineNames(items))
+	}
+	return items[0], nil
+}
+
+func machineNames(machines []*clusterv1.Machine) []string {
+	result := make([]string, 0, len(machines))
+	for _, m := range machines {
+		result = append(result, m.Name)
+	}
+	return result
 }
 
 // isAllowedRemediation checks the value of the MaxUnhealthy field to determine
@@ -586,7 +633,7 @@ func unhealthyMachineCount(mhc *clusterv1.MachineHealthCheck) int {
 func (r *MachineHealthCheckReconciler) getExternalRemediationRequest(ctx context.Context, m *clusterv1.MachineHealthCheck, machineName string) (*unstructured.Unstructured, error) {
 	remediationRef := &corev1.ObjectReference{
 		APIVersion: m.Spec.RemediationTemplate.APIVersion,
-		Kind:       strings.TrimSuffix(m.Spec.RemediationTemplate.Kind, external.TemplateSuffix),
+		Kind:       strings.TrimSuffix(m.Spec.RemediationTemplate.Kind, clusterv1.TemplateSuffix),
 		Name:       machineName,
 	}
 	remediationReq, err := external.Get(ctx, r.Client, remediationRef, m.Namespace)

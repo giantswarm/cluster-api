@@ -321,6 +321,13 @@ func TestKubeadmControlPlaneValidateUpdate(t *testing.T) {
 			},
 		},
 	}
+	validUpdate.Spec.MachineTemplate.ObjectMeta.Labels = map[string]string{
+		"label": "labelValue",
+	}
+	validUpdate.Spec.MachineTemplate.ObjectMeta.Annotations = map[string]string{
+		"annotation": "labelAnnotation",
+	}
+	validUpdate.Spec.MachineTemplate.InfrastructureRef.APIVersion = "test/v1alpha2"
 	validUpdate.Spec.MachineTemplate.InfrastructureRef.Name = "orange"
 	validUpdate.Spec.Replicas = pointer.Int32Ptr(5)
 	now := metav1.NewTime(time.Now())
@@ -730,8 +737,8 @@ func TestKubeadmControlPlaneValidateUpdate(t *testing.T) {
 			kcp:       localServerCertSANs,
 		},
 		{
-			name:      "should fail when making a change to the cluster config's local etcd's configuration localExtraArgs field",
-			expectErr: true,
+			name:      "should succeed when making a change to the cluster config's local etcd's configuration localExtraArgs field",
+			expectErr: false,
 			before:    before,
 			kcp:       localExtraArgs,
 		},

@@ -26,13 +26,14 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/types"
 	kerrors "k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/kubernetes"
-	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/klog/v2"
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1alpha4"
+	"sigs.k8s.io/cluster-api/api/v1alpha4/index"
 	"sigs.k8s.io/cluster-api/controllers/external"
 	"sigs.k8s.io/cluster-api/controllers/noderefutil"
 	"sigs.k8s.io/cluster-api/controllers/remote"
@@ -69,7 +70,7 @@ var (
 // +kubebuilder:rbac:groups=core,resources=secrets,verbs=get;list;watch
 // +kubebuilder:rbac:groups=core,resources=nodes,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io;bootstrap.cluster.x-k8s.io,resources=*,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=cluster.x-k8s.io,resources=machines;machines/status,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=cluster.x-k8s.io,resources=machines;machines/status;machines/finalizers,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=apiextensions.k8s.io,resources=customresourcedefinitions,verbs=get;list;watch
 
 // MachineReconciler reconciles a Machine object.
@@ -79,7 +80,6 @@ type MachineReconciler struct {
 	WatchFilterValue string
 
 	controller      controller.Controller
-	restConfig      *rest.Config
 	recorder        record.EventRecorder
 	externalTracker external.ObjectTracker
 }
@@ -112,7 +112,6 @@ func (r *MachineReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Manag
 	r.controller = controller
 
 	r.recorder = mgr.GetEventRecorderFor("machine-controller")
-	r.restConfig = mgr.GetConfig()
 	r.externalTracker = external.ObjectTracker{
 		Controller: controller,
 	}
@@ -273,7 +272,7 @@ func (r *MachineReconciler) reconcileDelete(ctx context.Context, cluster *cluste
 	log := ctrl.LoggerFrom(ctx, "cluster", cluster.Name)
 
 	err := r.isDeleteNodeAllowed(ctx, cluster, m)
-	isDeleteNodeAllowed := err == nil // nolint:ifshort
+	isDeleteNodeAllowed := err == nil //nolint:ifshort
 	if err != nil {
 		switch err {
 		case errNoControlPlaneNodes, errLastControlPlaneNode, errNilNodeRef, errClusterIsBeingDeleted, errControlPlaneIsBeingDeleted:
@@ -321,6 +320,21 @@ func (r *MachineReconciler) reconcileDelete(ctx context.Context, cluster *cluste
 
 			conditions.MarkTrue(m, clusterv1.DrainingSucceededCondition)
 			r.recorder.Eventf(m, corev1.EventTypeNormal, "SuccessfulDrainNode", "success draining Machine's node %q", m.Status.NodeRef.Name)
+
+			// After node draining, make sure volumes are detached before deleting the Node.
+			if conditions.Get(m, clusterv1.VolumeDetachSucceededCondition) == nil {
+				conditions.MarkFalse(m, clusterv1.VolumeDetachSucceededCondition, clusterv1.WaitingForVolumeDetachReason, clusterv1.ConditionSeverityInfo, "Waiting for node volumes to be detached")
+			}
+			if ok, err := r.shouldWaitForNodeVolumes(ctx, cluster, m.Status.NodeRef.Name, m.Name); ok || err != nil {
+				if err != nil {
+					r.recorder.Eventf(m, corev1.EventTypeWarning, "FailedWaitForVolumeDetach", "error wait for volume detach, node %q: %v", m.Status.NodeRef.Name, err)
+					return ctrl.Result{}, err
+				}
+				log.Info("Waiting for node volumes to be detached", "node", m.Status.NodeRef.Name)
+				return ctrl.Result{}, nil
+			}
+			conditions.MarkTrue(m, clusterv1.VolumeDetachSucceededCondition)
+			r.recorder.Eventf(m, corev1.EventTypeNormal, "NodeVolumesDetached", "success waiting for node volumes detach Machine's node %q", m.Status.NodeRef.Name)
 		}
 	}
 
@@ -534,6 +548,31 @@ func (r *MachineReconciler) drainNode(ctx context.Context, cluster *clusterv1.Cl
 	return ctrl.Result{}, nil
 }
 
+// shouldWaitForNodeVolumes returns true if node status still have volumes attached
+// pod deletion and volume detach happen asynchronously, so pod could be deleted before volume detached from the node
+// this could cause issue for some storage provisioner, for example, vsphere-volume this is problematic
+// because if the node is deleted before detach success, then the underline VMDK will be deleted together with the Machine
+// so after node draining we need to check if all volumes are detached before deleting the node.
+func (r *MachineReconciler) shouldWaitForNodeVolumes(ctx context.Context, cluster *clusterv1.Cluster, nodeName string, machineName string) (bool, error) {
+	log := ctrl.LoggerFrom(ctx, "cluster", cluster.Name, "node", nodeName, "machine", machineName)
+
+	remoteClient, err := r.Tracker.GetClient(ctx, util.ObjectKey(cluster))
+	if err != nil {
+		return true, err
+	}
+
+	node := &corev1.Node{}
+	if err := remoteClient.Get(ctx, types.NamespacedName{Name: nodeName}, node); err != nil {
+		if apierrors.IsNotFound(err) {
+			log.Error(err, "Could not find node from noderef, it may have already been deleted")
+			return false, nil
+		}
+		return true, err
+	}
+
+	return len(node.Status.VolumesAttached) != 0, nil
+}
+
 func (r *MachineReconciler) deleteNode(ctx context.Context, cluster *clusterv1.Cluster, name string) error {
 	log := ctrl.LoggerFrom(ctx, "cluster", cluster.Name)
 
@@ -646,18 +685,12 @@ func (r *MachineReconciler) nodeToMachine(o client.Object) []reconcile.Request {
 		panic(fmt.Sprintf("Expected a Node but got a %T", o))
 	}
 
-	// Match by nodeName and status.nodeRef.name.
-	filters := []client.ListOption{
-		client.MatchingFields{clusterv1.MachineNodeNameIndex: node.Name},
-	}
-
+	var filters []client.ListOption
 	// Match by clusterName when the node has the annotation.
 	if clusterName, ok := node.GetAnnotations()[clusterv1.ClusterNameAnnotation]; ok {
-		filters = append(filters,
-			client.MatchingLabels{
-				clusterv1.ClusterLabelName: clusterName,
-			},
-		)
+		filters = append(filters, client.MatchingLabels{
+			clusterv1.ClusterLabelName: clusterName,
+		})
 	}
 
 	// Match by namespace when the node has the annotation.
@@ -665,20 +698,40 @@ func (r *MachineReconciler) nodeToMachine(o client.Object) []reconcile.Request {
 		filters = append(filters, client.InNamespace(namespace))
 	}
 
+	// Match by nodeName and status.nodeRef.name.
 	machineList := &clusterv1.MachineList{}
 	if err := r.Client.List(
 		context.TODO(),
 		machineList,
-		filters...); err != nil {
+		append(filters, client.MatchingFields{index.MachineNodeNameField: node.Name})...); err != nil {
 		return nil
 	}
 
 	// There should be exactly 1 Machine for the node.
-	if len(machineList.Items) != 1 {
+	if len(machineList.Items) == 1 {
+		return []reconcile.Request{{NamespacedName: util.ObjectKey(&machineList.Items[0])}}
+	}
+
+	// Otherwise let's match by providerID. This is useful when e.g the NodeRef has not been set yet.
+	// Match by providerID
+	nodeProviderID, err := noderefutil.NewProviderID(node.Spec.ProviderID)
+	if err != nil {
+		return nil
+	}
+	machineList = &clusterv1.MachineList{}
+	if err := r.Client.List(
+		context.TODO(),
+		machineList,
+		append(filters, client.MatchingFields{index.MachineProviderIDField: nodeProviderID.IndexKey()})...); err != nil {
 		return nil
 	}
 
-	return []reconcile.Request{{NamespacedName: util.ObjectKey(&machineList.Items[0])}}
+	// There should be exactly 1 Machine for the node.
+	if len(machineList.Items) == 1 {
+		return []reconcile.Request{{NamespacedName: util.ObjectKey(&machineList.Items[0])}}
+	}
+
+	return nil
 }
 
 // writer implements io.Writer interface as a pass-through for klog.

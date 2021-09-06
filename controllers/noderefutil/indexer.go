@@ -14,7 +14,6 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-// Package noderefutil implements NodeRef utils.
 package noderefutil
 
 import (
@@ -29,12 +28,13 @@ import (
 
 // AddMachineNodeIndex adds the machine node name index to the
 // managers cache.
+// Deprecated: use api/v1alpha4/index.ByMachineNode instead.
 func AddMachineNodeIndex(ctx context.Context, mgr ctrl.Manager) error {
 	if err := mgr.GetCache().IndexField(ctx, &clusterv1.Machine{},
 		clusterv1.MachineNodeNameIndex,
 		indexMachineByNodeName,
 	); err != nil {
-		return errors.Wrap(err, "error setting index fields")
+		return errors.Wrap(err, "error setting index field")
 	}
 
 	return nil

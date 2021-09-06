@@ -4,7 +4,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.6.1
+    controller-gen.kubebuilder.io/version: v0.6.2
   creationTimestamp: null
   name: kubeadmconfigtemplates.bootstrap.cluster.x-k8s.io
 spec:
@@ -995,7 +995,12 @@ spec:
         type: object
     served: true
     storage: false
-  - name: v1alpha4
+  - additionalPrinterColumns:
+    - description: Time duration since creation of KubeadmConfigTemplate
+      jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha4
     schema:
       openAPIV3Schema:
         description: KubeadmConfigTemplate is the Schema for the kubeadmconfigtemplates
@@ -1599,6 +1604,13 @@ spec:
                                   runtime info. This information will be annotated
                                   to the Node API object, for later re-use
                                 type: string
+                              ignorePreflightErrors:
+                                description: IgnorePreflightErrors provides a slice
+                                  of pre-flight errors to be ignored when the current
+                                  node is registered.
+                                items:
+                                  type: string
+                                type: array
                               kubeletExtraArgs:
                                 additionalProperties:
                                   type: string
@@ -1786,6 +1798,13 @@ spec:
                                   runtime info. This information will be annotated
                                   to the Node API object, for later re-use
                                 type: string
+                              ignorePreflightErrors:
+                                description: IgnorePreflightErrors provides a slice
+                                  of pre-flight errors to be ignored when the current
+                                  node is registered.
+                                items:
+                                  type: string
+                                type: array
                               kubeletExtraArgs:
                                 additionalProperties:
                                   type: string
@@ -1956,6 +1975,7 @@ spec:
         type: object
     served: true
     storage: true
+    subresources: {}
 status:
   acceptedNames:
     kind: ""

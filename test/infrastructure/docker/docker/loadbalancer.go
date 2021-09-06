@@ -23,6 +23,8 @@ import (
 
 	"github.com/pkg/errors"
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1alpha4"
+	"sigs.k8s.io/cluster-api/test/infrastructure/container"
+	"sigs.k8s.io/cluster-api/test/infrastructure/docker/api/v1alpha4"
 	"sigs.k8s.io/cluster-api/test/infrastructure/docker/docker/types"
 	"sigs.k8s.io/cluster-api/test/infrastructure/docker/third_party/forked/loadbalancer"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -30,30 +32,32 @@ import (
 )
 
 type lbCreator interface {
-	CreateExternalLoadBalancerNode(name, image, clusterLabel, listenAddress string, port int32, ipFamily clusterv1.ClusterIPFamily) (*types.Node, error)
+	CreateExternalLoadBalancerNode(ctx context.Context, name, image, clusterName, listenAddress string, port int32, ipFamily clusterv1.ClusterIPFamily) (*types.Node, error)
 }
 
 // LoadBalancer manages the load balancer for a specific docker cluster.
 type LoadBalancer struct {
 	name      string
+	image     string
 	container *types.Node
 	ipFamily  clusterv1.ClusterIPFamily
 	lbCreator lbCreator
 }
 
 // NewLoadBalancer returns a new helper for managing a docker loadbalancer with a given name.
-func NewLoadBalancer(cluster *clusterv1.Cluster) (*LoadBalancer, error) {
+func NewLoadBalancer(cluster *clusterv1.Cluster, dockerCluster *v1alpha4.DockerCluster) (*LoadBalancer, error) {
 	if cluster.Name == "" {
 		return nil, errors.New("create load balancer: cluster name is empty")
 	}
 
-	// look for the container that is hosting the loadbalancer for the cluster.
-	// filter based on the label and the roles regardless of whether or not it is running.
-	// if non-running container is chosen, then it will not have an IP address associated with it.
-	container, err := getContainer(
-		withLabel(clusterLabel(cluster.Name)),
-		withLabel(roleLabel(constants.ExternalLoadBalancerNodeRoleValue)),
-	)
+	// Look for the container that is hosting the loadbalancer for the cluster.
+	// Filter based on the label and the roles regardless of whether or not it is running.
+	// If non-running container is chosen, then it will not have an IP address associated with it.
+	filters := container.FilterBuilder{}
+	filters.AddKeyNameValue(filterLabel, clusterLabelKey, cluster.Name)
+	filters.AddKeyNameValue(filterLabel, nodeRoleLabelKey, constants.ExternalLoadBalancerNodeRoleValue)
+
+	container, err := getContainer(filters)
 	if err != nil {
 		return nil, err
 	}
@@ -63,12 +67,35 @@ func NewLoadBalancer(cluster *clusterv1.Cluster) (*LoadBalancer, error) {
 		return nil, fmt.Errorf("create load balancer: %s", err)
 	}
 
+	image := getLoadBalancerImage(dockerCluster)
+
 	return &LoadBalancer{
 		name:      cluster.Name,
+		image:     image,
 		container: container,
 		ipFamily:  ipFamily,
 		lbCreator: &Manager{},
 	}, nil
+}
+
+// getLoadBalancerImage will return the image (e.g. "kindest/haproxy:2.1.1-alpine") to use for
+// the load balancer.
+func getLoadBalancerImage(dockerCluster *v1alpha4.DockerCluster) string {
+	// Check if a non-default image was provided
+	image := loadbalancer.Image
+	imageRepo := loadbalancer.DefaultImageRepository
+	imageTag := loadbalancer.DefaultImageTag
+
+	if dockerCluster != nil {
+		if dockerCluster.Spec.LoadBalancer.ImageRepository != "" {
+			imageRepo = dockerCluster.Spec.LoadBalancer.ImageRepository
+		}
+		if dockerCluster.Spec.LoadBalancer.ImageTag != "" {
+			imageTag = dockerCluster.Spec.LoadBalancer.ImageTag
+		}
+	}
+
+	return fmt.Sprintf("%s/%s:%s", imageRepo, image, imageTag)
 }
 
 // ContainerName is the name of the docker container with the load balancer.
@@ -90,9 +117,10 @@ func (s *LoadBalancer) Create(ctx context.Context) error {
 		var err error
 		log.Info("Creating load balancer container")
 		s.container, err = s.lbCreator.CreateExternalLoadBalancerNode(
+			ctx,
 			s.containerName(),
-			loadbalancer.Image,
-			clusterLabel(s.name),
+			s.image,
+			s.name,
 			listenAddr,
 			0,
 			s.ipFamily,
@@ -114,10 +142,11 @@ func (s *LoadBalancer) UpdateConfiguration(ctx context.Context) error {
 	}
 
 	// collect info about the existing controlplane nodes
-	controlPlaneNodes, err := listContainers(
-		withLabel(clusterLabel(s.name)),
-		withLabel(roleLabel(constants.ControlPlaneNodeRoleValue)),
-	)
+	filters := container.FilterBuilder{}
+	filters.AddKeyNameValue(filterLabel, clusterLabelKey, s.name)
+	filters.AddKeyNameValue(filterLabel, nodeRoleLabelKey, constants.ControlPlaneNodeRoleValue)
+
+	controlPlaneNodes, err := listContainers(filters)
 	if err != nil {
 		return errors.WithStack(err)
 	}

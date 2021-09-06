@@ -37,7 +37,21 @@ a fake infrastructure provider to allow test coverage for testing the interactio
 
 ## Running unit and integration tests
 
-Using the `test` target through `make` will run all of the unit and integration tests.
+Run `make test` to execute all unit and integration tests.
+
+<aside class="note">
+
+<h1>Tips</h1>
+
+When testing individual packages, you can speed up the test execution by running the tests with a local kind cluster.
+This avoids spinning up a testenv with each test execution. It also makes it easier to debug, because it's straightforward
+to access a kind cluster with kubectl during test execution. For further instructions, run: `./hack/setup-envtest-with-kind.sh`.
+
+When running individual tests, it could happen that a testenv is started if this is required by the `suite_test.go` file.
+However, if the tests you are running don't require testenv (i.e. they are only using fake client), you can skip the testenv
+creation by setting the environment variable `CAPI_DISABLE_TEST_ENV` (to any non-empty value).
+
+</aside>
 
 ## End-to-end tests
 
@@ -96,9 +110,11 @@ GINKGO_FOCUS="\[PR-Blocking\]" ./scripts/ci-e2e.sh
 make -C test/e2e cluster-templates
 ```
 
-Now, the tests can be run in an IDE. The following describes how this can be done in Intellij IDEA. It should work
-roughly the same way in VS Code and other IDEs. We assume the `cluster-api` repository has been checked
+Now, the tests can be run in an IDE. The following describes how this can be done in Intellij IDEA and VS Code. It should work
+roughly the same way in all other IDEs. We assume the `cluster-api` repository has been checked
 out into `/home/user/code/src/sigs.k8s.io/cluster-api`.
+
+#### Intellij 
 
 Create a new run configuration and fill in:
 * Test framework: `gotest`
@@ -108,6 +124,35 @@ Create a new run configuration and fill in:
 * Working directory: `/home/user/code/src/sigs.k8s.io/cluster-api/test/e2e`
 * Environment: `ARTIFACTS=/home/user/code/src/sigs.k8s.io/cluster-api/_artifacts`
 * Program arguments: `-e2e.config=/home/user/code/src/sigs.k8s.io/cluster-api/test/e2e/config/docker.yaml -ginkgo.focus="\[PR-Blocking\]"`
+
+#### VS Code
+
+Add the launch.json file in the .vscode folder in your repo:
+```json
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Run e2e test",
+            "type": "go",
+            "request": "launch",
+            "mode": "test",
+            "program": "${workspaceRoot}/test/e2e/e2e_suite_test.go",
+            "env": {
+                "ARTIFACTS":"${workspaceRoot}/_artifacts",
+            },
+            "args": [
+                "-e2e.config=${workspaceRoot}/test/e2e/config/docker.yaml",
+                "-ginkgo.focus=\\[PR-Blocking\\]",
+                "-ginkgo.v=true"
+            ],
+            "trace": "verbose",
+            "buildFlags": "-tags 'e2e'",
+            "showGlobalVariables": true
+        }
+    ]
+}
+```
 
 Execute the run configuration with `Debug`.
 
@@ -156,7 +201,7 @@ Furthermore, it's possible to overwrite all env variables specified in `variable
 local instance of etcd and the kube-apiserver. This allows tests to be executed in an environment very similar to a
 real environment.
 
-Additionally, in Cluster API there is a set of utilities under [test/helpers] that helps developers in setting up
+Additionally, in Cluster API there is a set of utilities under [internal/envtest] that helps developers in setting up
 a [envtest] ready for Cluster API testing, and more specifically:
 
 - With the required CRDs already pre-configured.
@@ -168,30 +213,32 @@ by convention, this code should be in a file named `suite_test.go`:
 
 ```golang
 var (
-	testEnv *helpers.TestEnvironment
-	ctx     = context.Background()
+	env *envtest.Environment
+	ctx = ctrl.SetupSignalHandler()
 )
 
 func TestMain(m *testing.M) {
-	// Bootstrapping test environment
-	testEnv = helpers.NewTestEnvironment()
-	go func() {
-		if err := testEnv.StartManager(); err != nil {
-			panic(fmt.Sprintf("Failed to start the envtest manager: %v", err))
+	setupIndexes := func(ctx context.Context, mgr ctrl.Manager) {
+		if err := index.AddDefaultIndexes(ctx, mgr); err != nil {
+			panic(fmt.Sprintf("unable to setup index: %v", err))
 		}
-	}()
-	<-testEnv.Manager.Elected()
-	testEnv.WaitForWebhooks()
-
-	// Run tests
-	code := m.Run()
-	// Tearing down the test environment
-	if err := testEnv.Stop(); err != nil {
-		panic(fmt.Sprintf("Failed to stop the envtest: %v", err))
 	}
 
-	// Report exit code
-	os.Exit(code)
+	setupReconcilers := func(ctx context.Context, mgr ctrl.Manager) {
+		if err := (&MyReconciler{
+			Client:  mgr.GetClient(),
+			Log:     log.NullLogger{},
+		}).SetupWithManager(mgr, controller.Options{MaxConcurrentReconciles: 1}); err != nil {
+			panic(fmt.Sprintf("Failed to start the MyReconciler: %v", err))
+		}
+	}
+
+	os.Exit(envtest.Run(ctx, envtest.RunInput{
+		M:        m,
+		SetupEnv: func(e *envtest.Environment) { env = e },
+		SetupIndexes:     setupIndexes,
+		SetupReconcilers: setupReconcilers,
+	}))
 }
 ```
 
@@ -204,11 +251,13 @@ func TestMain(m *testing.M) {
 	// Bootstrapping test environment
 	...
 
-	if err := (&MyReconciler{
-		Client:  testEnv,
-		Log:     log.NullLogger{},
-	}).SetupWithManager(testEnv.Manager, controller.Options{MaxConcurrentReconciles: 1}); err != nil {
-		panic(fmt.Sprintf("Failed to start the MyReconciler: %v", err))
+	setupReconcilers := func(ctx context.Context, mgr ctrl.Manager) {
+		if err := (&MyReconciler{
+			Client:  mgr.GetClient(),
+			Log:     log.NullLogger{},
+		}).SetupWithManager(mgr, controller.Options{MaxConcurrentReconciles: 1}); err != nil {
+			panic(fmt.Sprintf("Failed to start the MyReconciler: %v", err))
+		}
 	}
 
 	// Run tests
@@ -236,11 +285,11 @@ func TestAFunc(t *testing.T) {
 	g := NewWithT(t)
 	// Generate namespace with a random name starting with ns1; such namespace
 	// will host test objects in isolation from other tests.
-	ns1, err := testEnv.CreateNamespace(ctx, "ns1")
+	ns1, err := env.CreateNamespace(ctx, "ns1")
 	g.Expect(err).ToNot(HaveOccurred())
 	defer func() {
 		// Cleanup the test namespace
-		g.Expect(testEnv.DeleteNamespace(ctx, ns1)).To(Succeed())
+		g.Expect(env.DeleteNamespace(ctx, ns1)).To(Succeed())
 	}()
 
 	obj := &clusterv1.Cluster{
@@ -263,11 +312,11 @@ func TestAFunc(t *testing.T) {
 	g := NewWithT(t)
 	// Generate namespace with a random name starting with ns1; such namespace
 	// will host test objects in isolation from other tests.
-	ns1, err := testEnv.CreateNamespace(ctx, "ns1")
+	ns1, err := env.CreateNamespace(ctx, "ns1")
 	g.Expect(err).ToNot(HaveOccurred())
 	defer func() {
 		// Cleanup the test namespace
-		g.Expect(testEnv.DeleteNamespace(ctx, ns1)).To(Succeed())
+		g.Expect(env.DeleteNamespace(ctx, ns1)).To(Succeed())
 	}()
 
 	obj := &clusterv1.Cluster{
