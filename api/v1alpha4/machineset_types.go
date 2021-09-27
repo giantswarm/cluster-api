@@ -24,6 +24,12 @@ import (
 	capierrors "sigs.k8s.io/cluster-api/errors"
 )
 
+const (
+	// MachineSetTopologyFinalizer is the finalizer used by the topology MachineDeployment controller to
+	// clean up referenced template resources if necessary when a MachineSet is being deleted.
+	MachineSetTopologyFinalizer = "machineset.topology.cluster.x-k8s.io"
+)
+
 // ANCHOR: MachineSetSpec
 
 // MachineSetSpec defines the desired state of MachineSet.
@@ -157,6 +163,9 @@ type MachineSetStatus struct {
 	FailureReason *capierrors.MachineSetStatusError `json:"failureReason,omitempty"`
 	// +optional
 	FailureMessage *string `json:"failureMessage,omitempty"`
+	// Conditions defines current service state of the MachineSet.
+	// +optional
+	Conditions Conditions `json:"conditions,omitempty"`
 }
 
 // ANCHOR_END: MachineSetStatus
@@ -186,7 +195,6 @@ func (m *MachineSet) Validate() field.ErrorList {
 
 // +kubebuilder:object:root=true
 // +kubebuilder:resource:path=machinesets,shortName=ms,scope=Namespaced,categories=cluster-api
-// +kubebuilder:storageversion
 // +kubebuilder:subresource:status
 // +kubebuilder:subresource:scale:specpath=.spec.replicas,statuspath=.status.replicas,selectorpath=.status.selector
 // +kubebuilder:printcolumn:name="Cluster",type="string",JSONPath=".spec.clusterName",description="Cluster"
@@ -215,4 +223,14 @@ type MachineSetList struct {
 
 func init() {
 	SchemeBuilder.Register(&MachineSet{}, &MachineSetList{})
+}
+
+// GetConditions returns the set of conditions for the MachineSet.
+func (m *MachineSet) GetConditions() Conditions {
+	return m.Status.Conditions
+}
+
+// SetConditions updates the set of conditions on the MachineSet.
+func (m *MachineSet) SetConditions(conditions Conditions) {
+	m.Status.Conditions = conditions
 }

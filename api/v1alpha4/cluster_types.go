@@ -83,6 +83,7 @@ type Topology struct {
 	RolloutAfter *metav1.Time `json:"rolloutAfter,omitempty"`
 
 	// ControlPlane describes the cluster control plane.
+	// +optional
 	ControlPlane ControlPlaneTopology `json:"controlPlane"`
 
 	// Workers encapsulates the different constructs that form the worker nodes
@@ -276,7 +277,6 @@ func (v APIEndpoint) String() string {
 
 // +kubebuilder:object:root=true
 // +kubebuilder:resource:path=clusters,shortName=cl,scope=Namespaced,categories=cluster-api
-// +kubebuilder:storageversion
 // +kubebuilder:subresource:status
 // +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp",description="Time duration since creation of Cluster"
 // +kubebuilder:printcolumn:name="Phase",type="string",JSONPath=".status.phase",description="Cluster status such as Pending/Provisioning/Provisioned/Deleting/Failed"

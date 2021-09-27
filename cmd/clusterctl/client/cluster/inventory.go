@@ -27,7 +27,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	kerrors "k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/apimachinery/pkg/util/sets"
-	clusterv1 "sigs.k8s.io/cluster-api/api/v1alpha4"
+	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	clusterctlv1 "sigs.k8s.io/cluster-api/cmd/clusterctl/api/v1alpha3"
 	"sigs.k8s.io/cluster-api/cmd/clusterctl/config"
 	logf "sigs.k8s.io/cluster-api/cmd/clusterctl/log"
@@ -51,8 +51,8 @@ type CheckCAPIContractOptions struct {
 	// AllowCAPINotInstalled instructs CheckCAPIContract to tolerate management clusters without Cluster API installed yet.
 	AllowCAPINotInstalled bool
 
-	// AllowCAPIContract instructs CheckCAPIContract to tolerate management clusters with Cluster API with the given contract.
-	AllowCAPIContract string
+	// AllowCAPIContracts instructs CheckCAPIContract to tolerate management clusters with Cluster API with the given contract.
+	AllowCAPIContracts []string
 }
 
 // AllowCAPINotInstalled instructs CheckCAPIContract to tolerate management clusters without Cluster API installed yet.
@@ -72,7 +72,7 @@ type AllowCAPIContract struct {
 
 // Apply applies this configuration to the given CheckCAPIContractOptions.
 func (t AllowCAPIContract) Apply(in *CheckCAPIContractOptions) {
-	in.AllowCAPIContract = t.Contract
+	in.AllowCAPIContracts = append(in.AllowCAPIContracts, t.Contract)
 }
 
 // InventoryClient exposes methods to interface with a cluster's provider inventory.
@@ -397,8 +397,13 @@ func (p *inventoryClient) CheckCAPIContract(options ...CheckCAPIContractOption) 
 
 	for _, version := range crd.Spec.Versions {
 		if version.Storage {
-			if version.Name == clusterv1.GroupVersion.Version || version.Name == opt.AllowCAPIContract {
+			if version.Name == clusterv1.GroupVersion.Version {
 				return nil
+			}
+			for _, allowedContract := range opt.AllowCAPIContracts {
+				if version.Name == allowedContract {
+					return nil
+				}
 			}
 			return errors.Errorf("this version of clusterctl could be used only with %q management clusters, %q detected", clusterv1.GroupVersion.Version, version.Name)
 		}

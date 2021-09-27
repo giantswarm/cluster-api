@@ -26,14 +26,13 @@ import (
 
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
-	controlplanev1 "sigs.k8s.io/cluster-api/controlplane/kubeadm/api/v1alpha4"
-
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/selection"
 	"k8s.io/utils/pointer"
-	clusterv1 "sigs.k8s.io/cluster-api/api/v1alpha4"
-	bootstrapv1 "sigs.k8s.io/cluster-api/bootstrap/kubeadm/api/v1alpha4"
+	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
+	bootstrapv1 "sigs.k8s.io/cluster-api/bootstrap/kubeadm/api/v1beta1"
+	controlplanev1 "sigs.k8s.io/cluster-api/controlplane/kubeadm/api/v1beta1"
 	"sigs.k8s.io/cluster-api/test/framework"
 	"sigs.k8s.io/cluster-api/test/framework/clusterctl"
 	"sigs.k8s.io/cluster-api/util"
@@ -47,6 +46,18 @@ type KCPAdoptionSpecInput struct {
 	BootstrapClusterProxy framework.ClusterProxy
 	ArtifactFolder        string
 	SkipCleanup           bool
+
+	// Flavor, if specified, must refer to a template that is
+	// specially crafted with individual control plane machines
+	// and a KubeadmControlPlane resource configured for adoption.
+	// The initial Cluster, InfraCluster, Machine, InfraMachine,
+	// KubeadmConfig, and any other resources that should exist
+	// prior to adoption must have the kcp-adoption.step1: "" label
+	// applied to them. The updated Cluster (with controlPlaneRef
+	// configured), InfraMachineTemplate, and KubeadmControlPlane
+	// resources must have the kcp-adoption.step2: "" applied to them.
+	// If not specified, "kcp-adoption" is used.
+	Flavor *string
 }
 
 type ClusterProxy interface {
@@ -96,7 +107,7 @@ func KCPAdoptionSpec(ctx context.Context, inputGetter func() KCPAdoptionSpecInpu
 			// pass the clusterctl config file that points to the local provider repository created for this test,
 			ClusterctlConfigPath: input.ClusterctlConfigPath,
 			// select template
-			Flavor: "kcp-adoption",
+			Flavor: pointer.StringDeref(input.Flavor, "kcp-adoption"),
 			// define template variables
 			Namespace:                namespace.Name,
 			ClusterName:              clusterName,

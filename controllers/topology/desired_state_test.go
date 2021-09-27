@@ -20,15 +20,16 @@ import (
 	"strings"
 	"testing"
 
-	"sigs.k8s.io/cluster-api/internal/testtypes"
-
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	clusterv1 "sigs.k8s.io/cluster-api/api/v1alpha4"
+	"k8s.io/utils/pointer"
+	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	"sigs.k8s.io/cluster-api/controllers/topology/internal/contract"
 	"sigs.k8s.io/cluster-api/controllers/topology/internal/scope"
+	"sigs.k8s.io/cluster-api/internal/builder"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 )
 
 var (
@@ -49,10 +50,10 @@ var (
 
 func TestComputeInfrastructureCluster(t *testing.T) {
 	// templates and ClusterClass
-	infrastructureClusterTemplate := testtypes.NewInfrastructureClusterTemplateBuilder(metav1.NamespaceDefault, "template1").
+	infrastructureClusterTemplate := builder.InfrastructureClusterTemplate(metav1.NamespaceDefault, "template1").
 		WithSpecFields(map[string]interface{}{"spec.template.spec.fakeSetting": true}).
 		Build()
-	clusterClass := testtypes.NewClusterClassBuilder(metav1.NamespaceDefault, "class1").
+	clusterClass := builder.ClusterClass(metav1.NamespaceDefault, "class1").
 		WithInfrastructureClusterTemplate(infrastructureClusterTemplate).
 		Build()
 
@@ -141,10 +142,10 @@ func TestComputeControlPlaneInfrastructureMachineTemplate(t *testing.T) {
 		},
 	}
 
-	infrastructureMachineTemplate := testtypes.NewInfrastructureMachineTemplateBuilder(metav1.NamespaceDefault, "template1").
+	infrastructureMachineTemplate := builder.InfrastructureMachineTemplate(metav1.NamespaceDefault, "template1").
 		WithSpecFields(map[string]interface{}{"spec.template.spec.fakeSetting": true}).
 		Build()
-	clusterClass := testtypes.NewClusterClassBuilder(metav1.NamespaceDefault, "class1").
+	clusterClass := builder.ClusterClass(metav1.NamespaceDefault, "class1").
 		WithControlPlaneMetadata(labels, annotations).
 		WithControlPlaneInfrastructureMachineTemplate(infrastructureMachineTemplate).Build()
 
@@ -180,7 +181,7 @@ func TestComputeControlPlaneInfrastructureMachineTemplate(t *testing.T) {
 		g := NewWithT(t)
 
 		// current cluster objects for the test scenario
-		currentInfrastructureMachineTemplate := testtypes.NewInfrastructureMachineTemplateBuilder(metav1.NamespaceDefault, "cluster1-template1").Build()
+		currentInfrastructureMachineTemplate := builder.InfrastructureMachineTemplate(metav1.NamespaceDefault, "cluster1-template1").Build()
 
 		controlPlane := &unstructured.Unstructured{Object: map[string]interface{}{}}
 		err := contract.ControlPlane().MachineTemplate().InfrastructureRef().Set(controlPlane, currentInfrastructureMachineTemplate)
@@ -213,10 +214,10 @@ func TestComputeControlPlane(t *testing.T) {
 	labels := map[string]string{"l1": ""}
 	annotations := map[string]string{"a1": ""}
 
-	controlPlaneTemplate := testtypes.NewControlPlaneTemplateBuilder(metav1.NamespaceDefault, "template1").
+	controlPlaneTemplate := builder.ControlPlaneTemplate(metav1.NamespaceDefault, "template1").
 		WithSpecFields(map[string]interface{}{"spec.template.spec.fakeSetting": true}).
 		Build()
-	clusterClass := testtypes.NewClusterClassBuilder(metav1.NamespaceDefault, "class1").
+	clusterClass := builder.ClusterClass(metav1.NamespaceDefault, "class1").
 		WithControlPlaneMetadata(labels, annotations).
 		WithControlPlaneTemplate(controlPlaneTemplate).Build()
 	//TODO: Replace with object builder.
@@ -312,8 +313,8 @@ func TestComputeControlPlane(t *testing.T) {
 		g := NewWithT(t)
 
 		// templates and ClusterClass
-		infrastructureMachineTemplate := testtypes.NewInfrastructureMachineTemplateBuilder(metav1.NamespaceDefault, "template1").Build()
-		clusterClass := testtypes.NewClusterClassBuilder(metav1.NamespaceDefault, "class1").
+		infrastructureMachineTemplate := builder.InfrastructureMachineTemplate(metav1.NamespaceDefault, "template1").Build()
+		clusterClass := builder.ClusterClass(metav1.NamespaceDefault, "class1").
 			WithControlPlaneMetadata(labels, annotations).
 			WithControlPlaneTemplate(controlPlaneTemplate).
 			WithControlPlaneInfrastructureMachineTemplate(infrastructureMachineTemplate).Build()
@@ -345,8 +346,12 @@ func TestComputeControlPlane(t *testing.T) {
 		})
 		gotMetadata, err := contract.ControlPlane().MachineTemplate().Metadata().Get(obj)
 		g.Expect(err).ToNot(HaveOccurred())
+
+		expectedLabels := mergeMap(scope.Current.Cluster.Spec.Topology.ControlPlane.Metadata.Labels, blueprint.ClusterClass.Spec.ControlPlane.Metadata.Labels)
+		expectedLabels[clusterv1.ClusterLabelName] = cluster.Name
+		expectedLabels[clusterv1.ClusterTopologyOwnedLabel] = ""
 		g.Expect(gotMetadata).To(Equal(&clusterv1.ObjectMeta{
-			Labels:      mergeMap(scope.Current.Cluster.Spec.Topology.ControlPlane.Metadata.Labels, blueprint.ClusterClass.Spec.ControlPlane.Metadata.Labels),
+			Labels:      expectedLabels,
 			Annotations: mergeMap(scope.Current.Cluster.Spec.Topology.ControlPlane.Metadata.Annotations, blueprint.ClusterClass.Spec.ControlPlane.Metadata.Annotations),
 		}))
 
@@ -390,15 +395,244 @@ func TestComputeControlPlane(t *testing.T) {
 			obj:         obj,
 		})
 	})
+	t.Run("Should choose the correct version for control plane", func(t *testing.T) {
+		// Note: in all of the following tests we are setting it up so that there are not machine deployments.
+		// A more extensive list of scenarios is tested in TestComputeControlPlaneVersion.
+		tests := []struct {
+			name                string
+			currentControlPlane *unstructured.Unstructured
+			topologyVersion     string
+			expectedVersion     string
+		}{
+			{
+				name:                "use cluster.spec.topology.version if creating a new control plane",
+				currentControlPlane: nil,
+				topologyVersion:     "v1.2.3",
+				expectedVersion:     "v1.2.3",
+			},
+			{
+				name: "use controlplane.spec.version if the control plane's spec.version is not equal to status.version",
+				currentControlPlane: builder.ControlPlane("test1", "cp1").
+					WithSpecFields(map[string]interface{}{
+						"spec.version": "v1.2.2",
+					}).
+					WithStatusFields(map[string]interface{}{
+						"status.version": "v1.2.1",
+					}).
+					Build(),
+				topologyVersion: "v1.2.3",
+				expectedVersion: "v1.2.2",
+			},
+		}
+
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				g := NewWithT(t)
+
+				// Current cluster objects for the test scenario.
+				clusterWithControlPlaneRef := cluster.DeepCopy()
+				clusterWithControlPlaneRef.Spec.ControlPlaneRef = fakeRef1
+				clusterWithControlPlaneRef.Spec.Topology.Version = tt.topologyVersion
+
+				blueprint := &scope.ClusterBlueprint{
+					Topology:     clusterWithControlPlaneRef.Spec.Topology,
+					ClusterClass: clusterClass,
+					ControlPlane: &scope.ControlPlaneBlueprint{
+						Template: controlPlaneTemplate,
+					},
+				}
+
+				// Aggregating current cluster objects into ClusterState (simulating getCurrentState).
+				s := scope.New(clusterWithControlPlaneRef)
+				s.Blueprint = blueprint
+				s.Current.ControlPlane = &scope.ControlPlaneState{
+					Object: tt.currentControlPlane,
+				}
+
+				obj, err := computeControlPlane(ctx, s, nil)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(obj).NotTo(BeNil())
+				assertNestedField(g, obj, tt.expectedVersion, contract.ControlPlane().Version().Path()...)
+			})
+		}
+	})
+}
+
+func TestComputeControlPlaneVersion(t *testing.T) {
+	// Note: the version used by the machine deployments does
+	// not affect how we determining the control plane version.
+	// We only want to know if the machine deployments are stable.
+	//
+	// A machine deployment is considere stable if all the following are true:
+	// - md.spec.replicas == md.status.replicas
+	// - md.spec.replicas == md.status.updatedReplicas
+	// - md.spec.replicas == md.status.readyReplicas
+	// - md.Generation < md.status.observedGeneration
+	//
+	// A machine deployment is considered upgrading if any of the above conditions
+	// is false.
+	machineDeploymentStable := builder.MachineDeployment("test-namespace", "md1").
+		WithGeneration(int64(1)).
+		WithReplicas(int32(2)).
+		WithStatus(clusterv1.MachineDeploymentStatus{
+			ObservedGeneration: 2,
+			Replicas:           2,
+			UpdatedReplicas:    2,
+			AvailableReplicas:  2,
+			ReadyReplicas:      2,
+		}).
+		Build()
+	machineDeploymentRollingOut := builder.MachineDeployment("test-namespace", "md2").
+		WithGeneration(int64(1)).
+		WithReplicas(int32(2)).
+		WithStatus(clusterv1.MachineDeploymentStatus{
+			ObservedGeneration: 2,
+			Replicas:           1,
+			UpdatedReplicas:    1,
+			AvailableReplicas:  1,
+			ReadyReplicas:      1,
+		}).
+		Build()
+
+	tests := []struct {
+		name                    string
+		topologyVersion         string
+		controlPlaneObj         *unstructured.Unstructured
+		machineDeploymentsState scope.MachineDeploymentsStateMap
+		expectedVersion         string
+	}{
+		{
+			name:            "should return cluster.spec.topology.version if creating a new control plane",
+			topologyVersion: "v1.2.3",
+			controlPlaneObj: nil,
+			expectedVersion: "v1.2.3",
+		},
+		{
+			// Control plane is not upgrading implies that controlplane.spec.version is equal to controlplane.status.version.
+			// Control plane is not scaling implies that controlplane.spec.replicas is equal to controlplane.status.replicas,
+			// Controlplane.status.updatedReplicas and controlplane.status.readyReplicas.
+			name:            "should return cluster.spec.topology.version if the control plane is not upgrading and not scaling",
+			topologyVersion: "v1.2.3",
+			controlPlaneObj: builder.ControlPlane("test1", "cp1").
+				WithSpecFields(map[string]interface{}{
+					"spec.version":  "v1.2.2",
+					"spec.replicas": int64(2),
+				}).
+				WithStatusFields(map[string]interface{}{
+					"status.version":         "v1.2.2",
+					"status.replicas":        int64(2),
+					"status.updatedReplicas": int64(2),
+					"status.readyReplicas":   int64(2),
+				}).
+				Build(),
+			expectedVersion: "v1.2.3",
+		},
+		{
+			// Control plane is considered upgrading if controlplane.spec.version is not equal to controlplane.status.version.
+			name:            "should return controlplane.spec.version if the control plane is upgrading",
+			topologyVersion: "v1.2.3",
+			controlPlaneObj: builder.ControlPlane("test1", "cp1").
+				WithSpecFields(map[string]interface{}{
+					"spec.version": "v1.2.2",
+				}).
+				WithStatusFields(map[string]interface{}{
+					"status.version": "v1.2.1",
+				}).
+				Build(),
+			expectedVersion: "v1.2.2",
+		},
+		{
+			// Control plane is considered scaling if controlplane.spec.replicas is not equal to any of
+			// controlplane.status.replicas, controlplane.status.readyReplicas, controlplane.status.updatedReplicas.
+			name:            "should return controlplane.spec.version if the control plane is scaling",
+			topologyVersion: "v1.2.3",
+			controlPlaneObj: builder.ControlPlane("test1", "cp1").
+				WithSpecFields(map[string]interface{}{
+					"spec.version":  "v1.2.2",
+					"spec.replicas": int64(2),
+				}).
+				WithStatusFields(map[string]interface{}{
+					"status.version":         "v1.2.2",
+					"status.replicas":        int64(1),
+					"status.updatedReplicas": int64(1),
+					"status.readyReplicas":   int64(1),
+				}).
+				Build(),
+			expectedVersion: "v1.2.2",
+		},
+		{
+			name:            "should return controlplane.spec.version if control plane is not upgrading and not scaling and one of the machine deployments is rolling out",
+			topologyVersion: "v1.2.3",
+			controlPlaneObj: builder.ControlPlane("test1", "cp1").
+				WithSpecFields(map[string]interface{}{
+					"spec.version":  "v1.2.2",
+					"spec.replicas": int64(2),
+				}).
+				WithStatusFields(map[string]interface{}{
+					"status.version":         "v1.2.2",
+					"status.replicas":        int64(2),
+					"status.updatedReplicas": int64(2),
+					"status.readyReplicas":   int64(2),
+				}).
+				Build(),
+			machineDeploymentsState: scope.MachineDeploymentsStateMap{
+				"md1": &scope.MachineDeploymentState{Object: machineDeploymentStable},
+				"md2": &scope.MachineDeploymentState{Object: machineDeploymentRollingOut},
+			},
+			expectedVersion: "v1.2.2",
+		},
+		{
+			name:            "should return cluster.spec.topology.version if control plane is not upgrading and not scaling and none of the machine deployments are rolling out",
+			topologyVersion: "v1.2.3",
+			controlPlaneObj: builder.ControlPlane("test1", "cp1").
+				WithSpecFields(map[string]interface{}{
+					"spec.version":  "v1.2.2",
+					"spec.replicas": int64(2),
+				}).
+				WithStatusFields(map[string]interface{}{
+					"status.version":         "v1.2.2",
+					"status.replicas":        int64(2),
+					"status.updatedReplicas": int64(2),
+					"status.readyReplicas":   int64(2),
+				}).
+				Build(),
+			machineDeploymentsState: scope.MachineDeploymentsStateMap{
+				"md1": &scope.MachineDeploymentState{Object: machineDeploymentStable},
+				"md2": &scope.MachineDeploymentState{Object: machineDeploymentStable},
+			},
+			expectedVersion: "v1.2.3",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			g := NewWithT(t)
+
+			s := &scope.Scope{
+				Blueprint: &scope.ClusterBlueprint{Topology: &clusterv1.Topology{
+					Version: tt.topologyVersion,
+					ControlPlane: clusterv1.ControlPlaneTopology{
+						Replicas: pointer.Int32(2),
+					},
+				}},
+				Current: &scope.ClusterState{
+					ControlPlane:       &scope.ControlPlaneState{Object: tt.controlPlaneObj},
+					MachineDeployments: tt.machineDeploymentsState,
+				},
+			}
+			version, err := computeControlPlaneVersion(s)
+			g.Expect(err).NotTo(HaveOccurred())
+			g.Expect(version).To(Equal(tt.expectedVersion))
+		})
+	}
 }
 
 func TestComputeCluster(t *testing.T) {
 	g := NewWithT(t)
 
 	// generated objects
-	infrastructureCluster := testtypes.NewInfrastructureClusterBuilder(metav1.NamespaceDefault, "infrastructureCluster1").
+	infrastructureCluster := builder.InfrastructureCluster(metav1.NamespaceDefault, "infrastructureCluster1").
 		Build()
-	controlPlane := testtypes.NewControlPlaneBuilder(metav1.NamespaceDefault, "controlplane1").
+	controlPlane := builder.ControlPlane(metav1.NamespaceDefault, "controlplane1").
 		Build()
 
 	// current cluster objects
@@ -431,15 +665,15 @@ func TestComputeCluster(t *testing.T) {
 }
 
 func TestComputeMachineDeployment(t *testing.T) {
-	workerInfrastructureMachineTemplate := testtypes.NewInfrastructureMachineTemplateBuilder(metav1.NamespaceDefault, "linux-worker-inframachinetemplate").
+	workerInfrastructureMachineTemplate := builder.InfrastructureMachineTemplate(metav1.NamespaceDefault, "linux-worker-inframachinetemplate").
 		WithSpecFields(map[string]interface{}{"spec.template.spec.fakeSetting": true}).
 		Build()
-	workerBootstrapTemplate := testtypes.NewBootstrapTemplateBuilder(metav1.NamespaceDefault, "linux-worker-bootstraptemplate").
+	workerBootstrapTemplate := builder.BootstrapTemplate(metav1.NamespaceDefault, "linux-worker-bootstraptemplate").
 		Build()
 	labels := map[string]string{"fizz": "buzz", "foo": "bar"}
 	annotations := map[string]string{"annotation-1": "annotation-1-val"}
 
-	md1 := testtypes.NewMachineDeploymentClassBuilder(metav1.NamespaceDefault, "class1").
+	md1 := builder.MachineDeploymentClass(metav1.NamespaceDefault, "class1").
 		WithClass("linux-worker").
 		WithLabels(labels).
 		WithAnnotations(annotations).
@@ -447,7 +681,7 @@ func TestComputeMachineDeployment(t *testing.T) {
 		WithBootstrapTemplate(workerBootstrapTemplate).
 		Build()
 	mcds := []clusterv1.MachineDeploymentClass{*md1}
-	fakeClass := testtypes.NewClusterClassBuilder(metav1.NamespaceDefault, "class1").
+	fakeClass := builder.ClusterClass(metav1.NamespaceDefault, "class1").
 		WithWorkerMachineDeploymentClasses(mcds).
 		Build()
 
@@ -494,8 +728,11 @@ func TestComputeMachineDeployment(t *testing.T) {
 		scope := scope.New(cluster)
 		scope.Blueprint = blueprint
 
-		actual, err := computeMachineDeployment(ctx, scope, mdTopology)
+		actual, err := computeMachineDeployment(ctx, scope, nil, mdTopology)
 		g.Expect(err).ToNot(HaveOccurred())
+
+		g.Expect(actual.BootstrapTemplate.GetLabels()).To(HaveKeyWithValue(clusterv1.ClusterTopologyMachineDeploymentLabelName, "big-pool-of-machines"))
+		g.Expect(actual.InfrastructureMachineTemplate.GetLabels()).To(HaveKeyWithValue(clusterv1.ClusterTopologyMachineDeploymentLabelName, "big-pool-of-machines"))
 
 		actualMd := actual.Object
 		g.Expect(*actualMd.Spec.Replicas).To(Equal(replicas))
@@ -504,9 +741,12 @@ func TestComputeMachineDeployment(t *testing.T) {
 		g.Expect(actualMd.Name).To(ContainSubstring("big-pool-of-machines"))
 
 		g.Expect(actualMd.Labels).To(HaveKeyWithValue(clusterv1.ClusterTopologyMachineDeploymentLabelName, "big-pool-of-machines"))
+		g.Expect(actualMd.Labels).To(HaveKey(clusterv1.ClusterTopologyOwnedLabel))
+		g.Expect(controllerutil.ContainsFinalizer(actualMd, clusterv1.MachineDeploymentTopologyFinalizer)).To(BeTrue())
 
 		g.Expect(actualMd.Spec.Template.ObjectMeta.Labels).To(HaveKeyWithValue("foo", "baz"))
 		g.Expect(actualMd.Spec.Template.ObjectMeta.Labels).To(HaveKeyWithValue("fizz", "buzz"))
+		g.Expect(actualMd.Spec.Template.ObjectMeta.Labels).To(HaveKey(clusterv1.ClusterTopologyOwnedLabel))
 		g.Expect(actualMd.Spec.Template.Spec.InfrastructureRef.Name).ToNot(Equal("linux-worker-inframachinetemplate"))
 		g.Expect(actualMd.Spec.Template.Spec.Bootstrap.ConfigRef.Name).ToNot(Equal("linux-worker-bootstraptemplate"))
 	})
@@ -525,6 +765,7 @@ func TestComputeMachineDeployment(t *testing.T) {
 				Replicas: &currentReplicas,
 				Template: clusterv1.MachineTemplateSpec{
 					Spec: clusterv1.MachineSpec{
+						Version: pointer.String("v1.21.2"),
 						Bootstrap: clusterv1.Bootstrap{
 							ConfigRef: contract.ObjToRef(workerBootstrapTemplate),
 						},
@@ -541,17 +782,21 @@ func TestComputeMachineDeployment(t *testing.T) {
 			},
 		}
 
-		actual, err := computeMachineDeployment(ctx, s, mdTopology)
+		actual, err := computeMachineDeployment(ctx, s, nil, mdTopology)
 		g.Expect(err).ToNot(HaveOccurred())
 
 		actualMd := actual.Object
+
 		g.Expect(*actualMd.Spec.Replicas).NotTo(Equal(currentReplicas))
 		g.Expect(actualMd.Name).To(Equal("existing-deployment-1"))
 
 		g.Expect(actualMd.Labels).To(HaveKeyWithValue(clusterv1.ClusterTopologyMachineDeploymentLabelName, "big-pool-of-machines"))
+		g.Expect(actualMd.Labels).To(HaveKey(clusterv1.ClusterTopologyOwnedLabel))
+		g.Expect(controllerutil.ContainsFinalizer(actualMd, clusterv1.MachineDeploymentTopologyFinalizer)).To(BeFalse())
 
 		g.Expect(actualMd.Spec.Template.ObjectMeta.Labels).To(HaveKeyWithValue("foo", "baz"))
 		g.Expect(actualMd.Spec.Template.ObjectMeta.Labels).To(HaveKeyWithValue("fizz", "buzz"))
+		g.Expect(actualMd.Spec.Template.ObjectMeta.Labels).To(HaveKey(clusterv1.ClusterTopologyOwnedLabel))
 		g.Expect(actualMd.Spec.Template.Spec.InfrastructureRef.Name).To(Equal("linux-worker-inframachinetemplate"))
 		g.Expect(actualMd.Spec.Template.Spec.Bootstrap.ConfigRef.Name).To(Equal("linux-worker-bootstraptemplate"))
 	})
@@ -569,13 +814,310 @@ func TestComputeMachineDeployment(t *testing.T) {
 			Name:  "big-pool-of-machines",
 		}
 
-		_, err := computeMachineDeployment(ctx, scope, mdTopology)
+		_, err := computeMachineDeployment(ctx, scope, nil, mdTopology)
 		g.Expect(err).To(HaveOccurred())
+	})
+
+	t.Run("Should choose the correct version for machine deployment", func(t *testing.T) {
+		controlPlaneStable123 := builder.ControlPlane("test1", "cp1").
+			WithSpecFields(map[string]interface{}{
+				"spec.version":  "v1.2.3",
+				"spec.replicas": int64(2),
+			}).
+			WithStatusFields(map[string]interface{}{
+				"status.version":         "v1.2.3",
+				"status.replicas":        int64(2),
+				"status.updatedReplicas": int64(2),
+				"status.readyReplicas":   int64(2),
+			}).
+			Build()
+
+		machineDeploymentStable := builder.MachineDeployment("test-namespace", "md-1").
+			WithGeneration(1).
+			WithReplicas(2).
+			WithStatus(clusterv1.MachineDeploymentStatus{
+				ObservedGeneration: 2,
+				Replicas:           2,
+				UpdatedReplicas:    2,
+				AvailableReplicas:  2,
+			}).
+			Build()
+
+		machineDeploymentRollingOut := builder.MachineDeployment("test-namespace", "md-1").
+			WithGeneration(1).
+			WithReplicas(2).
+			WithStatus(clusterv1.MachineDeploymentStatus{
+				ObservedGeneration: 2,
+				Replicas:           1,
+				UpdatedReplicas:    1,
+				AvailableReplicas:  1,
+			}).
+			Build()
+
+		machineDeploymentsStateRollingOut := scope.MachineDeploymentsStateMap{
+			"class-1": &scope.MachineDeploymentState{Object: machineDeploymentStable},
+			"class-2": &scope.MachineDeploymentState{Object: machineDeploymentRollingOut},
+		}
+
+		// Note: in all the following tests we are setting it up so that the control plane is already
+		// stable at the topology version.
+		// A more extensive list of sceniarios is tested in TestComputeMachineDeploymentVersion.
+		tests := []struct {
+			name                    string
+			machineDeploymentsState scope.MachineDeploymentsStateMap
+			currentMDVersion        *string
+			topologyVersion         string
+			expectedVersion         string
+		}{
+			{
+				name:                    "use cluster.spec.topology.version if creating a new machine deployment",
+				machineDeploymentsState: nil,
+				currentMDVersion:        nil,
+				topologyVersion:         "v1.2.3",
+				expectedVersion:         "v1.2.3",
+			},
+			{
+				name:                    "use machine deployment's spec.template.spec.version if one of the machine deployments is rolling out",
+				machineDeploymentsState: machineDeploymentsStateRollingOut,
+				currentMDVersion:        pointer.String("v1.2.2"),
+				topologyVersion:         "v1.2.3",
+				expectedVersion:         "v1.2.2",
+			},
+		}
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				g := NewWithT(t)
+				s := scope.New(cluster)
+				s.Blueprint = blueprint
+				s.Blueprint.Topology.Version = tt.topologyVersion
+				s.Blueprint.Topology.ControlPlane = clusterv1.ControlPlaneTopology{
+					Replicas: pointer.Int32(2),
+				}
+
+				mdsState := tt.machineDeploymentsState
+				if tt.currentMDVersion != nil {
+					// testing a case with an existing machine deployment
+					// add the stable machine deployment to the current machine deployments state
+					md := builder.MachineDeployment("test-namespace", "big-pool-of-machines").
+						WithGeneration(1).
+						WithReplicas(2).
+						WithVersion(*tt.currentMDVersion).
+						WithStatus(clusterv1.MachineDeploymentStatus{
+							ObservedGeneration: 2,
+							Replicas:           2,
+							UpdatedReplicas:    2,
+							AvailableReplicas:  2,
+						}).
+						Build()
+					mdsState = duplicateMachineDeploymentsState(mdsState)
+					mdsState["big-pool-of-machines"] = &scope.MachineDeploymentState{
+						Object: md,
+					}
+				}
+				s.Current.MachineDeployments = mdsState
+				s.Current.ControlPlane = &scope.ControlPlaneState{
+					Object: controlPlaneStable123,
+				}
+				desiredControlPlaneState := &scope.ControlPlaneState{
+					Object: controlPlaneStable123,
+				}
+
+				mdTopology := clusterv1.MachineDeploymentTopology{
+					Class:    "linux-worker",
+					Name:     "big-pool-of-machines",
+					Replicas: pointer.Int32(2),
+				}
+
+				obj, err := computeMachineDeployment(ctx, s, desiredControlPlaneState, mdTopology)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(*obj.Object.Spec.Template.Spec.Version).To(Equal(tt.expectedVersion))
+			})
+		}
 	})
 }
 
+func TestComputeMachineDeploymentVersion(t *testing.T) {
+	controlPlaneStable122 := builder.ControlPlane("test1", "cp1").
+		WithSpecFields(map[string]interface{}{
+			"spec.version":  "v1.2.2",
+			"spec.replicas": int64(2),
+		}).
+		WithStatusFields(map[string]interface{}{
+			"status.version":         "v1.2.2",
+			"status.replicas":        int64(2),
+			"status.updatedReplicas": int64(2),
+			"status.readyReplicas":   int64(2),
+		}).
+		Build()
+	controlPlaneStable123 := builder.ControlPlane("test1", "cp1").
+		WithSpecFields(map[string]interface{}{
+			"spec.version":  "v1.2.3",
+			"spec.replicas": int64(2),
+		}).
+		WithStatusFields(map[string]interface{}{
+			"status.version":         "v1.2.3",
+			"status.replicas":        int64(2),
+			"status.updatedReplicas": int64(2),
+			"status.readyReplicas":   int64(2),
+		}).
+		Build()
+	controlPlaneUpgrading := builder.ControlPlane("test1", "cp1").
+		WithSpecFields(map[string]interface{}{
+			"spec.version": "v1.2.3",
+		}).
+		WithStatusFields(map[string]interface{}{
+			"status.version": "v1.2.1",
+		}).
+		Build()
+	controlPlaneScaling := builder.ControlPlane("test1", "cp1").
+		WithSpecFields(map[string]interface{}{
+			"spec.version":  "v1.2.3",
+			"spec.replicas": int64(2),
+		}).
+		WithStatusFields(map[string]interface{}{
+			"status.version":         "v1.2.3",
+			"status.replicas":        int64(1),
+			"status.updatedReplicas": int64(1),
+			"status.readyReplicas":   int64(1),
+		}).
+		Build()
+	controlPlaneDesired := builder.ControlPlane("test1", "cp1").
+		WithSpecFields(map[string]interface{}{
+			"spec.version": "v1.2.3",
+		}).
+		Build()
+
+	// A machine deployment is considere stable if all the following are true:
+	// - md.spec.replicas == md.status.replicas
+	// - md.spec.replicas == md.status.updatedReplicas
+	// - md.spec.replicas == md.status.readyReplicas
+	// - md.Generation < md.status.observedGeneration
+	//
+	// A machine deployment is considered upgrading if any of the above conditions
+	// is false.
+	machineDeploymentStable := builder.MachineDeployment("test-namespace", "md-1").
+		WithGeneration(1).
+		WithReplicas(2).
+		WithStatus(clusterv1.MachineDeploymentStatus{
+			ObservedGeneration: 2,
+			Replicas:           2,
+			UpdatedReplicas:    2,
+			AvailableReplicas:  2,
+			ReadyReplicas:      2,
+		}).
+		Build()
+	machineDeploymentRollingOut := builder.MachineDeployment("test-namespace", "md-2").
+		WithGeneration(1).
+		WithReplicas(2).
+		WithStatus(clusterv1.MachineDeploymentStatus{
+			ObservedGeneration: 2,
+			Replicas:           1,
+			UpdatedReplicas:    1,
+			AvailableReplicas:  1,
+			ReadyReplicas:      1,
+		}).
+		Build()
+
+	machineDeploymentsStateStable := scope.MachineDeploymentsStateMap{
+		"md1": &scope.MachineDeploymentState{Object: machineDeploymentStable},
+		"md2": &scope.MachineDeploymentState{Object: machineDeploymentStable},
+	}
+	machineDeploymentsStateRollingOut := scope.MachineDeploymentsStateMap{
+		"md1": &scope.MachineDeploymentState{Object: machineDeploymentStable},
+		"md2": &scope.MachineDeploymentState{Object: machineDeploymentRollingOut},
+	}
+
+	tests := []struct {
+		name                          string
+		currentMachineDeploymentState *scope.MachineDeploymentState
+		machineDeploymentsStateMap    scope.MachineDeploymentsStateMap
+		currentControlPlane           *unstructured.Unstructured
+		desiredControlPlane           *unstructured.Unstructured
+		topologyVersion               string
+		expectedVersion               string
+	}{
+		{
+			name:                          "should return cluster.spec.topology.version if creating a new machine deployment",
+			currentMachineDeploymentState: nil,
+			machineDeploymentsStateMap:    make(scope.MachineDeploymentsStateMap),
+			topologyVersion:               "v1.2.3",
+			expectedVersion:               "v1.2.3",
+		},
+		{
+			name:                          "should return machine deployment's spec.template.spec.version if any one of the machine deployments is rolling out",
+			currentMachineDeploymentState: &scope.MachineDeploymentState{Object: builder.MachineDeployment("test1", "md-current").WithVersion("v1.2.2").Build()},
+			machineDeploymentsStateMap:    machineDeploymentsStateRollingOut,
+			currentControlPlane:           controlPlaneStable123,
+			desiredControlPlane:           controlPlaneDesired,
+			topologyVersion:               "v1.2.3",
+			expectedVersion:               "v1.2.2",
+		},
+		{
+			// Control plane is considered upgrading if the control plane's spec.version and status.version is not equal.
+			name:                          "should return machine deployment's spec.template.spec.version if control plane is upgrading",
+			currentMachineDeploymentState: &scope.MachineDeploymentState{Object: builder.MachineDeployment("test1", "md-current").WithVersion("v1.2.2").Build()},
+			machineDeploymentsStateMap:    machineDeploymentsStateStable,
+			currentControlPlane:           controlPlaneUpgrading,
+			topologyVersion:               "v1.2.3",
+			expectedVersion:               "v1.2.2",
+		},
+		{
+			// Control plane is considered ready to upgrade if spec.version of current and desired control planes are not equal.
+			name:                          "should return machine deployment's spec.template.spec.version if control plane is ready to upgrade",
+			currentMachineDeploymentState: &scope.MachineDeploymentState{Object: builder.MachineDeployment("test1", "md-current").WithVersion("v1.2.2").Build()},
+			machineDeploymentsStateMap:    machineDeploymentsStateStable,
+			currentControlPlane:           controlPlaneStable122,
+			desiredControlPlane:           controlPlaneDesired,
+			topologyVersion:               "v1.2.3",
+			expectedVersion:               "v1.2.2",
+		},
+		{
+			// Control plane is considered scaling if its spec.replicas is not equal to any of status.replicas, status.readyReplicas or status.updatedReplicas.
+			name:                          "should return machine deployment's spec.template.spec.version if control plane is scaling",
+			currentMachineDeploymentState: &scope.MachineDeploymentState{Object: builder.MachineDeployment("test1", "md-current").WithVersion("v1.2.2").Build()},
+			machineDeploymentsStateMap:    machineDeploymentsStateStable,
+			currentControlPlane:           controlPlaneScaling,
+			topologyVersion:               "v1.2.3",
+			expectedVersion:               "v1.2.2",
+		},
+		{
+			name:                          "should return cluster.spec.topology.version if the control plane is not upgrading, not scaling, not ready to upgrade and none of the machine deployments are rolling out",
+			currentMachineDeploymentState: &scope.MachineDeploymentState{Object: builder.MachineDeployment("test1", "md-current").WithVersion("v1.2.2").Build()},
+			machineDeploymentsStateMap:    machineDeploymentsStateStable,
+			currentControlPlane:           controlPlaneStable123,
+			desiredControlPlane:           controlPlaneDesired,
+			topologyVersion:               "v1.2.3",
+			expectedVersion:               "v1.2.3",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			g := NewWithT(t)
+
+			s := &scope.Scope{
+				Blueprint: &scope.ClusterBlueprint{Topology: &clusterv1.Topology{
+					Version: tt.topologyVersion,
+					ControlPlane: clusterv1.ControlPlaneTopology{
+						Replicas: pointer.Int32(2),
+					},
+				}},
+				Current: &scope.ClusterState{
+					ControlPlane:       &scope.ControlPlaneState{Object: tt.currentControlPlane},
+					MachineDeployments: tt.machineDeploymentsStateMap,
+				},
+				UpgradeTracker: scope.NewUpgradeTracker(),
+			}
+			desiredControlPlaneState := &scope.ControlPlaneState{Object: tt.desiredControlPlane}
+			version, err := computeMachineDeploymentVersion(s, desiredControlPlaneState, tt.currentMachineDeploymentState)
+			g.Expect(err).NotTo(HaveOccurred())
+			g.Expect(version).To(Equal(tt.expectedVersion))
+		})
+	}
+}
+
 func TestTemplateToObject(t *testing.T) {
-	template := testtypes.NewInfrastructureClusterTemplateBuilder(metav1.NamespaceDefault, "infrastructureClusterTemplate").
+	template := builder.InfrastructureClusterTemplate(metav1.NamespaceDefault, "infrastructureClusterTemplate").
 		WithSpecFields(map[string]interface{}{"spec.template.spec.fakeSetting": true}).
 		Build()
 	cluster := &clusterv1.Cluster{
@@ -629,7 +1171,7 @@ func TestTemplateToObject(t *testing.T) {
 }
 
 func TestTemplateToTemplate(t *testing.T) {
-	template := testtypes.NewInfrastructureClusterTemplateBuilder(metav1.NamespaceDefault, "infrastructureClusterTemplate").
+	template := builder.InfrastructureClusterTemplate(metav1.NamespaceDefault, "infrastructureClusterTemplate").
 		WithSpecFields(map[string]interface{}{"spec.template.spec.fakeSetting": true}).
 		Build()
 	cluster := &clusterv1.Cluster{
@@ -767,4 +1309,12 @@ func assertNestedFieldUnset(g *WithT, obj *unstructured.Unstructured, fields ...
 
 	g.Expect(err).ToNot(HaveOccurred())
 	g.Expect(ok).To(BeFalse())
+}
+
+func duplicateMachineDeploymentsState(s scope.MachineDeploymentsStateMap) scope.MachineDeploymentsStateMap {
+	n := make(scope.MachineDeploymentsStateMap)
+	for k, v := range s {
+		n[k] = v
+	}
+	return n
 }

@@ -36,10 +36,10 @@ import (
 	"sigs.k8s.io/cluster-api/cmd/clusterctl/internal/test"
 )
 
-var template = `apiVersion: cluster.x-k8s.io/v1alpha4
+var template = `apiVersion: cluster.x-k8s.io/v1beta1
 kind: Cluster
 ---
-apiVersion: cluster.x-k8s.io/v1alpha4
+apiVersion: cluster.x-k8s.io/v1beta1
 kind: Machine`
 
 func Test_templateClient_GetFromConfigMap(t *testing.T) {
@@ -188,7 +188,7 @@ func Test_templateClient_getGitHubFileContent(t *testing.T) {
 		{
 			name: "Return custom template",
 			args: args{
-				rURL: mustParseURL("https://github.com/kubernetes-sigs/cluster-api/blob/master/config/default/cluster-template.yaml"),
+				rURL: mustParseURL("https://github.com/kubernetes-sigs/cluster-api/blob/main/config/default/cluster-template.yaml"),
 			},
 			want:    []byte(template),
 			wantErr: false,
@@ -196,7 +196,7 @@ func Test_templateClient_getGitHubFileContent(t *testing.T) {
 		{
 			name: "Wrong url",
 			args: args{
-				rURL: mustParseURL("https://github.com/kubernetes-sigs/cluster-api/blob/master/config/default/something-else.yaml"),
+				rURL: mustParseURL("https://github.com/kubernetes-sigs/cluster-api/blob/main/config/default/something-else.yaml"),
 			},
 			want:    nil,
 			wantErr: true,
@@ -331,7 +331,7 @@ func Test_templateClient_GetFromURL(t *testing.T) {
 		{
 			name: "Get from GitHub",
 			args: args{
-				templateURL:         "https://github.com/kubernetes-sigs/cluster-api/blob/master/config/default/cluster-template.yaml",
+				templateURL:         "https://github.com/kubernetes-sigs/cluster-api/blob/main/config/default/cluster-template.yaml",
 				targetNamespace:     "",
 				skipTemplateProcess: false,
 			},

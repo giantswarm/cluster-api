@@ -57,6 +57,29 @@ All changes must be code reviewed. Coding conventions and standards are explaine
 docs](https://git.k8s.io/community/contributors/devel). Expect reviewers to request that you
 avoid common [go style mistakes](https://github.com/golang/go/wiki/CodeReviewComments) in your PRs.
 
+## Documentation changes
+
+The documentation is published in form of a book at:
+
+- [Stable release](https://cluster-api.sigs.k8s.io)
+- [Tip of the main branch](https://tip.cluster-api.sigs.k8s.io/)
+
+The source for the book is [this folder](https://github.com/kubernetes-sigs/cluster-api/tree/main/docs/book/src)
+containing markdown files and we use [mdBook][] to build it into a static
+website.
+
+After making changes locally you can run `make serve-book` which will build the HTML version
+and start a web server so you can preview if the changes render correctly at
+http://localhost:3000; the preview auto-updates when changes are detected.
+
+Note: you don't need to have [mdBook][] installed, `make serve-book` will ensure
+appropriate binaries for mdBook and any used plugins are downloaded into
+`hack/tools/bin/` directory.
+
+When submitting the PR remember to label it with the 📖 (:book:) icon.
+
+[mdBook]: https://github.com/rust-lang/mdBook
+
 ## Releases
 
 Cluster API uses [GitHub milestones](https://github.com/kubernetes-sigs/cluster-api/milestones) to track releases.
@@ -81,7 +104,7 @@ Cluster API uses [GitHub milestones](https://github.com/kubernetes-sigs/cluster-
 
 The Cluster API Enhacement Proposal is the process this project uses to adopt new features, changes to the APIs, changes to contracts between components, or changes to CLI interfaces.
 
-The [template](https://github.com/kubernetes-sigs/cluster-api/blob/master/docs/proposals/YYYYMMDD-template.md), and accepted proposals live under [docs/proposals](https://github.com/kubernetes-sigs/cluster-api/tree/master/docs/proposals).
+The [template](https://github.com/kubernetes-sigs/cluster-api/blob/main/docs/proposals/YYYYMMDD-template.md), and accepted proposals live under [docs/proposals](https://github.com/kubernetes-sigs/cluster-api/tree/main/docs/proposals).
 
 - Proposals or requests for enhacements (RFEs) MUST be associated with an issue.
   - Issues can be placed on the roadmap during planning if there is one or more folks
@@ -206,10 +229,10 @@ Proof of concepts, code experiments, or other initiatives can live under the `ex
 
 ## Breaking Changes
 
-Breaking changes are generally allowed in the `master` branch, as this is the branch used to develop the next minor
+Breaking changes are generally allowed in the `main` branch, as this is the branch used to develop the next minor
 release of Cluster API.
 
-There may be times, however, when `master` is closed for breaking changes. This is likely to happen as we near the
+There may be times, however, when `main` is closed for breaking changes. This is likely to happen as we near the
 release of a new minor version.
 
 Breaking changes are not allowed in release branches, as these represent minor versions that have already been released.

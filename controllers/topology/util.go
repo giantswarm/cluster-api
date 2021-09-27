@@ -20,111 +20,18 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/go-logr/logr"
 	"github.com/pkg/errors"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	clusterv1 "sigs.k8s.io/cluster-api/api/v1alpha4"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/types"
+	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	"sigs.k8s.io/cluster-api/controllers/external"
+	tlog "sigs.k8s.io/cluster-api/controllers/topology/internal/log"
 	utilconversion "sigs.k8s.io/cluster-api/util/conversion"
-	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
-
-// loggerFrom returns a logger with predefined values from a context.Context.
-// The logger, when used with controllers, can be expected to contain basic information about the object
-// that's being reconciled like:
-// - `reconciler group` and `reconciler kind` coming from the For(...) object passed in when building a controller.
-// - `name` and `namespace` injected from the reconciliation request.
-//
-// This is meant to be used with the context supplied in a struct that satisfies the Reconciler interface.
-func loggerFrom(ctx context.Context) logger {
-	log := ctrl.LoggerFrom(ctx)
-	return &topologyReconcileLogger{
-		Logger: log,
-	}
-}
-
-// logger provides a wrapper to log.Logger to be used for topology reconciler.
-type logger interface {
-	// WithObject adds to the logger information about the object being modified by reconcile, which in most case it is
-	// a resources being part of the Cluster by reconciled.
-	WithObject(obj client.Object) logger
-
-	// WithMachineDeployment adds to the logger information about the MachineDeployment object being processed.
-	WithMachineDeployment(md *clusterv1.MachineDeployment) logger
-
-	// V returns a logger value for a specific verbosity level, relative to
-	// this logger.
-	V(level int) logger
-
-	// Infof logs to the INFO log.
-	// Arguments are handled in the manner of fmt.Printf.
-	Infof(msg string, a ...interface{})
-
-	// Into takes a context and sets the logger as one of its keys.
-	//
-	// This is meant to be used in reconcilers to enrich the logger within a context with additional values.
-	Into(ctx context.Context) (context.Context, logger)
-}
-
-// topologyReconcileLogger implements Logger.
-type topologyReconcileLogger struct {
-	logr.Logger
-}
-
-// WithObject adds to the logger information about the object being modified by reconcile, which in most case it is
-// a resources being part of the Cluster by reconciled.
-func (l *topologyReconcileLogger) WithObject(obj client.Object) logger {
-	l.Logger = l.Logger.WithValues(
-		"object groupVersion", obj.GetObjectKind().GroupVersionKind().GroupVersion().String(),
-		"object kind", obj.GetObjectKind().GroupVersionKind().Kind,
-		"object", obj.GetName(),
-	)
-	return l
-}
-
-// WithMachineDeployment adds to the logger information about the MachineDeployment object being processed.
-func (l *topologyReconcileLogger) WithMachineDeployment(md *clusterv1.MachineDeployment) logger {
-	topologyName := md.Labels[clusterv1.ClusterTopologyMachineDeploymentLabelName]
-	l.Logger = l.Logger.WithValues(
-		"machineDeployment name", md.GetName(),
-		"machineDeployment topologyName", topologyName,
-	)
-	return l
-}
-
-// V returns a logger value for a specific verbosity level, relative to
-// this logger.
-func (l *topologyReconcileLogger) V(level int) logger {
-	l.Logger = l.Logger.V(level)
-	return l
-}
-
-// Infof logs to the INFO log.
-// Arguments are handled in the manner of fmt.Printf.
-func (l *topologyReconcileLogger) Infof(msg string, a ...interface{}) {
-	l.Logger.Info(fmt.Sprintf(msg, a...))
-}
-
-// Into takes a context and sets the logger as one of its keys.
-//
-// This is meant to be used in reconcilers to enrich the logger within a context with additional values.
-func (l *topologyReconcileLogger) Into(ctx context.Context) (context.Context, logger) {
-	return ctrl.LoggerInto(ctx, l.Logger), l
-}
-
-// KRef return a reference to a Kubernetes object in the same format used by kubectl commands (kind/name).
-type KRef struct {
-	Obj client.Object
-}
-
-func (ref KRef) String() string {
-	if ref.Obj == nil {
-		return ""
-	}
-	return fmt.Sprintf("%s/%s", ref.Obj.GetObjectKind().GroupVersionKind().Kind, ref.Obj.GetName())
-}
 
 // bootstrapTemplateNamePrefix calculates the name prefix for a BootstrapTemplate.
 func bootstrapTemplateNamePrefix(clusterName, machineDeploymentTopologyName string) string {
@@ -166,4 +73,109 @@ func refToUnstructured(ref *corev1.ObjectReference) *unstructured.Unstructured {
 	uns.SetNamespace(ref.Namespace)
 	uns.SetName(ref.Name)
 	return uns
+}
+
+// getMachineSetsForDeployment returns a list of MachineSets associated with a MachineDeployment.
+func getMachineSetsForDeployment(ctx context.Context, c client.Reader, md types.NamespacedName) ([]*clusterv1.MachineSet, error) {
+	// List MachineSets based on the MachineDeployment label.
+	msList := &clusterv1.MachineSetList{}
+	if err := c.List(ctx, msList,
+		client.InNamespace(md.Namespace), client.MatchingLabels{clusterv1.MachineDeploymentLabelName: md.Name}); err != nil {
+		return nil, errors.Wrapf(err, "failed to list MachineSets for MachineDeployment/%s", md.Name)
+	}
+
+	// Copy the MachineSets to an array of MachineSet pointers, to avoid MachineSet copying later.
+	res := make([]*clusterv1.MachineSet, 0, len(msList.Items))
+	for i := range msList.Items {
+		res = append(res, &msList.Items[i])
+	}
+	return res, nil
+}
+
+// calculateTemplatesInUse returns all templates referenced in non-deleting MachineDeployment and MachineSets.
+func calculateTemplatesInUse(md *clusterv1.MachineDeployment, msList []*clusterv1.MachineSet) (map[string]bool, error) {
+	templatesInUse := map[string]bool{}
+
+	// Templates of the MachineSet are still in use if the MachineSet is not in deleting state.
+	for _, ms := range msList {
+		if !ms.DeletionTimestamp.IsZero() {
+			continue
+		}
+
+		bootstrapRef := ms.Spec.Template.Spec.Bootstrap.ConfigRef
+		infrastructureRef := &ms.Spec.Template.Spec.InfrastructureRef
+		if err := addTemplateRef(templatesInUse, bootstrapRef, infrastructureRef); err != nil {
+			return nil, errors.Wrapf(err, "failed to add templates of %s to templatesInUse", tlog.KObj{Obj: ms})
+		}
+	}
+
+	// If MachineDeployment has already been deleted or still exists and is in deleting state, then there
+	// are no templates referenced in the MachineDeployment which are still in use, so let's return here.
+	if md == nil || !md.DeletionTimestamp.IsZero() {
+		return templatesInUse, nil
+	}
+
+	//  Otherwise, the templates of the MachineDeployment are still in use.
+	bootstrapRef := md.Spec.Template.Spec.Bootstrap.ConfigRef
+	infrastructureRef := &md.Spec.Template.Spec.InfrastructureRef
+	if err := addTemplateRef(templatesInUse, bootstrapRef, infrastructureRef); err != nil {
+		return nil, errors.Wrapf(err, "failed to add templates of %s to templatesInUse", tlog.KObj{Obj: md})
+	}
+	return templatesInUse, nil
+}
+
+// deleteTemplateIfUnused deletes the template (ref), if it is not in use (i.e. in templatesInUse).
+func deleteTemplateIfUnused(ctx context.Context, c client.Client, templatesInUse map[string]bool, ref *corev1.ObjectReference) error {
+	// If ref is nil, do nothing (this can happen, because bootstrap templates are optional).
+	if ref == nil {
+		return nil
+	}
+
+	log := tlog.LoggerFrom(ctx).WithRef(ref)
+
+	refID, err := templateRefID(ref)
+	if err != nil {
+		return errors.Wrapf(err, "failed to calculate templateRefID")
+	}
+
+	// If the template is still in use, do nothing.
+	if templatesInUse[refID] {
+		log.V(3).Infof("Not deleting %s, because it's still in use", tlog.KRef{Ref: ref})
+		return nil
+	}
+
+	log.Infof("Deleting %s", tlog.KRef{Ref: ref})
+	if err := external.Delete(ctx, c, ref); err != nil && !apierrors.IsNotFound(err) {
+		return errors.Wrapf(err, "failed to delete %s", tlog.KRef{Ref: ref})
+	}
+	return nil
+}
+
+// addTemplateRef adds the refs to the refMap with the templateRefID as key.
+func addTemplateRef(refMap map[string]bool, refs ...*corev1.ObjectReference) error {
+	for _, ref := range refs {
+		if ref != nil {
+			refID, err := templateRefID(ref)
+			if err != nil {
+				return errors.Wrapf(err, "failed to calculate templateRefID")
+			}
+			refMap[refID] = true
+		}
+	}
+	return nil
+}
+
+// templateRefID returns the templateRefID of a ObjectReference in the format: g/k/name.
+// Note: We don't include the version as references with different versions should be treated as equal.
+func templateRefID(ref *corev1.ObjectReference) (string, error) {
+	if ref == nil {
+		return "", nil
+	}
+
+	gv, err := schema.ParseGroupVersion(ref.APIVersion)
+	if err != nil {
+		return "", errors.Wrapf(err, "failed to parse apiVersion %q", ref.APIVersion)
+	}
+
+	return fmt.Sprintf("%s/%s/%s", gv.Group, ref.Kind, ref.Name), nil
 }

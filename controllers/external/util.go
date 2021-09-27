@@ -25,20 +25,15 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apiserver/pkg/storage/names"
+	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-
-	clusterv1 "sigs.k8s.io/cluster-api/api/v1alpha4"
-)
-
-const (
-	// TemplateSuffix is the object kind suffix used by infrastructure references associated
-	// with MachineSet or MachineDeployments.
-	// Deprecated: use api/v1alpha4.TemplatePrefix instead.
-	TemplateSuffix = "Template"
 )
 
 // Get uses the client and reference to get an external, unstructured object.
 func Get(ctx context.Context, c client.Client, ref *corev1.ObjectReference, namespace string) (*unstructured.Unstructured, error) {
+	if ref == nil {
+		return nil, errors.Errorf("cannot get object - object reference not set")
+	}
 	obj := new(unstructured.Unstructured)
 	obj.SetAPIVersion(ref.APIVersion)
 	obj.SetKind(ref.Kind)
@@ -50,22 +45,31 @@ func Get(ctx context.Context, c client.Client, ref *corev1.ObjectReference, name
 	return obj, nil
 }
 
+// Delete uses the client and reference to delete an external, unstructured object.
+func Delete(ctx context.Context, c client.Client, ref *corev1.ObjectReference) error {
+	obj := new(unstructured.Unstructured)
+	obj.SetAPIVersion(ref.APIVersion)
+	obj.SetKind(ref.Kind)
+	obj.SetName(ref.Name)
+	obj.SetNamespace(ref.Namespace)
+	if err := c.Delete(ctx, obj); err != nil {
+		return errors.Wrapf(err, "failed to delete %s external object %q/%q", obj.GetKind(), obj.GetNamespace(), obj.GetName())
+	}
+	return nil
+}
+
 // CloneTemplateInput is the input to CloneTemplate.
 type CloneTemplateInput struct {
 	// Client is the controller runtime client.
-	// +required
 	Client client.Client
 
 	// TemplateRef is a reference to the template that needs to be cloned.
-	// +required
 	TemplateRef *corev1.ObjectReference
 
 	// Namespace is the Kubernetes namespace the cloned object should be created into.
-	// +required
 	Namespace string
 
 	// ClusterName is the cluster this object is linked to.
-	// +required
 	ClusterName string
 
 	// OwnerRef is an optional OwnerReference to attach to the cloned object.
@@ -112,19 +116,15 @@ func CloneTemplate(ctx context.Context, in *CloneTemplateInput) (*corev1.ObjectR
 // GenerateTemplateInput is the input needed to generate a new template.
 type GenerateTemplateInput struct {
 	// Template is the TemplateRef turned into an unstructured.
-	// +required
 	Template *unstructured.Unstructured
 
 	// TemplateRef is a reference to the template that needs to be cloned.
-	// +required
 	TemplateRef *corev1.ObjectReference
 
 	// Namespace is the Kubernetes namespace the cloned object should be created into.
-	// +required
 	Namespace string
 
 	// ClusterName is the cluster this object is linked to.
-	// +required
 	ClusterName string
 
 	// OwnerRef is an optional OwnerReference to attach to the cloned object.

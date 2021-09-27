@@ -22,40 +22,54 @@ import (
 	fuzz "github.com/google/gofuzz"
 	"k8s.io/apimachinery/pkg/api/apitesting/fuzzer"
 	runtimeserializer "k8s.io/apimachinery/pkg/runtime/serializer"
-	"sigs.k8s.io/cluster-api/api/v1alpha4"
+	"sigs.k8s.io/cluster-api/api/v1beta1"
 	utilconversion "sigs.k8s.io/cluster-api/util/conversion"
 	"sigs.k8s.io/controller-runtime/pkg/conversion"
 )
 
 func TestFuzzyConversion(t *testing.T) {
 	t.Run("for Cluster", utilconversion.FuzzTestFunc(utilconversion.FuzzTestFuncInput{
-		Hub:                &v1alpha4.Cluster{},
+		Hub:                &v1beta1.Cluster{},
 		Spoke:              &Cluster{},
 		SpokeAfterMutation: clusterSpokeAfterMutation,
 	}))
 
 	t.Run("for Machine", utilconversion.FuzzTestFunc(utilconversion.FuzzTestFuncInput{
-		Hub:         &v1alpha4.Machine{},
+		Hub:         &v1beta1.Machine{},
 		Spoke:       &Machine{},
-		FuzzerFuncs: []fuzzer.FuzzerFuncs{BootstrapFuzzFuncs},
+		FuzzerFuncs: []fuzzer.FuzzerFuncs{BootstrapFuzzFuncs, MachineStatusFuzzFunc},
 	}))
 
 	t.Run("for MachineSet", utilconversion.FuzzTestFunc(utilconversion.FuzzTestFuncInput{
-		Hub:         &v1alpha4.MachineSet{},
+		Hub:         &v1beta1.MachineSet{},
 		Spoke:       &MachineSet{},
 		FuzzerFuncs: []fuzzer.FuzzerFuncs{BootstrapFuzzFuncs, CustomObjectMetaFuzzFunc},
 	}))
 
 	t.Run("for MachineDeployment", utilconversion.FuzzTestFunc(utilconversion.FuzzTestFuncInput{
-		Hub:         &v1alpha4.MachineDeployment{},
+		Hub:         &v1beta1.MachineDeployment{},
 		Spoke:       &MachineDeployment{},
 		FuzzerFuncs: []fuzzer.FuzzerFuncs{BootstrapFuzzFuncs, CustomObjectMetaFuzzFunc},
 	}))
 
-	t.Run("for MachineHealthCheckSpec", utilconversion.FuzzTestFunc(utilconversion.FuzzTestFuncInput{
-		Hub:   &v1alpha4.MachineHealthCheck{},
+	t.Run("for MachineHealthCheck", utilconversion.FuzzTestFunc(utilconversion.FuzzTestFuncInput{
+		Hub:   &v1beta1.MachineHealthCheck{},
 		Spoke: &MachineHealthCheck{},
 	}))
+}
+
+func MachineStatusFuzzFunc(_ runtimeserializer.CodecFactory) []interface{} {
+	return []interface{}{
+		MachineStatusFuzzer,
+	}
+}
+
+func MachineStatusFuzzer(in *MachineStatus, c fuzz.Continue) {
+	c.FuzzNoCustom(in)
+
+	// These fields have been removed in v1beta1
+	// data is going to be lost, so we're forcing zero values to avoid round trip errors.
+	in.Version = nil
 }
 
 func CustomObjectMetaFuzzFunc(_ runtimeserializer.CodecFactory) []interface{} {
@@ -84,7 +98,7 @@ func BootstrapFuzzFuncs(_ runtimeserializer.CodecFactory) []interface{} {
 func BootstrapFuzzer(obj *Bootstrap, c fuzz.Continue) {
 	c.FuzzNoCustom(obj)
 
-	// Bootstrap.Data has been removed in v1alpha4, so setting it to nil in order to avoid v1alpha3 --> v1alpha4 --> v1alpha3 round trip errors.
+	// Bootstrap.Data has been removed in v1alpha4, so setting it to nil in order to avoid v1alpha3 --> <hub> --> v1alpha3 round trip errors.
 	obj.Data = nil
 }
 
@@ -101,7 +115,7 @@ func clusterSpokeAfterMutation(c conversion.Convertible) {
 		condition := cluster.Status.Conditions[i]
 
 		// Keep everything that is not ControlPlaneInitializedCondition
-		if condition.Type != ConditionType(v1alpha4.ControlPlaneInitializedCondition) {
+		if condition.Type != ConditionType(v1beta1.ControlPlaneInitializedCondition) {
 			tmp = append(tmp, condition)
 		}
 	}

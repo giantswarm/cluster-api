@@ -29,7 +29,7 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/pointer"
-	clusterv1 "sigs.k8s.io/cluster-api/api/v1alpha4"
+	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	"sigs.k8s.io/cluster-api/controllers/external"
 	"sigs.k8s.io/cluster-api/util/conditions"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -50,7 +50,7 @@ func TestPatchHelper(t *testing.T) {
 		obj := &unstructured.Unstructured{
 			Object: map[string]interface{}{
 				"kind":       "GenericBootstrapConfig",
-				"apiVersion": "bootstrap.cluster.x-k8s.io/v1alpha4",
+				"apiVersion": "bootstrap.cluster.x-k8s.io/v1beta1",
 				"metadata": map[string]interface{}{
 					"generateName": "test-bootstrap-",
 					"namespace":    ns.Name,
@@ -86,7 +86,7 @@ func TestPatchHelper(t *testing.T) {
 			t.Log("Modifying the OwnerReferences")
 			refs := []metav1.OwnerReference{
 				{
-					APIVersion: "cluster.x-k8s.io/v1alpha4",
+					APIVersion: "cluster.x-k8s.io/v1beta1",
 					Kind:       "Cluster",
 					Name:       "test",
 					UID:        types.UID("fake-uid"),
@@ -206,13 +206,13 @@ func TestPatchHelper(t *testing.T) {
 				g.Expect(patcher.Patch(ctx, obj)).To(Succeed())
 
 				t.Log("Validating the object has been updated")
-				g.Eventually(func() bool {
+				g.Eventually(func() clusterv1.Conditions {
 					objAfter := obj.DeepCopy()
 					if err := env.Get(ctx, key, objAfter); err != nil {
-						return false
+						return clusterv1.Conditions{}
 					}
-					return cmp.Equal(obj.Status.Conditions, objAfter.Status.Conditions)
-				}, timeout).Should(BeTrue())
+					return objAfter.Status.Conditions
+				}, timeout).Should(conditions.MatchConditions(obj.Status.Conditions))
 			})
 
 			t.Run("should recover if there is a resolvable conflict", func(t *testing.T) {
@@ -261,11 +261,19 @@ func TestPatchHelper(t *testing.T) {
 
 					testConditionCopy := conditions.Get(objCopy, "TestCondition")
 					testConditionAfter := conditions.Get(objAfter, "TestCondition")
+					ok, err := conditions.MatchCondition(*testConditionCopy).Match(*testConditionAfter)
+					if err != nil || !ok {
+						return false
+					}
 
 					readyBefore := conditions.Get(obj, clusterv1.ReadyCondition)
 					readyAfter := conditions.Get(objAfter, clusterv1.ReadyCondition)
+					ok, err = conditions.MatchCondition(*readyBefore).Match(*readyAfter)
+					if err != nil || !ok {
+						return false
+					}
 
-					return cmp.Equal(testConditionCopy, testConditionAfter) && cmp.Equal(readyBefore, readyAfter)
+					return true
 				}, timeout).Should(BeTrue())
 			})
 
@@ -319,12 +327,19 @@ func TestPatchHelper(t *testing.T) {
 
 					testConditionCopy := conditions.Get(objCopy, "TestCondition")
 					testConditionAfter := conditions.Get(objAfter, "TestCondition")
+					ok, err := conditions.MatchCondition(*testConditionCopy).Match(*testConditionAfter)
+					if err != nil || !ok {
+						return false
+					}
 
 					readyBefore := conditions.Get(obj, clusterv1.ReadyCondition)
 					readyAfter := conditions.Get(objAfter, clusterv1.ReadyCondition)
+					ok, err = conditions.MatchCondition(*readyBefore).Match(*readyAfter)
+					if err != nil || !ok {
+						return false
+					}
 
-					return cmp.Equal(testConditionCopy, testConditionAfter) && cmp.Equal(readyBefore, readyAfter) &&
-						obj.Spec.Paused == objAfter.Spec.Paused &&
+					return obj.Spec.Paused == objAfter.Spec.Paused &&
 						obj.Spec.ControlPlaneEndpoint == objAfter.Spec.ControlPlaneEndpoint &&
 						obj.Status.Phase == objAfter.Status.Phase
 				}, timeout).Should(BeTrue(), cmp.Diff(obj, objAfter))
@@ -373,8 +388,15 @@ func TestPatchHelper(t *testing.T) {
 					if err := env.Get(ctx, key, objAfter); err != nil {
 						return false
 					}
-					ok, _ := ContainElement(objCopy.Status.Conditions[0]).Match(objAfter.Status.Conditions)
-					return ok
+
+					for _, afterCondition := range objAfter.Status.Conditions {
+						ok, err := conditions.MatchCondition(objCopy.Status.Conditions[0]).Match(afterCondition)
+						if err == nil && ok {
+							return true
+						}
+					}
+
+					return false
 				}, timeout).Should(BeTrue())
 			})
 
@@ -416,17 +438,15 @@ func TestPatchHelper(t *testing.T) {
 				g.Expect(patcher.Patch(ctx, obj, WithOwnedConditions{Conditions: []clusterv1.ConditionType{clusterv1.ReadyCondition}})).To(Succeed())
 
 				t.Log("Validating the object has been updated")
-				g.Eventually(func() bool {
+				readyBefore := conditions.Get(obj, clusterv1.ReadyCondition)
+				g.Eventually(func() clusterv1.Condition {
 					objAfter := obj.DeepCopy()
 					if err := env.Get(ctx, key, objAfter); err != nil {
-						return false
+						return clusterv1.Condition{}
 					}
 
-					readyBefore := conditions.Get(obj, clusterv1.ReadyCondition)
-					readyAfter := conditions.Get(objAfter, clusterv1.ReadyCondition)
-
-					return cmp.Equal(readyBefore, readyAfter)
-				}, timeout).Should(BeTrue())
+					return *conditions.Get(objAfter, clusterv1.ReadyCondition)
+				}, timeout).Should(conditions.MatchCondition(*readyBefore))
 			})
 
 			t.Run("should not return an error if there is an unresolvable conflict when force overwrite is enabled", func(t *testing.T) {
@@ -467,17 +487,15 @@ func TestPatchHelper(t *testing.T) {
 				g.Expect(patcher.Patch(ctx, obj, WithForceOverwriteConditions{})).To(Succeed())
 
 				t.Log("Validating the object has been updated")
-				g.Eventually(func() bool {
+				readyBefore := conditions.Get(obj, clusterv1.ReadyCondition)
+				g.Eventually(func() clusterv1.Condition {
 					objAfter := obj.DeepCopy()
 					if err := env.Get(ctx, key, objAfter); err != nil {
-						return false
+						return clusterv1.Condition{}
 					}
 
-					readyBefore := conditions.Get(obj, clusterv1.ReadyCondition)
-					readyAfter := conditions.Get(objAfter, clusterv1.ReadyCondition)
-
-					return cmp.Equal(readyBefore, readyAfter)
-				}, timeout).Should(BeTrue())
+					return *conditions.Get(objAfter, clusterv1.ReadyCondition)
+				}, timeout).Should(conditions.MatchCondition(*readyBefore))
 			})
 		})
 	})

@@ -22,14 +22,12 @@ import (
 	"time"
 
 	. "github.com/onsi/gomega"
-
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/tools/record"
-
-	clusterv1 "sigs.k8s.io/cluster-api/api/v1alpha4"
+	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	"sigs.k8s.io/cluster-api/controllers/remote"
 	"sigs.k8s.io/cluster-api/util/patch"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -45,7 +43,7 @@ func TestReconcileInterruptibleNodeLabel(t *testing.T) {
 	infraMachine := &unstructured.Unstructured{
 		Object: map[string]interface{}{
 			"kind":       "GenericInfrastructureMachine",
-			"apiVersion": "infrastructure.cluster.x-k8s.io/v1alpha4",
+			"apiVersion": "infrastructure.cluster.x-k8s.io/v1beta1",
 			"metadata": map[string]interface{}{
 				"name":      "infra-config1",
 				"namespace": ns.Name,
@@ -77,14 +75,14 @@ func TestReconcileInterruptibleNodeLabel(t *testing.T) {
 		Spec: clusterv1.MachineSpec{
 			ClusterName: cluster.Name,
 			InfrastructureRef: corev1.ObjectReference{
-				APIVersion: "infrastructure.cluster.x-k8s.io/v1alpha4",
+				APIVersion: "infrastructure.cluster.x-k8s.io/v1beta1",
 				Kind:       "GenericInfrastructureMachine",
 				Name:       "infra-config1",
 				Namespace:  ns.Name,
 			},
 			Bootstrap: clusterv1.Bootstrap{
 				ConfigRef: &corev1.ObjectReference{
-					APIVersion: "bootstrap.cluster.x-k8s.io/v1alpha4",
+					APIVersion: "bootstrap.cluster.x-k8s.io/v1beta1",
 					Kind:       "BootstrapMachine",
 					Name:       "bootstrap-config1",
 				},
@@ -100,7 +98,9 @@ func TestReconcileInterruptibleNodeLabel(t *testing.T) {
 	g.Expect(env.Create(ctx, cluster)).To(Succeed())
 	g.Expect(env.Create(ctx, node)).To(Succeed())
 	g.Expect(env.Create(ctx, infraMachine)).To(Succeed())
-	g.Expect(env.Create(ctx, machine)).To(Succeed())
+	// Note: We have to DeepCopy the machine, because the Create call clears the status and
+	// reconcileInterruptibleNodeLabel requires .status.nodeRef to be set.
+	g.Expect(env.Create(ctx, machine.DeepCopy())).To(Succeed())
 
 	// Patch infra machine status
 	patchHelper, err := patch.NewHelper(infraMachine, env)

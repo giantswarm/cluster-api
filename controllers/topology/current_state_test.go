@@ -19,106 +19,69 @@ package topology
 import (
 	"testing"
 
-	"github.com/google/go-cmp/cmp/cmpopts"
-
-	"sigs.k8s.io/cluster-api/internal/testtypes"
-
-	"github.com/google/go-cmp/cmp"
 	. "github.com/onsi/gomega"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	clusterv1 "sigs.k8s.io/cluster-api/api/v1alpha4"
+	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	"sigs.k8s.io/cluster-api/controllers/topology/internal/scope"
+	"sigs.k8s.io/cluster-api/internal/builder"
+	. "sigs.k8s.io/cluster-api/internal/matchers"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
 
 func TestGetCurrentState(t *testing.T) {
 	crds := []client.Object{
-		testtypes.GenericControlPlaneCRD,
-		testtypes.GenericInfrastructureClusterCRD,
-		testtypes.GenericControlPlaneTemplateCRD,
-		testtypes.GenericInfrastructureClusterTemplateCRD,
-		testtypes.GenericBootstrapConfigTemplateCRD,
-		testtypes.GenericInfrastructureMachineTemplateCRD,
-		testtypes.GenericInfrastructureMachineCRD,
+		builder.GenericControlPlaneCRD,
+		builder.GenericInfrastructureClusterCRD,
+		builder.GenericControlPlaneTemplateCRD,
+		builder.GenericInfrastructureClusterTemplateCRD,
+		builder.GenericBootstrapConfigTemplateCRD,
+		builder.GenericInfrastructureMachineTemplateCRD,
+		builder.GenericInfrastructureMachineCRD,
 	}
-
-	// ignoreResourceVersion is an option to pass to cmpopts to ignore this field which is set by the fakeClient
-	// TODO: Make composable version of these options in the builder package to reuse these filters across tests.
-	ignoreFields := cmpopts.IgnoreFields(metav1.ObjectMeta{}, "ResourceVersion")
 
 	// The following is a block creating a number of objects for use in the test cases.
 
 	// InfrastructureCluster objects.
-	infraCluster := testtypes.NewInfrastructureClusterBuilder(metav1.NamespaceDefault, "infraOne").
-		WithSpecFields(map[string]interface{}{"spec.template.spec.fakeSetting": true}).
-		Build()
-	nonExistentInfraCluster := testtypes.NewInfrastructureClusterBuilder(metav1.NamespaceDefault, "does-not-exist").
+	infraCluster := builder.InfrastructureCluster(metav1.NamespaceDefault, "infraOne").
 		WithSpecFields(map[string]interface{}{"spec.template.spec.fakeSetting": true}).
 		Build()
 
 	// ControlPlane and ControlPlaneInfrastructureMachineTemplate objects.
-	controlPlaneInfrastructureMachineTemplate := testtypes.NewInfrastructureMachineTemplateBuilder(metav1.NamespaceDefault, "cpInfraTemplate").
+	controlPlaneInfrastructureMachineTemplate := builder.InfrastructureMachineTemplate(metav1.NamespaceDefault, "cpInfraTemplate").
 		WithSpecFields(map[string]interface{}{"spec.template.spec.fakeSetting": true}).
 		Build()
-	controlPlaneTemplateWithInfrastructureMachine := testtypes.NewControlPlaneTemplateBuilder(metav1.NamespaceDefault, "cpTemplateWithInfra1").
+	controlPlaneTemplateWithInfrastructureMachine := builder.ControlPlaneTemplate(metav1.NamespaceDefault, "cpTemplateWithInfra1").
 		WithInfrastructureMachineTemplate(controlPlaneInfrastructureMachineTemplate).
 		Build()
-	controlPlane := testtypes.NewControlPlaneBuilder(metav1.NamespaceDefault, "cp1").
+	controlPlane := builder.ControlPlane(metav1.NamespaceDefault, "cp1").
 		Build()
-	controlPlaneWithInfra := testtypes.NewControlPlaneBuilder(metav1.NamespaceDefault, "cp1").
+	controlPlaneWithInfra := builder.ControlPlane(metav1.NamespaceDefault, "cp1").
 		WithInfrastructureMachineTemplate(controlPlaneInfrastructureMachineTemplate).
 		Build()
 
 	// ClusterClass  objects.
-	clusterClassWithControlPlaneInfra := testtypes.NewClusterClassBuilder(metav1.NamespaceDefault, "class1").
+	clusterClassWithControlPlaneInfra := builder.ClusterClass(metav1.NamespaceDefault, "class1").
 		WithControlPlaneTemplate(controlPlaneTemplateWithInfrastructureMachine).
 		WithControlPlaneInfrastructureMachineTemplate(controlPlaneInfrastructureMachineTemplate).
 		Build()
-	clusterClassWithNoControlPlaneInfra := testtypes.NewClusterClassBuilder(metav1.NamespaceDefault, "class2").
+	clusterClassWithNoControlPlaneInfra := builder.ClusterClass(metav1.NamespaceDefault, "class2").
 		Build()
 
 	// MachineDeployment and related objects.
-	machineDeploymentInfrastructure := testtypes.NewInfrastructureMachineTemplateBuilder(metav1.NamespaceDefault, "infra1").
-		Build()
-	machineDeploymentBootstrap := testtypes.NewBootstrapTemplateBuilder(metav1.NamespaceDefault, "bootstrap1").
-		Build()
-	labelsInClass := map[string]string{clusterv1.ClusterLabelName: "cluster1", clusterv1.ClusterTopologyOwnedLabel: "", clusterv1.ClusterTopologyMachineDeploymentLabelName: "md1"}
-	labelsNotInClass := map[string]string{clusterv1.ClusterLabelName: "non-existent-cluster", clusterv1.ClusterTopologyOwnedLabel: "", clusterv1.ClusterTopologyMachineDeploymentLabelName: "md1"}
-	labelsUnmanaged := map[string]string{clusterv1.ClusterLabelName: "cluster1"}
-	labelsManagedWithoutDeploymentName := map[string]string{clusterv1.ClusterLabelName: "cluster1", clusterv1.ClusterTopologyOwnedLabel: ""}
-
 	emptyMachineDeployments := make(map[string]*scope.MachineDeploymentState)
 
-	machineDeploymentInCluster := testtypes.NewMachineDeploymentBuilder(metav1.NamespaceDefault, "md1").
-		WithLabels(labelsInClass).
-		WithBootstrapTemplate(machineDeploymentBootstrap).
-		WithInfrastructureTemplate(machineDeploymentInfrastructure).
+	machineDeploymentInfrastructure := builder.InfrastructureMachineTemplate(metav1.NamespaceDefault, "infra1").
 		Build()
-	duplicateMachineDeploymentInCluster := testtypes.NewMachineDeploymentBuilder(metav1.NamespaceDefault, "duplicate-labels").
-		WithLabels(labelsInClass).
-		WithBootstrapTemplate(machineDeploymentBootstrap).
-		WithInfrastructureTemplate(machineDeploymentInfrastructure).
+	machineDeploymentBootstrap := builder.BootstrapTemplate(metav1.NamespaceDefault, "bootstrap1").
 		Build()
-	machineDeploymentNoBootstrap := testtypes.NewMachineDeploymentBuilder(metav1.NamespaceDefault, "no-bootstrap").
-		WithLabels(labelsInClass).
-		WithInfrastructureTemplate(machineDeploymentInfrastructure).
-		Build()
-	machineDeploymentNoInfrastructure := testtypes.NewMachineDeploymentBuilder(metav1.NamespaceDefault, "no-infra").
-		WithLabels(labelsInClass).WithBootstrapTemplate(machineDeploymentBootstrap).
-		Build()
-	machineDeploymentOutsideCluster := testtypes.NewMachineDeploymentBuilder(metav1.NamespaceDefault, "wrong-cluster-label").
-		WithLabels(labelsNotInClass).
-		WithBootstrapTemplate(machineDeploymentBootstrap).
-		WithInfrastructureTemplate(machineDeploymentInfrastructure).
-		Build()
-	machineDeploymentUnmanaged := testtypes.NewMachineDeploymentBuilder(metav1.NamespaceDefault, "no-managed-label").
-		WithLabels(labelsUnmanaged).
-		WithBootstrapTemplate(machineDeploymentBootstrap).
-		WithInfrastructureTemplate(machineDeploymentInfrastructure).
-		Build()
-	machineDeploymentWithoutDeploymentName := testtypes.NewMachineDeploymentBuilder(metav1.NamespaceDefault, "missing-topology-md-labelName").
-		WithLabels(labelsManagedWithoutDeploymentName).
+
+	machineDeployment := builder.MachineDeployment(metav1.NamespaceDefault, "md1").
+		WithLabels(map[string]string{
+			clusterv1.ClusterLabelName:                          "cluster1",
+			clusterv1.ClusterTopologyOwnedLabel:                 "",
+			clusterv1.ClusterTopologyMachineDeploymentLabelName: "md1",
+		}).
 		WithBootstrapTemplate(machineDeploymentBootstrap).
 		WithInfrastructureTemplate(machineDeploymentInfrastructure).
 		Build()
@@ -132,37 +95,40 @@ func TestGetCurrentState(t *testing.T) {
 		wantErr bool
 	}{
 		{
-			name:    "Cluster exists with no references",
-			cluster: testtypes.NewClusterBuilder(metav1.NamespaceDefault, "cluster1").Build(),
+			name:    "Should read a Cluster when being processed by the topology controller for the first time (without references)",
+			cluster: builder.Cluster(metav1.NamespaceDefault, "cluster1").Build(),
 			// Expecting valid return with no ControlPlane or Infrastructure state defined and empty MachineDeployment state list
 			want: &scope.ClusterState{
-				Cluster:               testtypes.NewClusterBuilder(metav1.NamespaceDefault, "cluster1").Build(),
+				Cluster: builder.Cluster(metav1.NamespaceDefault, "cluster1").
+					// No InfrastructureCluster or ControlPlane references!
+					Build(),
 				ControlPlane:          &scope.ControlPlaneState{},
 				InfrastructureCluster: nil,
 				MachineDeployments:    emptyMachineDeployments,
 			},
 		},
 		{
-			name: "Cluster with non existent Infrastructure reference only",
-			cluster: testtypes.NewClusterBuilder(metav1.NamespaceDefault, "cluster1").
-				WithInfrastructureCluster(nonExistentInfraCluster).
+			name: "Fails if the Cluster references an InfrastructureCluster that does not exist",
+			cluster: builder.Cluster(metav1.NamespaceDefault, "cluster1").
+				WithInfrastructureCluster(infraCluster).
 				Build(),
 			objects: []client.Object{
-				infraCluster,
+				// InfrastructureCluster is missing!
 			},
 			wantErr: true, // this test fails as partial reconcile is undefined.
 		},
 		{
-			name: "Cluster with Infrastructure reference only",
-			cluster: testtypes.NewClusterBuilder(metav1.NamespaceDefault, "cluster1").
+			name: "Should read  a partial Cluster (with InfrastructureCluster only)",
+			cluster: builder.Cluster(metav1.NamespaceDefault, "cluster1").
 				WithInfrastructureCluster(infraCluster).
+				// No ControlPlane reference!
 				Build(),
 			objects: []client.Object{
 				infraCluster,
 			},
 			// Expecting valid return with no ControlPlane or MachineDeployment state defined but with a valid Infrastructure state.
 			want: &scope.ClusterState{
-				Cluster: testtypes.NewClusterBuilder(metav1.NamespaceDefault, "cluster1").
+				Cluster: builder.Cluster(metav1.NamespaceDefault, "cluster1").
 					WithInfrastructureCluster(infraCluster).
 					Build(),
 				ControlPlane:          &scope.ControlPlaneState{},
@@ -171,8 +137,8 @@ func TestGetCurrentState(t *testing.T) {
 			},
 		},
 		{
-			name: "Cluster with Infrastructure reference and ControlPlane reference, no ControlPlane Infrastructure and a ClusterClass with no Infrastructure requirement",
-			cluster: testtypes.NewClusterBuilder(metav1.NamespaceDefault, "cluster1").
+			name: "Should read a partial Cluster (with InfrastructureCluster, ControlPlane, but without workers)",
+			cluster: builder.Cluster(metav1.NamespaceDefault, "cluster1").
 				WithControlPlane(controlPlane).
 				WithInfrastructureCluster(infraCluster).
 				Build(),
@@ -181,10 +147,11 @@ func TestGetCurrentState(t *testing.T) {
 				controlPlane,
 				infraCluster,
 				clusterClassWithNoControlPlaneInfra,
+				// Workers are missing!
 			},
 			// Expecting valid return with ControlPlane, no ControlPlane Infrastructure state, InfrastructureCluster state and no defined MachineDeployment state.
 			want: &scope.ClusterState{
-				Cluster: testtypes.NewClusterBuilder(metav1.NamespaceDefault, "cluster1").
+				Cluster: builder.Cluster(metav1.NamespaceDefault, "cluster1").
 					WithControlPlane(controlPlane).
 					WithInfrastructureCluster(infraCluster).
 					Build(),
@@ -194,8 +161,8 @@ func TestGetCurrentState(t *testing.T) {
 			},
 		},
 		{
-			name: "Cluster with Infrastructure reference and ControlPlane reference, no ControlPlane Infrastructure and a ClusterClass with an Infrastructure requirement",
-			cluster: testtypes.NewClusterBuilder(metav1.NamespaceDefault, "cluster1").
+			name: "Fails if the ClusterClass requires InfrastructureMachine for the ControlPlane, but the ControlPlane object does not have a reference for it",
+			cluster: builder.Cluster(metav1.NamespaceDefault, "cluster1").
 				WithControlPlane(controlPlane).
 				WithInfrastructureCluster(infraCluster).
 				Build(),
@@ -209,18 +176,20 @@ func TestGetCurrentState(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name: "Cluster with ControlPlane reference and with ControlPlane Infrastructure, but no InfrastructureCluster",
-			cluster: testtypes.NewClusterBuilder(metav1.NamespaceDefault, "cluster1").
+			name: "Should read a partial Cluster (with ControlPlane and ControlPlane InfrastructureMachineTemplate, but without InfrastructureCluster and workers)",
+			cluster: builder.Cluster(metav1.NamespaceDefault, "cluster1").
+				// No InfrastructureCluster!
 				WithControlPlane(controlPlaneWithInfra).
 				Build(),
 			class: clusterClassWithControlPlaneInfra,
 			objects: []client.Object{
 				controlPlaneWithInfra,
 				controlPlaneInfrastructureMachineTemplate,
+				// Workers are missing!
 			},
 			// Expecting valid return with valid ControlPlane state, but no ControlPlane Infrastructure, InfrastructureCluster or MachineDeployment state defined.
 			want: &scope.ClusterState{
-				Cluster: testtypes.NewClusterBuilder(metav1.NamespaceDefault, "cluster1").
+				Cluster: builder.Cluster(metav1.NamespaceDefault, "cluster1").
 					WithControlPlane(controlPlaneWithInfra).
 					Build(),
 				ControlPlane:          &scope.ControlPlaneState{Object: controlPlaneWithInfra, InfrastructureMachineTemplate: controlPlaneInfrastructureMachineTemplate},
@@ -229,8 +198,8 @@ func TestGetCurrentState(t *testing.T) {
 			},
 		},
 		{
-			name: "Cluster with InfrastructureCluster reference ControlPlane reference and ControlPlane Infrastructure",
-			cluster: testtypes.NewClusterBuilder(metav1.NamespaceDefault, "cluster1").
+			name: "Should read a partial Cluster (with InfrastructureCluster ControlPlane and ControlPlane InfrastructureMachineTemplate, but without workers)",
+			cluster: builder.Cluster(metav1.NamespaceDefault, "cluster1").
 				WithInfrastructureCluster(infraCluster).
 				WithControlPlane(controlPlaneWithInfra).
 				Build(),
@@ -240,10 +209,11 @@ func TestGetCurrentState(t *testing.T) {
 				clusterClassWithControlPlaneInfra,
 				controlPlaneInfrastructureMachineTemplate,
 				controlPlaneWithInfra,
+				// Workers are missing!
 			},
 			// Expecting valid return with valid ControlPlane state, ControlPlane Infrastructure state and InfrastructureCluster state, but no defined MachineDeployment state.
 			want: &scope.ClusterState{
-				Cluster: testtypes.NewClusterBuilder(metav1.NamespaceDefault, "cluster1").
+				Cluster: builder.Cluster(metav1.NamespaceDefault, "cluster1").
 					WithInfrastructureCluster(infraCluster).
 					WithControlPlane(controlPlaneWithInfra).
 					Build(),
@@ -253,8 +223,8 @@ func TestGetCurrentState(t *testing.T) {
 			},
 		},
 		{
-			name: "Cluster with MachineDeployment state but no other states defined",
-			cluster: testtypes.NewClusterBuilder(metav1.NamespaceDefault, "cluster1").
+			name: "Should read a Cluster (with InfrastructureCluster, ControlPlane and ControlPlane InfrastructureMachineTemplate, workers)",
+			cluster: builder.Cluster(metav1.NamespaceDefault, "cluster1").
 				Build(),
 			class: clusterClassWithControlPlaneInfra,
 			objects: []client.Object{
@@ -264,44 +234,60 @@ func TestGetCurrentState(t *testing.T) {
 				controlPlaneWithInfra,
 				machineDeploymentInfrastructure,
 				machineDeploymentBootstrap,
-				machineDeploymentInCluster,
+				machineDeployment,
 			},
 			// Expecting valid return with valid ControlPlane, ControlPlane Infrastructure and InfrastructureCluster state, but no defined MachineDeployment state.
 			want: &scope.ClusterState{
-				Cluster: testtypes.NewClusterBuilder(metav1.NamespaceDefault, "cluster1").
+				Cluster: builder.Cluster(metav1.NamespaceDefault, "cluster1").
 					Build(),
 				ControlPlane:          &scope.ControlPlaneState{},
 				InfrastructureCluster: nil,
 				MachineDeployments: map[string]*scope.MachineDeploymentState{
-					"md1": {Object: machineDeploymentInCluster, BootstrapTemplate: machineDeploymentBootstrap, InfrastructureMachineTemplate: machineDeploymentInfrastructure}},
+					"md1": {Object: machineDeployment, BootstrapTemplate: machineDeploymentBootstrap, InfrastructureMachineTemplate: machineDeploymentInfrastructure}},
 			},
 		},
 		{
-			name: "Class assigning ControlPlane Infrastructure and Cluster with ControlPlane reference but no ControlPlane Infrastructure",
-			cluster: testtypes.NewClusterBuilder(metav1.NamespaceDefault, "cluster1").
+			name: "Fails if the ControlPlane references an InfrastructureMachineTemplate that does not exist",
+			cluster: builder.Cluster(metav1.NamespaceDefault, "cluster1").
 				WithControlPlane(controlPlane).
 				Build(),
 			class: clusterClassWithControlPlaneInfra,
 			objects: []client.Object{
 				clusterClassWithControlPlaneInfra,
 				controlPlane,
+				// InfrastructureMachineTemplate is missing!
 			},
 			// Expecting error as ClusterClass references ControlPlane Infrastructure, but ControlPlane Infrastructure is missing in the cluster.
 			wantErr: true,
 		},
 		{
-			name: "Cluster with no linked MachineDeployments, InfrastructureCluster reference, ControlPlane reference and ControlPlane Infrastructure",
-			cluster: testtypes.NewClusterBuilder(metav1.NamespaceDefault, "cluster1").
+			name: "Should ignore unmanaged MachineDeployments and MachineDeployments belonging to other clusters",
+			cluster: builder.Cluster(metav1.NamespaceDefault, "cluster1").
 				Build(),
 			class: clusterClassWithControlPlaneInfra,
 			objects: []client.Object{
 				clusterClassWithControlPlaneInfra,
-				machineDeploymentOutsideCluster,
-				machineDeploymentUnmanaged,
+				builder.MachineDeployment(metav1.NamespaceDefault, "no-managed-label").
+					WithLabels(map[string]string{
+						clusterv1.ClusterLabelName: "cluster1",
+						// topology.cluster.x-k8s.io/owned label is missing (unmanaged)!
+					}).
+					WithBootstrapTemplate(machineDeploymentBootstrap).
+					WithInfrastructureTemplate(machineDeploymentInfrastructure).
+					Build(),
+				builder.MachineDeployment(metav1.NamespaceDefault, "wrong-cluster-label").
+					WithLabels(map[string]string{
+						clusterv1.ClusterLabelName:                          "another-cluster",
+						clusterv1.ClusterTopologyOwnedLabel:                 "",
+						clusterv1.ClusterTopologyMachineDeploymentLabelName: "md1",
+					}).
+					WithBootstrapTemplate(machineDeploymentBootstrap).
+					WithInfrastructureTemplate(machineDeploymentInfrastructure).
+					Build(),
 			},
 			// Expect valid return with empty MachineDeployments properly filtered by label.
 			want: &scope.ClusterState{
-				Cluster: testtypes.NewClusterBuilder(metav1.NamespaceDefault, "cluster1").
+				Cluster: builder.Cluster(metav1.NamespaceDefault, "cluster1").
 					Build(),
 				ControlPlane:          &scope.ControlPlaneState{},
 				InfrastructureCluster: nil,
@@ -309,35 +295,47 @@ func TestGetCurrentState(t *testing.T) {
 			},
 		},
 		{
-			name: "MachineDeployment with ClusterTopologyOwnedLabel but without correct ClusterTopologyMachineDeploymentLabelName",
-			cluster: testtypes.NewClusterBuilder(metav1.NamespaceDefault, "cluster1").
+			name: "Fails if there are MachineDeployments without the topology.cluster.x-k8s.io/deployment-name",
+			cluster: builder.Cluster(metav1.NamespaceDefault, "cluster1").
 				Build(),
 			class: clusterClassWithControlPlaneInfra,
 			objects: []client.Object{
 				clusterClassWithControlPlaneInfra,
-				machineDeploymentWithoutDeploymentName,
+				builder.MachineDeployment(metav1.NamespaceDefault, "missing-topology-md-labelName").
+					WithLabels(map[string]string{
+						clusterv1.ClusterLabelName:          "cluster1",
+						clusterv1.ClusterTopologyOwnedLabel: "",
+						// topology.cluster.x-k8s.io/deployment-name label is missing!
+					}).
+					WithBootstrapTemplate(machineDeploymentBootstrap).
+					WithInfrastructureTemplate(machineDeploymentInfrastructure).
+					Build(),
 			},
 			// Expect error to be thrown as no managed MachineDeployment is reconcilable unless it has a ClusterTopologyMachineDeploymentLabelName.
 			wantErr: true,
 		},
 		{
-			name: "Multiple MachineDeployments with the same ClusterTopologyOwnedLabel label",
-			cluster: testtypes.NewClusterBuilder(metav1.NamespaceDefault, "cluster1").
+			name: "Fails if there are MachineDeployments with the same topology.cluster.x-k8s.io/deployment-name",
+			cluster: builder.Cluster(metav1.NamespaceDefault, "cluster1").
 				Build(),
 			class: clusterClassWithControlPlaneInfra,
 			objects: []client.Object{
 				clusterClassWithControlPlaneInfra,
 				machineDeploymentInfrastructure,
 				machineDeploymentBootstrap,
-				machineDeploymentInCluster,
-				duplicateMachineDeploymentInCluster,
+				machineDeployment,
+				builder.MachineDeployment(metav1.NamespaceDefault, "duplicate-labels").
+					WithLabels(machineDeployment.Labels). // Another machine deployment with the same labels.
+					WithBootstrapTemplate(machineDeploymentBootstrap).
+					WithInfrastructureTemplate(machineDeploymentInfrastructure).
+					Build(),
 			},
 			// Expect error as two MachineDeployments with the same ClusterTopologyOwnedLabel should not exist for one cluster
 			wantErr: true,
 		},
 		{
-			name: "Cluster with MachineDeployments, InfrastructureCluster reference, ControlPlane reference and ControlPlane Infrastructure",
-			cluster: testtypes.NewClusterBuilder(metav1.NamespaceDefault, "cluster1").
+			name: "Should read a full Cluster (With InfrastructureCluster, ControlPlane and ControlPlane Infrastructure, MachineDeployments)",
+			cluster: builder.Cluster(metav1.NamespaceDefault, "cluster1").
 				WithInfrastructureCluster(infraCluster).
 				WithControlPlane(controlPlaneWithInfra).
 				Build(),
@@ -349,13 +347,11 @@ func TestGetCurrentState(t *testing.T) {
 				controlPlaneWithInfra,
 				machineDeploymentInfrastructure,
 				machineDeploymentBootstrap,
-				machineDeploymentInCluster,
-				machineDeploymentOutsideCluster,
-				machineDeploymentUnmanaged,
+				machineDeployment,
 			},
 			// Expect valid return of full ClusterState with MachineDeployments properly filtered by label.
 			want: &scope.ClusterState{
-				Cluster: testtypes.NewClusterBuilder(metav1.NamespaceDefault, "cluster1").
+				Cluster: builder.Cluster(metav1.NamespaceDefault, "cluster1").
 					WithInfrastructureCluster(infraCluster).
 					WithControlPlane(controlPlaneWithInfra).
 					Build(),
@@ -363,7 +359,7 @@ func TestGetCurrentState(t *testing.T) {
 				InfrastructureCluster: infraCluster,
 				MachineDeployments: map[string]*scope.MachineDeploymentState{
 					"md1": {
-						Object:                        machineDeploymentInCluster,
+						Object:                        machineDeployment,
 						BootstrapTemplate:             machineDeploymentBootstrap,
 						InfrastructureMachineTemplate: machineDeploymentInfrastructure,
 					},
@@ -371,8 +367,8 @@ func TestGetCurrentState(t *testing.T) {
 			},
 		},
 		{
-			name: "Cluster with MachineDeployments lacking Bootstrap Template",
-			cluster: testtypes.NewClusterBuilder(metav1.NamespaceDefault, "cluster1").
+			name: "Fails if a Cluster has a MachineDeployment without the Bootstrap Template ref",
+			cluster: builder.Cluster(metav1.NamespaceDefault, "cluster1").
 				Build(),
 			class: clusterClassWithControlPlaneInfra,
 			objects: []client.Object{
@@ -381,14 +377,18 @@ func TestGetCurrentState(t *testing.T) {
 				controlPlaneInfrastructureMachineTemplate,
 				controlPlaneWithInfra,
 				machineDeploymentInfrastructure,
-				machineDeploymentNoBootstrap,
+				builder.MachineDeployment(metav1.NamespaceDefault, "no-bootstrap").
+					WithLabels(machineDeployment.Labels).
+					// No BootstrapTemplate reference!
+					WithInfrastructureTemplate(machineDeploymentInfrastructure).
+					Build(),
 			},
 			// Expect error as Bootstrap Template not defined for MachineDeployments relevant to the Cluster.
 			wantErr: true,
 		},
 		{
-			name: "Cluster with MachineDeployments lacking Infrastructure Template",
-			cluster: testtypes.NewClusterBuilder(metav1.NamespaceDefault, "cluster1").
+			name: "Fails if a Cluster has a MachineDeployments without the InfrastructureMachineTemplate ref",
+			cluster: builder.Cluster(metav1.NamespaceDefault, "cluster1").
 				Build(),
 			class: clusterClassWithControlPlaneInfra,
 			objects: []client.Object{
@@ -397,7 +397,11 @@ func TestGetCurrentState(t *testing.T) {
 				controlPlaneInfrastructureMachineTemplate,
 				controlPlaneWithInfra,
 				machineDeploymentBootstrap,
-				machineDeploymentNoInfrastructure,
+				builder.MachineDeployment(metav1.NamespaceDefault, "no-infra").
+					WithLabels(machineDeployment.Labels).
+					WithBootstrapTemplate(machineDeploymentBootstrap).
+					// No InfrastructureMachineTemplate reference!
+					Build(),
 			},
 			// Expect error as Infrastructure Template not defined for MachineDeployment relevant to the Cluster.
 			wantErr: true,
@@ -407,26 +411,31 @@ func TestGetCurrentState(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			g := NewWithT(t)
 
+			// Sets up a scope with a Blueprint.
+			s := scope.New(tt.cluster)
+			s.Blueprint = &scope.ClusterBlueprint{ClusterClass: tt.class}
+
+			// Sets up the fakeClient for the test case.
 			objs := []client.Object{}
 			objs = append(objs, crds...)
 			objs = append(objs, tt.objects...)
 			if tt.cluster != nil {
 				objs = append(objs, tt.cluster)
 			}
-
 			fakeClient := fake.NewClientBuilder().
 				WithScheme(fakeScheme).
 				WithObjects(objs...).
 				Build()
+
+			// Calls getCurrentState.
 			r := &ClusterReconciler{
 				Client:                    fakeClient,
+				APIReader:                 fakeClient,
 				UnstructuredCachingClient: fakeClient,
 			}
-
-			s := scope.New(tt.cluster)
-			s.Blueprint = &scope.ClusterBlueprint{ClusterClass: tt.class}
-
 			got, err := r.getCurrentState(ctx, s)
+
+			// Checks the return error.
 			if tt.wantErr {
 				g.Expect(err).To(HaveOccurred())
 			} else {
@@ -436,16 +445,13 @@ func TestGetCurrentState(t *testing.T) {
 				g.Expect(got).To(BeNil())
 				return
 			}
-			// Expect the Diff resulting from each object comparison to be empty when ignoring ObjectMeta.ResourceVersion
-			// This is necessary as the FakeClient adds its own ResourceVersion on object creation.
-			g.Expect(cmp.Diff(tt.want.Cluster, got.Cluster, ignoreFields)).To(Equal(""),
-				cmp.Diff(tt.want.Cluster, got.Cluster, ignoreFields))
-			g.Expect(cmp.Diff(tt.want.MachineDeployments, got.MachineDeployments, ignoreFields)).To(Equal(""),
-				cmp.Diff(tt.want.MachineDeployments, got.MachineDeployments, ignoreFields))
-			g.Expect(cmp.Diff(tt.want.InfrastructureCluster, got.InfrastructureCluster, ignoreFields)).To(Equal(""),
-				cmp.Diff(tt.want.InfrastructureCluster, got.InfrastructureCluster, ignoreFields))
-			g.Expect(cmp.Diff(tt.want.ControlPlane, got.ControlPlane, ignoreFields)).To(Equal(""),
-				cmp.Diff(tt.want.ControlPlane, got.ControlPlane, ignoreFields))
+
+			// Use EqualObject where the compared object is passed through the fakeClient. Elsewhere the Equal method is
+			// good enough to establish equality.
+			g.Expect(got.Cluster).To(EqualObject(tt.want.Cluster, IgnoreAutogeneratedMetadata))
+			g.Expect(got.InfrastructureCluster).To(EqualObject(tt.want.InfrastructureCluster))
+			g.Expect(got.ControlPlane).To(Equal(tt.want.ControlPlane))
+			g.Expect(got.MachineDeployments).To(Equal(tt.want.MachineDeployments))
 		})
 	}
 }

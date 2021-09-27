@@ -28,7 +28,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/kubernetes/scheme"
-	clusterv1 "sigs.k8s.io/cluster-api/api/v1alpha4"
+	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -58,7 +58,7 @@ func TestMachineToInfrastructureMapFunc(t *testing.T) {
 				},
 				Spec: clusterv1.MachineSpec{
 					InfrastructureRef: corev1.ObjectReference{
-						APIVersion: "foo.cluster.x-k8s.io/v1alpha4",
+						APIVersion: "foo.cluster.x-k8s.io/v1beta1",
 						Kind:       "TestMachine",
 						Name:       "infra-1",
 					},
@@ -77,7 +77,7 @@ func TestMachineToInfrastructureMapFunc(t *testing.T) {
 			name: "should return no matching reconcile requests",
 			input: schema.GroupVersionKind{
 				Group:   "foo.cluster.x-k8s.io",
-				Version: "v1alpha4",
+				Version: "v1beta1",
 				Kind:    "TestMachine",
 			},
 			request: &clusterv1.Machine{
@@ -87,7 +87,7 @@ func TestMachineToInfrastructureMapFunc(t *testing.T) {
 				},
 				Spec: clusterv1.MachineSpec{
 					InfrastructureRef: corev1.ObjectReference{
-						APIVersion: "bar.cluster.x-k8s.io/v1alpha4",
+						APIVersion: "bar.cluster.x-k8s.io/v1beta1",
 						Kind:       "TestMachine",
 						Name:       "bar-1",
 					},
@@ -129,7 +129,7 @@ func TestClusterToInfrastructureMapFunc(t *testing.T) {
 				},
 				Spec: clusterv1.ClusterSpec{
 					InfrastructureRef: &corev1.ObjectReference{
-						APIVersion: "foo.cluster.x-k8s.io/v1alpha4",
+						APIVersion: "foo.cluster.x-k8s.io/v1beta1",
 						Kind:       "TestCluster",
 						Name:       "infra-1",
 					},
@@ -148,7 +148,7 @@ func TestClusterToInfrastructureMapFunc(t *testing.T) {
 			name: "should return no matching reconcile requests",
 			input: schema.GroupVersionKind{
 				Group:   "foo.cluster.x-k8s.io",
-				Version: "v1alpha4",
+				Version: "v1beta1",
 				Kind:    "TestCluster",
 			},
 			request: &clusterv1.Cluster{
@@ -158,7 +158,7 @@ func TestClusterToInfrastructureMapFunc(t *testing.T) {
 				},
 				Spec: clusterv1.ClusterSpec{
 					InfrastructureRef: &corev1.ObjectReference{
-						APIVersion: "bar.cluster.x-k8s.io/v1alpha4",
+						APIVersion: "bar.cluster.x-k8s.io/v1beta1",
 						Kind:       "TestCluster",
 						Name:       "bar-1",
 					},
@@ -485,58 +485,6 @@ func TestGetOwnerMachineSuccessByNameFromDifferentVersion(t *testing.T) {
 	g.Expect(machine).NotTo(BeNil())
 }
 
-func TestGetMachinesForCluster(t *testing.T) {
-	g := NewWithT(t)
-
-	cluster := &clusterv1.Cluster{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "my-cluster",
-			Namespace: metav1.NamespaceDefault,
-		},
-	}
-
-	machine := &clusterv1.Machine{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "my-machine",
-			Namespace: cluster.Namespace,
-			Labels: map[string]string{
-				clusterv1.ClusterLabelName: cluster.Name,
-			},
-		},
-	}
-
-	machineDifferentClusterNameSameNamespace := &clusterv1.Machine{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "other-machine",
-			Namespace: cluster.Namespace,
-			Labels: map[string]string{
-				clusterv1.ClusterLabelName: "other-cluster",
-			},
-		},
-	}
-
-	machineSameClusterNameDifferentNamespace := &clusterv1.Machine{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "other-machine",
-			Namespace: "other-ns",
-			Labels: map[string]string{
-				clusterv1.ClusterLabelName: cluster.Name,
-			},
-		},
-	}
-
-	c := fake.NewClientBuilder().WithObjects(
-		machine,
-		machineDifferentClusterNameSameNamespace,
-		machineSameClusterNameDifferentNamespace,
-	).Build()
-
-	machines, err := GetMachinesForCluster(ctx, c, cluster)
-	g.Expect(err).NotTo(HaveOccurred())
-	g.Expect(machines.Items).To(HaveLen(1))
-	g.Expect(machines.Items[0].Labels[clusterv1.ClusterLabelName]).To(Equal(cluster.Name))
-}
-
 func TestIsExternalManagedControlPlane(t *testing.T) {
 	g := NewWithT(t)
 
@@ -834,7 +782,7 @@ func TestRemoveOwnerRef(t *testing.T) {
 			Name:       "m4g1c",
 		},
 		{
-			APIVersion: "bar.cluster.x-k8s.io/v1alpha4",
+			APIVersion: "bar.cluster.x-k8s.io/v1beta1",
 			Kind:       "TestCluster",
 			Name:       "bar-1",
 		},

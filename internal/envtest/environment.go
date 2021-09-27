@@ -43,13 +43,13 @@ import (
 	"k8s.io/client-go/rest"
 	"k8s.io/klog/v2"
 	"k8s.io/klog/v2/klogr"
-	clusterv1 "sigs.k8s.io/cluster-api/api/v1alpha4"
-	bootstrapv1 "sigs.k8s.io/cluster-api/bootstrap/kubeadm/api/v1alpha4"
+	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
+	bootstrapv1 "sigs.k8s.io/cluster-api/bootstrap/kubeadm/api/v1beta1"
 	"sigs.k8s.io/cluster-api/cmd/clusterctl/log"
-	kcpv1 "sigs.k8s.io/cluster-api/controlplane/kubeadm/api/v1alpha4"
-	addonv1 "sigs.k8s.io/cluster-api/exp/addons/api/v1alpha4"
-	expv1 "sigs.k8s.io/cluster-api/exp/api/v1alpha4"
-	"sigs.k8s.io/cluster-api/internal/testtypes"
+	kcpv1 "sigs.k8s.io/cluster-api/controlplane/kubeadm/api/v1beta1"
+	addonv1 "sigs.k8s.io/cluster-api/exp/addons/api/v1beta1"
+	expv1 "sigs.k8s.io/cluster-api/exp/api/v1beta1"
+	"sigs.k8s.io/cluster-api/internal/builder"
 	"sigs.k8s.io/cluster-api/util/kubeconfig"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -69,6 +69,7 @@ func init() {
 
 	// Calculate the scheme.
 	utilruntime.Must(apiextensionsv1.AddToScheme(scheme.Scheme))
+	utilruntime.Must(admissionv1.AddToScheme(scheme.Scheme))
 	utilruntime.Must(clusterv1.AddToScheme(scheme.Scheme))
 	utilruntime.Must(bootstrapv1.AddToScheme(scheme.Scheme))
 	utilruntime.Must(expv1.AddToScheme(scheme.Scheme))
@@ -159,17 +160,17 @@ func new(uncachedObjs ...client.Object) *Environment {
 			filepath.Join(root, "controlplane", "kubeadm", "config", "crd", "bases"),
 			filepath.Join(root, "bootstrap", "kubeadm", "config", "crd", "bases"),
 		},
-		CRDs: []client.Object{
-			testtypes.GenericBootstrapConfigCRD.DeepCopy(),
-			testtypes.GenericBootstrapConfigTemplateCRD.DeepCopy(),
-			testtypes.GenericControlPlaneCRD.DeepCopy(),
-			testtypes.GenericControlPlaneTemplateCRD.DeepCopy(),
-			testtypes.GenericInfrastructureMachineCRD.DeepCopy(),
-			testtypes.GenericInfrastructureMachineTemplateCRD.DeepCopy(),
-			testtypes.GenericInfrastructureClusterCRD.DeepCopy(),
-			testtypes.GenericInfrastructureClusterTemplateCRD.DeepCopy(),
-			testtypes.GenericRemediationCRD.DeepCopy(),
-			testtypes.GenericRemediationTemplateCRD.DeepCopy(),
+		CRDs: []apiextensionsv1.CustomResourceDefinition{
+			*builder.GenericBootstrapConfigCRD.DeepCopy(),
+			*builder.GenericBootstrapConfigTemplateCRD.DeepCopy(),
+			*builder.GenericControlPlaneCRD.DeepCopy(),
+			*builder.GenericControlPlaneTemplateCRD.DeepCopy(),
+			*builder.GenericInfrastructureMachineCRD.DeepCopy(),
+			*builder.GenericInfrastructureMachineTemplateCRD.DeepCopy(),
+			*builder.GenericInfrastructureClusterCRD.DeepCopy(),
+			*builder.GenericInfrastructureClusterTemplateCRD.DeepCopy(),
+			*builder.GenericRemediationCRD.DeepCopy(),
+			*builder.GenericRemediationTemplateCRD.DeepCopy(),
 		},
 		// initialize webhook here to be able to test the envtest install via webhookOptions
 		// This should set LocalServingCertDir and LocalServingPort that are used below.

@@ -6,9 +6,9 @@ are also sponsored by SIG Cluster Lifecycle. Check provider's documentation for
 updated info about which API version they are supporting.
 
 ## Bootstrap
-- [Kubeadm](https://github.com/kubernetes-sigs/cluster-api/tree/master/bootstrap/kubeadm)
+- [Kubeadm](https://github.com/kubernetes-sigs/cluster-api/tree/main/bootstrap/kubeadm)
 - [Talos](https://github.com/talos-systems/cluster-api-bootstrap-provider-talos)
-- [EKS](https://github.com/kubernetes-sigs/cluster-api-provider-aws/tree/master/bootstrap/eks)
+- [EKS](https://github.com/kubernetes-sigs/cluster-api-provider-aws/tree/main/bootstrap/eks)
 
 ## Infrastructure
 - [Alibaba Cloud](https://github.com/oam-oss/cluster-api-provider-alicloud)
@@ -33,6 +33,6 @@ updated info about which API version they are supporting.
 
 Following are the implementations managed by third-parties adopting the standard cluster-api and/or machine-api being developed here.
 
-* [Kubermatic machine controller](https://github.com/kubermatic/machine-controller/tree/master)
-* [OpenShift Machine API Operator](https://github.com/openshift/machine-api-operator/tree/master)
+* [Kubermatic machine controller](https://github.com/kubermatic/machine-controller)
+* [OpenShift Machine API Operator](https://github.com/openshift/machine-api-operator)
 * [Gardener Machine controller manager](https://github.com/gardener/machine-controller-manager/tree/cluster-api)

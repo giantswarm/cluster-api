@@ -35,7 +35,7 @@ import (
 	"k8s.io/client-go/discovery"
 	"k8s.io/utils/pointer"
 	clusterv1old "sigs.k8s.io/cluster-api/api/v1alpha3"
-	clusterv1 "sigs.k8s.io/cluster-api/api/v1alpha4"
+	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	"sigs.k8s.io/cluster-api/cmd/clusterctl/client/config"
 	"sigs.k8s.io/cluster-api/test/e2e/internal/log"
 	"sigs.k8s.io/cluster-api/test/framework"
@@ -47,6 +47,7 @@ import (
 
 const (
 	initWithBinaryVariableName = "INIT_WITH_BINARY"
+	initWithProvidersContract  = "INIT_WITH_PROVIDERS_CONTRACT"
 	initWithKubernetesVersion  = "INIT_WITH_KUBERNETES_VERSION"
 )
 
@@ -59,6 +60,8 @@ type ClusterctlUpgradeSpecInput struct {
 	SkipCleanup           bool
 	PreUpgrade            func(managementClusterProxy framework.ClusterProxy)
 	PostUpgrade           func(managementClusterProxy framework.ClusterProxy)
+	MgmtFlavor            string
+	WorkloadFlavor        string
 }
 
 // ClusterctlUpgradeSpec implements a test that verifies clusterctl upgrade of a management cluster.
@@ -110,7 +113,7 @@ func ClusterctlUpgradeSpec(ctx context.Context, inputGetter func() ClusterctlUpg
 				ClusterctlConfigPath:     input.ClusterctlConfigPath,
 				KubeconfigPath:           input.BootstrapClusterProxy.GetKubeconfigPath(),
 				InfrastructureProvider:   clusterctl.DefaultInfrastructureProvider,
-				Flavor:                   clusterctl.DefaultFlavor,
+				Flavor:                   input.MgmtFlavor,
 				Namespace:                managementClusterNamespace.Name,
 				ClusterName:              managementClusterName,
 				KubernetesVersion:        input.E2EConfig.GetVariable(initWithKubernetesVersion),
@@ -153,14 +156,23 @@ func ClusterctlUpgradeSpec(ctx context.Context, inputGetter func() ClusterctlUpg
 		Expect(err).ToNot(HaveOccurred(), "failed to chmod temporary file")
 
 		By("Initializing the workload cluster with older versions of providers")
+
+		// NOTE: by default we are considering all the providers, no matter of the contract.
+		// However, given that we want to test both v1alpha3 --> v1beta1 and v1alpha4 --> v1beta1, the INIT_WITH_PROVIDERS_CONTRACT
+		// variable can be used to select versions with a specific contract.
+		contract := "*"
+		if input.E2EConfig.HasVariable(initWithProvidersContract) {
+			contract = input.E2EConfig.GetVariable(initWithProvidersContract)
+		}
+
 		clusterctl.InitManagementClusterAndWatchControllerLogs(ctx, clusterctl.InitManagementClusterAndWatchControllerLogsInput{
 			ClusterctlBinaryPath:    clusterctlBinaryPath, // use older version of clusterctl to init the management cluster
 			ClusterProxy:            managementClusterProxy,
 			ClusterctlConfigPath:    input.ClusterctlConfigPath,
-			CoreProvider:            input.E2EConfig.GetProvidersWithOldestVersion(config.ClusterAPIProviderName)[0],
-			BootstrapProviders:      input.E2EConfig.GetProvidersWithOldestVersion(config.KubeadmBootstrapProviderName),
-			ControlPlaneProviders:   input.E2EConfig.GetProvidersWithOldestVersion(config.KubeadmControlPlaneProviderName),
-			InfrastructureProviders: input.E2EConfig.GetProvidersWithOldestVersion(input.E2EConfig.InfrastructureProviders()...),
+			CoreProvider:            input.E2EConfig.GetProviderLatestVersionsByContract(contract, config.ClusterAPIProviderName)[0],
+			BootstrapProviders:      input.E2EConfig.GetProviderLatestVersionsByContract(contract, config.KubeadmBootstrapProviderName),
+			ControlPlaneProviders:   input.E2EConfig.GetProviderLatestVersionsByContract(contract, config.KubeadmControlPlaneProviderName),
+			InfrastructureProviders: input.E2EConfig.GetProviderLatestVersionsByContract(contract, input.E2EConfig.InfrastructureProviders()...),
 			LogFolder:               filepath.Join(input.ArtifactFolder, "clusters", cluster.Name),
 		}, input.E2EConfig.GetIntervals(specName, "wait-controllers")...)
 
@@ -195,7 +207,7 @@ func ClusterctlUpgradeSpec(ctx context.Context, inputGetter func() ClusterctlUpg
 			// pass the clusterctl config file that points to the local provider repository created for this test,
 			ClusterctlConfigPath: input.ClusterctlConfigPath,
 			// select template
-			Flavor: clusterctl.DefaultFlavor,
+			Flavor: input.WorkloadFlavor,
 			// define template variables
 			Namespace:                testNamespace.Name,
 			ClusterName:              workLoadClusterName,
@@ -276,7 +288,7 @@ func ClusterctlUpgradeSpec(ctx context.Context, inputGetter func() ClusterctlUpg
 
 			framework.DumpAllResources(ctx, framework.DumpAllResourcesInput{
 				Lister:    managementClusterProxy.GetClient(),
-				Namespace: managementClusterNamespace.Name,
+				Namespace: testNamespace.Name,
 				LogPath:   filepath.Join(input.ArtifactFolder, "clusters", managementClusterResources.Cluster.Name, "resources"),
 			})
 

@@ -30,7 +30,7 @@ import (
 var (
 	env *envtest.Environment
 	ctx = ctrl.SetupSignalHandler()
-	// TODO(sbueringer): move under internal/testtypes (or refactor it in a way that we don't need it anymore).
+	// TODO(sbueringer): move under internal/builder (or refactor it in a way that we don't need it anymore).
 	fakeGenericMachineTemplateCRD = &apiextensionsv1.CustomResourceDefinition{
 		TypeMeta: metav1.TypeMeta{
 			APIVersion: apiextensionsv1.SchemeGroupVersion.String(),
@@ -39,7 +39,7 @@ var (
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "genericmachinetemplate.generic.io",
 			Labels: map[string]string{
-				"cluster.x-k8s.io/v1alpha4": "v1",
+				"cluster.x-k8s.io/v1beta1": "v1",
 			},
 		},
 		Spec: apiextensionsv1.CustomResourceDefinitionSpec{

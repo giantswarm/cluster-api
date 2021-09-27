@@ -34,7 +34,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
-	clusterv1 "sigs.k8s.io/cluster-api/api/v1alpha4"
+	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	"sigs.k8s.io/cluster-api/controllers/remote"
 	"sigs.k8s.io/cluster-api/util/certs"
 	"sigs.k8s.io/cluster-api/util/collections"
@@ -192,8 +192,10 @@ func TestGetWorkloadCluster(t *testing.T) {
 				}(o)
 			}
 
+			// Note: The API reader is intentionally used instead of the regular (cached) client
+			// to avoid test failures when the local cache isn't able to catch up in time.
 			m := Management{
-				Client:  env,
+				Client:  env.GetAPIReader(),
 				Tracker: tracker,
 			}
 

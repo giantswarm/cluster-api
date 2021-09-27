@@ -18,7 +18,6 @@ package v1alpha4
 
 import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1alpha4"
 	infrav1 "sigs.k8s.io/cluster-api/test/infrastructure/docker/api/v1alpha4"
 )
@@ -28,8 +27,8 @@ const (
 	MachinePoolFinalizer = "dockermachinepool.infrastructure.cluster.x-k8s.io"
 )
 
-// DockerMachineTemplate defines the desired state of DockerMachine.
-type DockerMachineTemplate struct {
+// DockerMachinePoolMachineTemplate defines the desired state of DockerMachine.
+type DockerMachinePoolMachineTemplate struct {
 	// CustomImage allows customizing the container image that is used for
 	// running the machine
 	// +optional
@@ -50,7 +49,7 @@ type DockerMachineTemplate struct {
 type DockerMachinePoolSpec struct {
 	// Template contains the details used to build a replica machine within the Machine Pool
 	// +optional
-	Template DockerMachineTemplate `json:"template"`
+	Template DockerMachinePoolMachineTemplate `json:"template"`
 
 	// ProviderID is the identification ID of the Machine Pool
 	// +optional
@@ -112,8 +111,8 @@ type DockerMachinePoolInstanceStatus struct {
 
 // +kubebuilder:resource:path=dockermachinepools,scope=Namespaced,categories=cluster-api
 // +kubebuilder:object:root=true
-// +kubebuilder:storageversion
 // +kubebuilder:subresource:status
+// +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp",description="Time duration since creation of DockerMachinePool"
 
 // DockerMachinePool is the Schema for the dockermachinepools API.
 type DockerMachinePool struct {
