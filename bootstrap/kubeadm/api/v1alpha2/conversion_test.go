@@ -25,7 +25,7 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/pointer"
-	"sigs.k8s.io/cluster-api/bootstrap/kubeadm/api/v1alpha3"
+	"sigs.k8s.io/cluster-api/bootstrap/kubeadm/api/v1beta1"
 )
 
 func TestConvertKubeadmConfig(t *testing.T) {
@@ -33,19 +33,19 @@ func TestConvertKubeadmConfig(t *testing.T) {
 		t.Run("preserves fields from hub version", func(t *testing.T) {
 			g := NewWithT(t)
 
-			src := &v1alpha3.KubeadmConfig{
+			src := &v1beta1.KubeadmConfig{
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "hub",
 				},
-				Spec: v1alpha3.KubeadmConfigSpec{
-					Files: []v1alpha3.File{
+				Spec: v1beta1.KubeadmConfigSpec{
+					Files: []v1beta1.File{
 						{
 							Path:        "/etc/another/file",
 							Owner:       "ubuntu:ubuntu",
-							Encoding:    v1alpha3.GzipBase64,
+							Encoding:    v1beta1.GzipBase64,
 							Permissions: "0600",
-							ContentFrom: &v1alpha3.FileSource{
-								Secret: v1alpha3.SecretFileSource{
+							ContentFrom: &v1beta1.FileSource{
+								Secret: v1beta1.SecretFileSource{
 									Name: "foo",
 									Key:  "bar",
 								},
@@ -54,13 +54,13 @@ func TestConvertKubeadmConfig(t *testing.T) {
 						{
 							Path:        "/etc/kubernetes/azure.json",
 							Owner:       "root:root",
-							Encoding:    v1alpha3.Base64,
+							Encoding:    v1beta1.Base64,
 							Permissions: "0644",
 							Content:     "baz",
 						},
 					},
 				},
-				Status: v1alpha3.KubeadmConfigStatus{
+				Status: v1beta1.KubeadmConfigStatus{
 					Ready:          true,
 					DataSecretName: pointer.StringPtr("secret-data"),
 				},
@@ -68,7 +68,7 @@ func TestConvertKubeadmConfig(t *testing.T) {
 
 			dst := &KubeadmConfig{}
 			g.Expect(dst.ConvertFrom(src.DeepCopy())).To(Succeed())
-			restored := &v1alpha3.KubeadmConfig{}
+			restored := &v1beta1.KubeadmConfig{}
 			g.Expect(dst.ConvertTo(restored)).To(Succeed())
 
 			// Test field restored fields.
@@ -76,7 +76,7 @@ func TestConvertKubeadmConfig(t *testing.T) {
 			g.Expect(restored.Status.Ready).To(Equal(src.Status.Ready))
 			g.Expect(restored.Status.DataSecretName).To(Equal(src.Status.DataSecretName))
 
-			diff := cmp.Diff(src.Spec.Files, restored.Spec.Files, cmpopts.SortSlices(func(i, j v1alpha3.File) bool {
+			diff := cmp.Diff(src.Spec.Files, restored.Spec.Files, cmpopts.SortSlices(func(i, j v1beta1.File) bool {
 				return i.Path < j.Path
 			}))
 			if diff != "" {
