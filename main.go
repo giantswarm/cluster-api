@@ -91,6 +91,7 @@ func init() {
 	_ = apiextensionsv1.AddToScheme(scheme)
 
 	_ = clusterv1alpha3.AddToScheme(scheme)
+	_ = clusterv1alpha3.AddToScheme(scheme)
 	_ = clusterv1alpha4.AddToScheme(scheme)
 	_ = clusterv1.AddToScheme(scheme)
 
