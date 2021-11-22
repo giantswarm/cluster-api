@@ -142,7 +142,7 @@ type KubeadmControlPlaneStatus struct {
 	// Total number of non-terminated machines targeted by this control plane
 	// (their labels match the selector).
 	// +optional
-	Replicas int32 `json:"replicas,omitempty"`
+	Replicas int32 `json:"replicas"`
 
 	// Version represents the minimum Kubernetes version for the control plane machines
 	// in the cluster.
@@ -152,11 +152,11 @@ type KubeadmControlPlaneStatus struct {
 	// Total number of non-terminated machines targeted by this control plane
 	// that have the desired template spec.
 	// +optional
-	UpdatedReplicas int32 `json:"updatedReplicas,omitempty"`
+	UpdatedReplicas int32 `json:"updatedReplicas"`
 
 	// Total number of fully running and ready control plane machines.
 	// +optional
-	ReadyReplicas int32 `json:"readyReplicas,omitempty"`
+	ReadyReplicas int32 `json:"readyReplicas"`
 
 	// Total number of unavailable machines targeted by this control plane.
 	// This is the total number of machines that are still required for
@@ -164,7 +164,7 @@ type KubeadmControlPlaneStatus struct {
 	// be machines that are running but not yet ready or machines
 	// that still have not been created.
 	// +optional
-	UnavailableReplicas int32 `json:"unavailableReplicas,omitempty"`
+	UnavailableReplicas int32 `json:"unavailableReplicas"`
 
 	// Initialized denotes whether or not the control plane has the
 	// uploaded kubeadm-config configmap.
@@ -201,6 +201,7 @@ type KubeadmControlPlaneStatus struct {
 // +kubebuilder:storageversion
 // +kubebuilder:subresource:status
 // +kubebuilder:subresource:scale:specpath=.spec.replicas,statuspath=.status.replicas,selectorpath=.status.selector
+// +kubebuilder:printcolumn:name="Cluster",type="string",JSONPath=".metadata.labels['cluster\\.x-k8s\\.io/cluster-name']",description="Cluster"
 // +kubebuilder:printcolumn:name="Initialized",type=boolean,JSONPath=".status.initialized",description="This denotes whether or not the control plane has the uploaded kubeadm-config configmap"
 // +kubebuilder:printcolumn:name="API Server Available",type=boolean,JSONPath=".status.ready",description="KubeadmControlPlane API Server is ready to receive requests"
 // +kubebuilder:printcolumn:name="Replicas",type=integer,JSONPath=".status.replicas",description="Total number of non-terminated machines targeted by this control plane"

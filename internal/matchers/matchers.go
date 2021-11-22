@@ -22,7 +22,7 @@ import (
 	"fmt"
 	"reflect"
 
-	jsonpatch "github.com/evanphx/json-patch"
+	jsonpatch "github.com/evanphx/json-patch/v5"
 	"github.com/onsi/gomega/format"
 	"github.com/pkg/errors"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -126,17 +126,13 @@ func (m *Matcher) calculateDiff(actual interface{}) ([]byte, error) {
 	}
 
 	// Use a mergePatch to produce a diff between the two objects.
-	originalWithModifiedJSON, err := jsonpatch.MergePatch(originalJSON, actualJSON)
-	if err != nil {
-		return nil, err
-	}
-	rawDiff, err := jsonpatch.CreateMergePatch(originalJSON, originalWithModifiedJSON)
+	diff, err := jsonpatch.CreateMergePatch(originalJSON, actualJSON)
 	if err != nil {
 		return nil, err
 	}
 
 	// Filter the diff according to the rules attached to the Matcher.
-	diff, err := filterDiff(rawDiff, m.options.allowPaths, m.options.ignorePaths)
+	diff, err = filterDiff(diff, m.options.allowPaths, m.options.ignorePaths)
 	if err != nil {
 		return nil, err
 	}

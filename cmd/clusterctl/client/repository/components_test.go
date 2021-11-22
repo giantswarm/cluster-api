@@ -20,7 +20,6 @@ import (
 	"testing"
 
 	. "github.com/onsi/gomega"
-
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	clusterctlv1 "sigs.k8s.io/cluster-api/cmd/clusterctl/api/v1alpha3"
@@ -523,6 +522,58 @@ func Test_fixTargetNamespace(t *testing.T) {
 				},
 			},
 		},
+		{
+			name: "fix cert-manager Certificate",
+			objs: []unstructured.Unstructured{
+				{
+					Object: map[string]interface{}{
+						"apiVersion": "cert-manager.io/v1",
+						"kind":       "Certificate",
+						"metadata": map[string]interface{}{
+							"name":      "capi-serving-cert",
+							"namespace": "capi-system",
+						},
+						"spec": map[string]interface{}{
+							"dnsNames": []interface{}{
+								"capi-webhook-service.capi-system.svc",
+								"capi-webhook-service.capi-system.svc.cluster.local",
+								"random-other-dns-name",
+							},
+							"issuerRef": map[string]interface{}{
+								"kind": "Issuer",
+								"name": "capi-selfsigned-issuer",
+							},
+							"secretName": "capi-webhook-service-cert",
+						},
+					},
+				},
+			},
+			targetNamespace: "bar",
+			want: []unstructured.Unstructured{
+				{
+					Object: map[string]interface{}{
+						"apiVersion": "cert-manager.io/v1",
+						"kind":       "Certificate",
+						"metadata": map[string]interface{}{
+							"name":      "capi-serving-cert",
+							"namespace": "bar",
+						},
+						"spec": map[string]interface{}{
+							"dnsNames": []interface{}{
+								"capi-webhook-service.bar.svc",
+								"capi-webhook-service.bar.svc.cluster.local",
+								"random-other-dns-name",
+							},
+							"issuerRef": map[string]interface{}{
+								"kind": "Issuer",
+								"name": "capi-selfsigned-issuer",
+							},
+							"secretName": "capi-webhook-service-cert",
+						},
+					},
+				},
+			},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -895,4 +946,41 @@ func Test_addCommonLabels(t *testing.T) {
 			g.Expect(got).To(Equal(tt.want))
 		})
 	}
+}
+
+func TestAlterComponents(t *testing.T) {
+	c := &components{
+		targetNamespace: "test-ns",
+		objs: []unstructured.Unstructured{
+			{
+				Object: map[string]interface{}{
+					"kind": "ClusterRole",
+				},
+			},
+		},
+	}
+	want := []unstructured.Unstructured{
+		{
+			Object: map[string]interface{}{
+				"kind": "ClusterRole",
+				"metadata": map[string]interface{}{
+					"labels": map[string]interface{}{
+						clusterctlv1.ClusterctlLabelName: "",
+						clusterv1.ProviderLabelName:      "infrastructure-provider",
+					},
+				},
+			},
+		},
+	}
+
+	alterFn := func(objs []unstructured.Unstructured) ([]unstructured.Unstructured, error) {
+		// reusing addCommonLabels to do an example modification.
+		return addCommonLabels(objs, config.NewProvider("provider", "", clusterctlv1.InfrastructureProviderType)), nil
+	}
+
+	g := NewWithT(t)
+	if err := AlterComponents(c, alterFn); err != nil {
+		t.Errorf("AlterComponents() error = %v", err)
+	}
+	g.Expect(c.objs).To(Equal(want))
 }

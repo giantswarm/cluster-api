@@ -55,8 +55,7 @@ func TestGetBlueprint(t *testing.T) {
 		Build()
 	workerBootstrapTemplate := builder.BootstrapTemplate(metav1.NamespaceDefault, "workerbootstraptemplate1").
 		Build()
-	machineDeployment := builder.MachineDeploymentClass(metav1.NamespaceDefault, "machinedeployment1").
-		WithClass("workerclass1").
+	machineDeployment := builder.MachineDeploymentClass("workerclass1").
 		WithLabels(map[string]string{"foo": "bar"}).
 		WithAnnotations(map[string]string{"a": "b"}).
 		WithInfrastructureTemplate(workerInfrastructureMachineTemplate).
@@ -183,7 +182,7 @@ func TestGetBlueprint(t *testing.T) {
 			clusterClass: builder.ClusterClass(metav1.NamespaceDefault, "class1").
 				WithInfrastructureClusterTemplate(infraClusterTemplate).
 				WithControlPlaneTemplate(controlPlaneTemplate).
-				WithWorkerMachineDeploymentClasses(mds).
+				WithWorkerMachineDeploymentClasses(mds...).
 				Build(),
 			objects: []client.Object{
 				infraClusterTemplate,
@@ -195,7 +194,7 @@ func TestGetBlueprint(t *testing.T) {
 				ClusterClass: builder.ClusterClass(metav1.NamespaceDefault, "class1").
 					WithInfrastructureClusterTemplate(infraClusterTemplate).
 					WithControlPlaneTemplate(controlPlaneTemplate).
-					WithWorkerMachineDeploymentClasses(mds).
+					WithWorkerMachineDeploymentClasses(mds...).
 					Build(),
 				InfrastructureClusterTemplate: infraClusterTemplate,
 				ControlPlane: &scope.ControlPlaneBlueprint{
@@ -218,7 +217,7 @@ func TestGetBlueprint(t *testing.T) {
 			clusterClass: builder.ClusterClass(metav1.NamespaceDefault, "class1").
 				WithInfrastructureClusterTemplate(infraClusterTemplate).
 				WithControlPlaneTemplate(controlPlaneTemplate).
-				WithWorkerMachineDeploymentClasses(mds).
+				WithWorkerMachineDeploymentClasses(mds...).
 				Build(),
 			objects: []client.Object{
 				infraClusterTemplate,
@@ -233,7 +232,7 @@ func TestGetBlueprint(t *testing.T) {
 			clusterClass: builder.ClusterClass(metav1.NamespaceDefault, "class1").
 				WithInfrastructureClusterTemplate(infraClusterTemplate).
 				WithControlPlaneTemplate(controlPlaneTemplate).
-				WithWorkerMachineDeploymentClasses(mds).
+				WithWorkerMachineDeploymentClasses(mds...).
 				Build(),
 			objects: []client.Object{
 				infraClusterTemplate,

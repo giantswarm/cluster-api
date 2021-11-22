@@ -18,7 +18,6 @@ package cluster
 
 import (
 	"fmt"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"strings"
@@ -421,6 +420,122 @@ var moveTests = []struct {
 		},
 	},
 	{
+		name: "Cluster with ClusterClass",
+		fields: moveTestsFields{
+			objs: func() []client.Object {
+				objs := test.NewFakeClusterClass("ns1", "class1").Objs()
+				objs = append(objs, test.NewFakeCluster("ns1", "foo").WithTopologyClass("class1").Objs()...)
+				return deduplicateObjects(objs)
+			}(),
+		},
+		wantMoveGroups: [][]string{
+			{ // group 1
+				"cluster.x-k8s.io/v1beta1, Kind=ClusterClass, ns1/class1",
+			},
+			{ // group 2
+				"infrastructure.cluster.x-k8s.io/v1beta1, Kind=GenericInfrastructureClusterTemplate, ns1/class1",
+				"controlplane.cluster.x-k8s.io/v1beta1, Kind=GenericControlPlaneTemplate, ns1/class1",
+				"cluster.x-k8s.io/v1beta1, Kind=Cluster, ns1/foo",
+			},
+			{ // group 3
+				"/v1, Kind=Secret, ns1/foo-ca",
+				"/v1, Kind=Secret, ns1/foo-kubeconfig",
+				"infrastructure.cluster.x-k8s.io/v1beta1, Kind=GenericInfrastructureCluster, ns1/foo",
+			},
+		},
+		wantErr: false,
+	},
+	{
+		name: "Two Clusters with two ClusterClasses",
+		fields: moveTestsFields{
+			objs: func() []client.Object {
+				objs := test.NewFakeClusterClass("ns1", "class1").Objs()
+				objs = append(objs, test.NewFakeClusterClass("ns1", "class2").Objs()...)
+				objs = append(objs, test.NewFakeCluster("ns1", "foo1").WithTopologyClass("class1").Objs()...)
+				objs = append(objs, test.NewFakeCluster("ns1", "foo2").WithTopologyClass("class2").Objs()...)
+				return deduplicateObjects(objs)
+			}(),
+		},
+		wantMoveGroups: [][]string{
+			{ // group 1
+				"cluster.x-k8s.io/v1beta1, Kind=ClusterClass, ns1/class1",
+				"cluster.x-k8s.io/v1beta1, Kind=ClusterClass, ns1/class2",
+			},
+			{ // group 2
+				"infrastructure.cluster.x-k8s.io/v1beta1, Kind=GenericInfrastructureClusterTemplate, ns1/class1",
+				"controlplane.cluster.x-k8s.io/v1beta1, Kind=GenericControlPlaneTemplate, ns1/class1",
+				"cluster.x-k8s.io/v1beta1, Kind=Cluster, ns1/foo1",
+				"infrastructure.cluster.x-k8s.io/v1beta1, Kind=GenericInfrastructureClusterTemplate, ns1/class2",
+				"controlplane.cluster.x-k8s.io/v1beta1, Kind=GenericControlPlaneTemplate, ns1/class2",
+				"cluster.x-k8s.io/v1beta1, Kind=Cluster, ns1/foo2",
+			},
+			{ // group 3
+				"/v1, Kind=Secret, ns1/foo1-ca",
+				"/v1, Kind=Secret, ns1/foo1-kubeconfig",
+				"infrastructure.cluster.x-k8s.io/v1beta1, Kind=GenericInfrastructureCluster, ns1/foo1",
+				"/v1, Kind=Secret, ns1/foo2-ca",
+				"/v1, Kind=Secret, ns1/foo2-kubeconfig",
+				"infrastructure.cluster.x-k8s.io/v1beta1, Kind=GenericInfrastructureCluster, ns1/foo2",
+			},
+		},
+		wantErr: false,
+	},
+	{
+		name: "Two Clusters sharing one ClusterClass",
+		fields: moveTestsFields{
+			objs: func() []client.Object {
+				objs := test.NewFakeClusterClass("ns1", "class1").Objs()
+				objs = append(objs, test.NewFakeCluster("ns1", "foo1").WithTopologyClass("class1").Objs()...)
+				objs = append(objs, test.NewFakeCluster("ns1", "foo2").WithTopologyClass("class1").Objs()...)
+				return deduplicateObjects(objs)
+			}(),
+		},
+		wantMoveGroups: [][]string{
+			{ // group 1
+				"cluster.x-k8s.io/v1beta1, Kind=ClusterClass, ns1/class1",
+			},
+			{ // group 2
+				"infrastructure.cluster.x-k8s.io/v1beta1, Kind=GenericInfrastructureClusterTemplate, ns1/class1",
+				"controlplane.cluster.x-k8s.io/v1beta1, Kind=GenericControlPlaneTemplate, ns1/class1",
+				"cluster.x-k8s.io/v1beta1, Kind=Cluster, ns1/foo1",
+				"cluster.x-k8s.io/v1beta1, Kind=Cluster, ns1/foo2",
+			},
+			{ // group 3
+				"/v1, Kind=Secret, ns1/foo1-ca",
+				"/v1, Kind=Secret, ns1/foo1-kubeconfig",
+				"infrastructure.cluster.x-k8s.io/v1beta1, Kind=GenericInfrastructureCluster, ns1/foo1",
+				"/v1, Kind=Secret, ns1/foo2-ca",
+				"/v1, Kind=Secret, ns1/foo2-kubeconfig",
+				"infrastructure.cluster.x-k8s.io/v1beta1, Kind=GenericInfrastructureCluster, ns1/foo2",
+			},
+		},
+		wantErr: false,
+	},
+	{
+		name: "Cluster with unused ClusterClass",
+		fields: moveTestsFields{
+			objs: func() []client.Object {
+				objs := test.NewFakeClusterClass("ns1", "class1").Objs()
+				objs = append(objs, test.NewFakeCluster("ns1", "foo1").Objs()...)
+				return deduplicateObjects(objs)
+			}(),
+		},
+		wantMoveGroups: [][]string{
+			{ // group 1
+				"cluster.x-k8s.io/v1beta1, Kind=ClusterClass, ns1/class1",
+				"cluster.x-k8s.io/v1beta1, Kind=Cluster, ns1/foo1",
+			},
+			{ // group 2
+				"infrastructure.cluster.x-k8s.io/v1beta1, Kind=GenericInfrastructureClusterTemplate, ns1/class1",
+				"controlplane.cluster.x-k8s.io/v1beta1, Kind=GenericControlPlaneTemplate, ns1/class1",
+				"/v1, Kind=Secret, ns1/foo1-ca",
+				"/v1, Kind=Secret, ns1/foo1-kubeconfig",
+				"infrastructure.cluster.x-k8s.io/v1beta1, Kind=GenericInfrastructureCluster, ns1/foo1",
+			},
+		},
+		wantErr: false,
+	},
+	{
 		// NOTE: External objects are CRD types installed by clusterctl, but not directly related with the CAPI hierarchy of objects. e.g. IPAM claims.
 		name: "Namespaced External Objects with force move label",
 		fields: moveTestsFields{
@@ -498,7 +613,7 @@ var backupRestoreTests = []struct {
 			objs: test.NewFakeCluster("ns1", "foo").Objs(),
 		},
 		files: map[string]string{
-			"Cluster_ns1_foo.yaml":                      `{"apiVersion":"cluster.x-k8s.io/v1beta1","kind":"Cluster","metadata":{"creationTimestamp":null,"name":"foo","namespace":"ns1","resourceVersion":"999","uid":"cluster.x-k8s.io/v1beta1, Kind=Cluster, ns1/foo"},"spec":{"controlPlaneEndpoint":{"host":"","port":0},"infrastructureRef":{"apiVersion":"infrastructure.cluster.x-k8s.io/v1beta1","kind":"GenericInfrastructureCluster","name":"foo","namespace":"ns1"}},"status":{"infrastructureReady":false}}` + "\n",
+			"Cluster_ns1_foo.yaml":                      `{"apiVersion":"cluster.x-k8s.io/v1beta1","kind":"Cluster","metadata":{"creationTimestamp":null,"name":"foo","namespace":"ns1","resourceVersion":"999","uid":"cluster.x-k8s.io/v1beta1, Kind=Cluster, ns1/foo"},"spec":{"controlPlaneEndpoint":{"host":"","port":0},"infrastructureRef":{"apiVersion":"infrastructure.cluster.x-k8s.io/v1beta1","kind":"GenericInfrastructureCluster","name":"foo","namespace":"ns1"}},"status":{"controlPlaneReady":false,"infrastructureReady":false}}` + "\n",
 			"Secret_ns1_foo-kubeconfig.yaml":            `{"apiVersion":"v1","kind":"Secret","metadata":{"creationTimestamp":null,"name":"foo-kubeconfig","namespace":"ns1","ownerReferences":[{"apiVersion":"cluster.x-k8s.io/v1beta1","kind":"Cluster","name":"foo","uid":"cluster.x-k8s.io/v1beta1, Kind=Cluster, ns1/foo"}],"resourceVersion":"999","uid":"/v1, Kind=Secret, ns1/foo-kubeconfig"}}` + "\n",
 			"Secret_ns1_foo-ca.yaml":                    `{"apiVersion":"v1","kind":"Secret","metadata":{"creationTimestamp":null,"name":"foo-ca","namespace":"ns1","resourceVersion":"999","uid":"/v1, Kind=Secret, ns1/foo-ca"}}` + "\n",
 			"GenericInfrastructureCluster_ns1_foo.yaml": `{"apiVersion":"infrastructure.cluster.x-k8s.io/v1beta1","kind":"GenericInfrastructureCluster","metadata":{"creationTimestamp":null,"labels":{"cluster.x-k8s.io/cluster-name":"foo"},"name":"foo","namespace":"ns1","ownerReferences":[{"apiVersion":"cluster.x-k8s.io/v1beta1","kind":"Cluster","name":"foo","uid":"cluster.x-k8s.io/v1beta1, Kind=Cluster, ns1/foo"}],"resourceVersion":"999","uid":"infrastructure.cluster.x-k8s.io/v1beta1, Kind=GenericInfrastructureCluster, ns1/foo"}}` + "\n",
@@ -516,11 +631,11 @@ var backupRestoreTests = []struct {
 			}(),
 		},
 		files: map[string]string{
-			"Cluster_ns1_foo.yaml":                      `{"apiVersion":"cluster.x-k8s.io/v1beta1","kind":"Cluster","metadata":{"creationTimestamp":null,"name":"foo","namespace":"ns1","resourceVersion":"999","uid":"cluster.x-k8s.io/v1beta1, Kind=Cluster, ns1/foo"},"spec":{"controlPlaneEndpoint":{"host":"","port":0},"infrastructureRef":{"apiVersion":"infrastructure.cluster.x-k8s.io/v1beta1","kind":"GenericInfrastructureCluster","name":"foo","namespace":"ns1"}},"status":{"infrastructureReady":false}}` + "\n",
+			"Cluster_ns1_foo.yaml":                      `{"apiVersion":"cluster.x-k8s.io/v1beta1","kind":"Cluster","metadata":{"creationTimestamp":null,"name":"foo","namespace":"ns1","resourceVersion":"999","uid":"cluster.x-k8s.io/v1beta1, Kind=Cluster, ns1/foo"},"spec":{"controlPlaneEndpoint":{"host":"","port":0},"infrastructureRef":{"apiVersion":"infrastructure.cluster.x-k8s.io/v1beta1","kind":"GenericInfrastructureCluster","name":"foo","namespace":"ns1"}},"status":{"controlPlaneReady":false,"infrastructureReady":false}}` + "\n",
 			"Secret_ns1_foo-kubeconfig.yaml":            `{"apiVersion":"v1","kind":"Secret","metadata":{"creationTimestamp":null,"name":"foo-kubeconfig","namespace":"ns1","ownerReferences":[{"apiVersion":"cluster.x-k8s.io/v1beta1","kind":"Cluster","name":"foo","uid":"cluster.x-k8s.io/v1beta1, Kind=Cluster, ns1/foo"}],"resourceVersion":"999","uid":"/v1, Kind=Secret, ns1/foo-kubeconfig"}}` + "\n",
 			"Secret_ns1_foo-ca.yaml":                    `{"apiVersion":"v1","kind":"Secret","metadata":{"creationTimestamp":null,"name":"foo-ca","namespace":"ns1","resourceVersion":"999","uid":"/v1, Kind=Secret, ns1/foo-ca"}}` + "\n",
 			"GenericInfrastructureCluster_ns1_foo.yaml": `{"apiVersion":"infrastructure.cluster.x-k8s.io/v1beta1","kind":"GenericInfrastructureCluster","metadata":{"creationTimestamp":null,"labels":{"cluster.x-k8s.io/cluster-name":"foo"},"name":"foo","namespace":"ns1","ownerReferences":[{"apiVersion":"cluster.x-k8s.io/v1beta1","kind":"Cluster","name":"foo","uid":"cluster.x-k8s.io/v1beta1, Kind=Cluster, ns1/foo"}],"resourceVersion":"999","uid":"infrastructure.cluster.x-k8s.io/v1beta1, Kind=GenericInfrastructureCluster, ns1/foo"}}` + "\n",
-			"Cluster_ns2_bar.yaml":                      `{"apiVersion":"cluster.x-k8s.io/v1beta1","kind":"Cluster","metadata":{"creationTimestamp":null,"name":"bar","namespace":"ns2","resourceVersion":"999","uid":"cluster.x-k8s.io/v1beta1, Kind=Cluster, ns2/bar"},"spec":{"controlPlaneEndpoint":{"host":"","port":0},"infrastructureRef":{"apiVersion":"infrastructure.cluster.x-k8s.io/v1beta1","kind":"GenericInfrastructureCluster","name":"bar","namespace":"ns2"}},"status":{"infrastructureReady":false}}` + "\n",
+			"Cluster_ns2_bar.yaml":                      `{"apiVersion":"cluster.x-k8s.io/v1beta1","kind":"Cluster","metadata":{"creationTimestamp":null,"name":"bar","namespace":"ns2","resourceVersion":"999","uid":"cluster.x-k8s.io/v1beta1, Kind=Cluster, ns2/bar"},"spec":{"controlPlaneEndpoint":{"host":"","port":0},"infrastructureRef":{"apiVersion":"infrastructure.cluster.x-k8s.io/v1beta1","kind":"GenericInfrastructureCluster","name":"bar","namespace":"ns2"}},"status":{"controlPlaneReady":false,"infrastructureReady":false}}` + "\n",
 			"Secret_ns2_bar-kubeconfig.yaml":            `{"apiVersion":"v1","kind":"Secret","metadata":{"creationTimestamp":null,"name":"bar-kubeconfig","namespace":"ns2","ownerReferences":[{"apiVersion":"cluster.x-k8s.io/v1beta1","kind":"Cluster","name":"bar","uid":"cluster.x-k8s.io/v1beta1, Kind=Cluster, ns2/bar"}],"resourceVersion":"999","uid":"/v1, Kind=Secret, ns2/bar-kubeconfig"}}` + "\n",
 			"Secret_ns2_bar-ca.yaml":                    `{"apiVersion":"v1","kind":"Secret","metadata":{"creationTimestamp":null,"name":"bar-ca","namespace":"ns2","resourceVersion":"999","uid":"/v1, Kind=Secret, ns2/bar-ca"}}` + "\n",
 			"GenericInfrastructureCluster_ns2_bar.yaml": `{"apiVersion":"infrastructure.cluster.x-k8s.io/v1beta1","kind":"GenericInfrastructureCluster","metadata":{"creationTimestamp":null,"labels":{"cluster.x-k8s.io/cluster-name":"bar"},"name":"bar","namespace":"ns2","ownerReferences":[{"apiVersion":"cluster.x-k8s.io/v1beta1","kind":"Cluster","name":"bar","uid":"cluster.x-k8s.io/v1beta1, Kind=Cluster, ns2/bar"}],"resourceVersion":"999","uid":"infrastructure.cluster.x-k8s.io/v1beta1, Kind=GenericInfrastructureCluster, ns2/bar"}}` + "\n",
@@ -549,7 +664,7 @@ func Test_objectMover_backupTargetObject(t *testing.T) {
 				fromProxy: graph.proxy,
 			}
 
-			dir, err := ioutil.TempDir("/tmp", "cluster-api")
+			dir, err := os.MkdirTemp("/tmp", "cluster-api")
 			if err != nil {
 				t.Error(err)
 			}
@@ -572,7 +687,7 @@ func Test_objectMover_backupTargetObject(t *testing.T) {
 				}
 
 				path := filepath.Join(dir, expectedFilename)
-				fileContents, err := os.ReadFile(path)
+				fileContents, err := os.ReadFile(path) //nolint:gosec
 				if err != nil {
 					g.Expect(err).NotTo(HaveOccurred())
 					return
@@ -618,7 +733,7 @@ func Test_objectMover_restoreTargetObject(t *testing.T) {
 			g := NewWithT(t)
 
 			// temporary directory
-			dir, err := ioutil.TempDir("/tmp", "cluster-api")
+			dir, err := os.MkdirTemp("/tmp", "cluster-api")
 			if err != nil {
 				g.Expect(err).NotTo(HaveOccurred())
 			}
@@ -643,7 +758,7 @@ func Test_objectMover_restoreTargetObject(t *testing.T) {
 
 			// Write go string slice to directory
 			for _, file := range tt.files {
-				tempFile, err := ioutil.TempFile(dir, "obj")
+				tempFile, err := os.CreateTemp(dir, "obj")
 				g.Expect(err).NotTo(HaveOccurred())
 
 				_, err = tempFile.Write([]byte(file))
@@ -744,7 +859,7 @@ func Test_objectMover_backup(t *testing.T) {
 				fromProxy: graph.proxy,
 			}
 
-			dir, err := ioutil.TempDir("/tmp", "cluster-api")
+			dir, err := os.MkdirTemp("/tmp", "cluster-api")
 			if err != nil {
 				t.Error(err)
 			}
@@ -778,7 +893,7 @@ func Test_objectMover_backup(t *testing.T) {
 				g.Expect(err).NotTo(HaveOccurred())
 
 				// objects are stored in the temporary directory with the expected filename
-				files, err := ioutil.ReadDir(dir)
+				files, err := os.ReadDir(dir)
 				g.Expect(err).NotTo(HaveOccurred())
 
 				expectedFilename := node.getFilename()
@@ -805,7 +920,7 @@ func Test_objectMover_filesToObjs(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			g := NewWithT(t)
 
-			dir, err := ioutil.TempDir("/tmp", "cluster-api")
+			dir, err := os.MkdirTemp("/tmp", "cluster-api")
 			if err != nil {
 				t.Error(err)
 			}
@@ -865,7 +980,7 @@ func Test_objectMover_restore(t *testing.T) {
 			g := NewWithT(t)
 
 			// temporary directory
-			dir, err := ioutil.TempDir("/tmp", "cluster-api")
+			dir, err := os.MkdirTemp("/tmp", "cluster-api")
 			if err != nil {
 				g.Expect(err).NotTo(HaveOccurred())
 			}
@@ -887,7 +1002,7 @@ func Test_objectMover_restore(t *testing.T) {
 
 			// Write go string slice to directory
 			for _, file := range tt.files {
-				tempFile, err := ioutil.TempFile(dir, "obj")
+				tempFile, err := os.CreateTemp(dir, "obj")
 				g.Expect(err).NotTo(HaveOccurred())
 
 				_, err = tempFile.Write([]byte(file))
@@ -902,8 +1017,12 @@ func Test_objectMover_restore(t *testing.T) {
 				g.Expect(graph.addRestoredObj(&objs[i])).NotTo(HaveOccurred())
 			}
 
-			// trigger discovery the content of the source cluster
-			g.Expect(graph.Discovery("")).To(Succeed())
+			// restore works on the target cluster which does not yet have objs to discover
+			// instead set the owners and tenants correctly on object graph like how ObjectMover.Restore does
+			// https://github.com/kubernetes-sigs/cluster-api/blob/main/cmd/clusterctl/client/cluster/mover.go#L129-L132
+			graph.setSoftOwnership()
+			graph.setTenants()
+			graph.checkVirtualNode()
 
 			err = mover.restore(graph, toProxy)
 			if tt.wantErr {

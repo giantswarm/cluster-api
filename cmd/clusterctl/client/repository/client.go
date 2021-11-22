@@ -41,6 +41,10 @@ type Client interface {
 	// Please note that templates are expected to exist for the infrastructure providers only.
 	Templates(version string) TemplateClient
 
+	// ClusterClasses provide access to YAML file for the cluster classes available
+	// for the provider.
+	ClusterClasses(version string) ClusterClassClient
+
 	// Metadata provide access to YAML with the provider's metadata.
 	Metadata(version string) MetadataClient
 }
@@ -66,6 +70,10 @@ func (c *repositoryClient) Components() ComponentsClient {
 
 func (c *repositoryClient) Templates(version string) TemplateClient {
 	return newTemplateClient(TemplateClientInput{version, c.Provider, c.repository, c.configClient.Variables(), c.processor})
+}
+
+func (c *repositoryClient) ClusterClasses(version string) ClusterClassClient {
+	return newClusterClassClient(ClusterClassClientInput{version, c.Provider, c.repository, c.configClient.Variables(), c.processor})
 }
 
 func (c *repositoryClient) Metadata(version string) MetadataClient {
@@ -157,7 +165,7 @@ func repositoryFactory(providerConfig config.Provider, configVariablesClient con
 
 	// if the url is a github repository
 	if rURL.Scheme == httpsScheme && rURL.Host == githubDomain {
-		repo, err := newGitHubRepository(providerConfig, configVariablesClient)
+		repo, err := NewGitHubRepository(providerConfig, configVariablesClient)
 		if err != nil {
 			return nil, errors.Wrap(err, "error creating the GitHub repository client")
 		}

@@ -6,7 +6,7 @@ In this tutorial we'll cover the basics of how to use Cluster API to create one 
 
 <h1>Warning</h1>
 
-If using a [provider] that does not yet support v1alpha4, please follow [the release 0.3 quickstart instructions](https://release-0-3.cluster-api.sigs.k8s.io/user/quick-start.html) instead.
+If using a [provider] that does not support v1beta1 or v1alpha4 yet, please follow the [release 0.3](https://release-0-3.cluster-api.sigs.k8s.io/user/quick-start.html) or [release 0.4](https://release-0-4.cluster-api.sigs.k8s.io/user/quick-start.html) quickstart instructions instead.
 
 </aside>
 
@@ -26,7 +26,7 @@ is recommended to keep it separated from any application workload.
 It is a common practice to create a temporary, local bootstrap cluster which is then used to provision
 a target [management cluster] on the selected [infrastructure provider].
 
-Choose one of the options below:
+**Choose one of the options below:**
 
 1. **Existing Management Cluster**
 
@@ -35,6 +35,7 @@ Choose one of the options below:
    ```bash
    export KUBECONFIG=<...>
    ```
+**OR**
 
 2. **Kind**
 
@@ -100,7 +101,7 @@ The clusterctl CLI tool handles the lifecycle of a Cluster API management cluste
 #### Install clusterctl binary with curl on linux
 Download the latest release; on linux, type:
 ```
-curl -L {{#releaselink gomodule:"sigs.k8s.io/cluster-api" asset:"clusterctl-linux-amd64" version:"0.4.x"}} -o clusterctl
+curl -L {{#releaselink gomodule:"sigs.k8s.io/cluster-api" asset:"clusterctl-linux-amd64" version:"1.0.x"}} -o clusterctl
 ```
 Make the clusterctl binary executable.
 ```
@@ -121,12 +122,12 @@ clusterctl version
 #### Install clusterctl binary with curl on macOS
 Download the latest release; on macOS, type:
 ```
-curl -L {{#releaselink gomodule:"sigs.k8s.io/cluster-api" asset:"clusterctl-darwin-amd64" version:"0.4.x"}} -o clusterctl
+curl -L {{#releaselink gomodule:"sigs.k8s.io/cluster-api" asset:"clusterctl-darwin-amd64" version:"1.0.x"}} -o clusterctl
 ```
 
 Or if your Mac has an M1 CPU ("Apple Silicon"):
 ```
-curl -L {{#releaselink gomodule:"sigs.k8s.io/cluster-api" asset:"clusterctl-darwin-arm64" version:"0.4.x"}} -o clusterctl
+curl -L {{#releaselink gomodule:"sigs.k8s.io/cluster-api" asset:"clusterctl-darwin-arm64" version:"1.0.x"}} -o clusterctl
 ```
 
 Make the clusterctl binary executable.
@@ -330,12 +331,12 @@ The output of `clusterctl init` is similar to this:
 
 ```shell
 Fetching providers
-Installing cert-manager Version="v1.5.0"
+Installing cert-manager Version="v1.5.3"
 Waiting for cert-manager to be available...
-Installing Provider="cluster-api" Version="v0.4.0" TargetNamespace="capi-system"
-Installing Provider="bootstrap-kubeadm" Version="v0.4.0" TargetNamespace="capi-kubeadm-bootstrap-system"
-Installing Provider="control-plane-kubeadm" Version="v0.4.0" TargetNamespace="capi-kubeadm-control-plane-system"
-Installing Provider="infrastructure-docker" Version="v0.4.0" TargetNamespace="capd-system"
+Installing Provider="cluster-api" Version="v1.0.0" TargetNamespace="capi-system"
+Installing Provider="bootstrap-kubeadm" Version="v1.0.0" TargetNamespace="capi-kubeadm-bootstrap-system"
+Installing Provider="control-plane-kubeadm" Version="v1.0.0" TargetNamespace="capi-kubeadm-control-plane-system"
+Installing Provider="infrastructure-docker" Version="v1.0.0" TargetNamespace="capd-system"
 
 Your management cluster has been initialized successfully!
 
@@ -556,6 +557,10 @@ A full configuration reference can be found in [configuration.md](https://github
 {{#/tab }}
 {{#tab Metal3}}
 
+**Note**: If you are running CAPM3 release prior to v0.5.0, make sure to export the following
+environment variables. However, you don't need them to be exported if you use
+CAPM3 release v0.5.0 or higher.
+
 ```bash
 # The URL of the kernel to deploy.
 export DEPLOY_KERNEL_URL="http://172.22.0.1:6180/images/ironic-python-agent.kernel"
@@ -659,11 +664,11 @@ The output is similar to this:
 
 ```bash
 cluster.cluster.x-k8s.io/capi-quickstart created
-awscluster.infrastructure.cluster.x-k8s.io/capi-quickstart created
+dockercluster.infrastructure.cluster.x-k8s.io/capi-quickstart created
 kubeadmcontrolplane.controlplane.cluster.x-k8s.io/capi-quickstart-control-plane created
-awsmachinetemplate.infrastructure.cluster.x-k8s.io/capi-quickstart-control-plane created
+dockermachinetemplate.infrastructure.cluster.x-k8s.io/capi-quickstart-control-plane created
 machinedeployment.cluster.x-k8s.io/capi-quickstart-md-0 created
-awsmachinetemplate.infrastructure.cluster.x-k8s.io/capi-quickstart-md-0 created
+dockermachinetemplate.infrastructure.cluster.x-k8s.io/capi-quickstart-md-0 created
 kubeadmconfigtemplate.bootstrap.cluster.x-k8s.io/capi-quickstart-md-0 created
 ```
 
@@ -691,7 +696,7 @@ You should see an output is similar to this:
 
 ```bash
 NAME                            INITIALIZED   API SERVER AVAILABLE   VERSION   REPLICAS   READY   UPDATED   UNAVAILABLE
-capi-quickstart-control-plane   true                                 v1.21.2   3                  3         3
+capi-quickstart-control-plane   true                                 v1.22.0   3                  3         3
 ```
 
 <aside class="note warning">

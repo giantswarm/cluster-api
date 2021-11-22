@@ -124,7 +124,7 @@ func (c *ControlPlaneContract) IsUpgrading(obj *unstructured.Unstructured) (bool
 		return false, errors.Wrap(err, "failed to parse control plane status version")
 	}
 
-	return version.CompareWithBuildIdentifiers(specV, statusV) == 1, nil
+	return version.Compare(specV, statusV, version.WithBuildTags()) == 1, nil
 }
 
 // IsScaling returns true if the control plane is in the middle of a scale operation, false otherwise.
@@ -194,5 +194,12 @@ func (c *ControlPlaneMachineTemplate) InfrastructureRef() *Ref {
 func (c *ControlPlaneMachineTemplate) Metadata() *Metadata {
 	return &Metadata{
 		path: Path{"spec", "machineTemplate", "metadata"},
+	}
+}
+
+// NodeDrainTimeout provides access to the nodeDrainTimeout of a MachineTemplate.
+func (c *ControlPlaneMachineTemplate) NodeDrainTimeout() *Duration {
+	return &Duration{
+		path: Path{"spec", "machineTemplate", "nodeDrainTimeout"},
 	}
 }

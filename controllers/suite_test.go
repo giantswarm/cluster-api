@@ -23,6 +23,7 @@ import (
 	"testing"
 	"time"
 
+	// +kubebuilder:scaffold:imports
 	. "github.com/onsi/gomega"
 	"github.com/onsi/gomega/types"
 	"github.com/pkg/errors"
@@ -37,7 +38,6 @@ import (
 	"sigs.k8s.io/cluster-api/internal/envtest"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
-	// +kubebuilder:scaffold:imports
 )
 
 const (
@@ -67,10 +67,11 @@ func TestMain(m *testing.M) {
 	setupReconcilers := func(ctx context.Context, mgr ctrl.Manager) {
 		// Set up a ClusterCacheTracker and ClusterCacheReconciler to provide to controllers
 		// requiring a connection to a remote cluster
+		log := ctrl.Log.WithName("remote").WithName("ClusterCacheTracker")
 		tracker, err := remote.NewClusterCacheTracker(
 			mgr,
 			remote.ClusterCacheTrackerOptions{
-				Log:     ctrl.Log.WithName("remote").WithName("ClusterCacheTracker"),
+				Log:     &log,
 				Indexes: remote.DefaultIndexes,
 			},
 		)
@@ -151,7 +152,7 @@ func (matcher *refGroupKindMatcher) Match(actual interface{}) (success bool, err
 	for _, ref := range ownerRefs {
 		gv, err := schema.ParseGroupVersion(ref.APIVersion)
 		if err != nil {
-			return false, nil // nolint:nilerr // If we can't get the group version we can't match, but it's not a failure
+			return false, nil //nolint:nilerr // If we can't get the group version we can't match, but it's not a failure
 		}
 		if ref.Kind == matcher.kind && gv.Group == clusterv1.GroupVersion.Group {
 			return true, nil

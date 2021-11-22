@@ -20,7 +20,6 @@ import (
 	"testing"
 
 	. "github.com/onsi/gomega"
-
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -132,7 +131,6 @@ func TestUnmarshalData(t *testing.T) {
 	})
 
 	t.Run("should clean the annotation on successful unmarshal", func(t *testing.T) {
-
 		src := &unstructured.Unstructured{}
 		src.SetGroupVersionKind(oldMachineGVK)
 		src.SetName("test-1")

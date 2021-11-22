@@ -32,6 +32,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -483,12 +484,13 @@ func (o MachinesByCreationTimestamp) Less(i, j int) bool {
 // ClusterToObjectsMapper returns a mapper function that gets a cluster and lists all objects for the object passed in
 // and returns a list of requests.
 // NB: The objects are required to have `clusterv1.ClusterLabelName` applied.
-func ClusterToObjectsMapper(c client.Client, ro runtime.Object, scheme *runtime.Scheme) (handler.MapFunc, error) {
-	if _, ok := ro.(metav1.ListInterface); !ok {
-		return nil, errors.Errorf("expected a metav1.ListInterface, got %T instead", ro)
+func ClusterToObjectsMapper(c client.Client, ro client.ObjectList, scheme *runtime.Scheme) (handler.MapFunc, error) {
+	gvk, err := apiutil.GVKForObject(ro, scheme)
+	if err != nil {
+		return nil, err
 	}
 
-	gvk, err := apiutil.GVKForObject(ro, scheme)
+	isNamespaced, err := isAPINamespaced(gvk, c.RESTMapper())
 	if err != nil {
 		return nil, err
 	}
@@ -499,9 +501,19 @@ func ClusterToObjectsMapper(c client.Client, ro runtime.Object, scheme *runtime.
 			return nil
 		}
 
+		listOpts := []client.ListOption{
+			client.MatchingLabels{
+				clusterv1.ClusterLabelName: cluster.Name,
+			},
+		}
+
+		if isNamespaced {
+			listOpts = append(listOpts, client.InNamespace(cluster.Namespace))
+		}
+
 		list := &unstructured.UnstructuredList{}
 		list.SetGroupVersionKind(gvk)
-		if err := c.List(context.TODO(), list, client.MatchingLabels{clusterv1.ClusterLabelName: cluster.Name}); err != nil {
+		if err := c.List(context.TODO(), list, listOpts...); err != nil {
 			return nil
 		}
 
@@ -513,6 +525,23 @@ func ClusterToObjectsMapper(c client.Client, ro runtime.Object, scheme *runtime.
 		}
 		return results
 	}, nil
+}
+
+// isAPINamespaced detects if a GroupVersionKind is namespaced.
+func isAPINamespaced(gk schema.GroupVersionKind, restmapper meta.RESTMapper) (bool, error) {
+	restMapping, err := restmapper.RESTMapping(schema.GroupKind{Group: gk.Group, Kind: gk.Kind})
+	if err != nil {
+		return false, fmt.Errorf("failed to get restmapping: %w", err)
+	}
+
+	switch restMapping.Scope.Name() {
+	case "":
+		return false, errors.New("Scope cannot be identified. Empty scope returned")
+	case meta.RESTScopeNameRoot:
+		return false, nil
+	default:
+		return true, nil
+	}
 }
 
 // ObjectReferenceToUnstructured converts an object reference to an unstructured object.

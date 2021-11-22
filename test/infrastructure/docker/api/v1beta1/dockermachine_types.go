@@ -79,7 +79,7 @@ type DockerMachineStatus struct {
 	// LoadBalancerConfigured denotes that the machine has been
 	// added to the load balancer
 	// +optional
-	LoadBalancerConfigured bool `json:"loadBalancerConfigured,omitempty"`
+	LoadBalancerConfigured bool `json:"loadBalancerConfigured"`
 
 	// Addresses contains the associated addresses for the docker machine.
 	// +optional
@@ -94,6 +94,7 @@ type DockerMachineStatus struct {
 // +kubebuilder:object:root=true
 // +kubebuilder:storageversion
 // +kubebuilder:subresource:status
+// +kubebuilder:printcolumn:name="Cluster",type="string",JSONPath=".metadata.labels['cluster\\.x-k8s\\.io/cluster-name']",description="Cluster"
 // +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp",description="Time duration since creation of DockerMachine"
 
 // DockerMachine is the Schema for the dockermachines API.

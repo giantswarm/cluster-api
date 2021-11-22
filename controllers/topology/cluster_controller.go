@@ -26,11 +26,13 @@ import (
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	"sigs.k8s.io/cluster-api/api/v1beta1/index"
 	"sigs.k8s.io/cluster-api/controllers/external"
+	"sigs.k8s.io/cluster-api/controllers/topology/internal/extensions/patches"
 	"sigs.k8s.io/cluster-api/controllers/topology/internal/scope"
 	"sigs.k8s.io/cluster-api/util"
 	"sigs.k8s.io/cluster-api/util/annotations"
 	"sigs.k8s.io/cluster-api/util/predicates"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
@@ -39,16 +41,19 @@ import (
 
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io;bootstrap.cluster.x-k8s.io;controlplane.cluster.x-k8s.io,resources=*,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=cluster.x-k8s.io,resources=clusters;clusters/status,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=cluster.x-k8s.io,resources=clusterclasses,verbs=get;list;watch
+// +kubebuilder:rbac:groups=cluster.x-k8s.io,resources=clusterclasses,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=cluster.x-k8s.io,resources=machinedeployments,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=apiextensions.k8s.io,resources=customresourcedefinitions,verbs=get;list;watch
+// +kubebuilder:rbac:groups=core,resources=secrets,verbs=get;create;delete
 
 // ClusterReconciler reconciles a managed topology for a Cluster object.
 type ClusterReconciler struct {
 	Client client.Client
 	// APIReader is used to list MachineSets directly via the API server to avoid
 	// race conditions caused by an outdated cache.
-	APIReader        client.Reader
+	APIReader client.Reader
+
+	// WatchFilterValue is the label value used to filter events prior to reconciliation.
 	WatchFilterValue string
 
 	// UnstructuredCachingClient provides a client that forces caching of unstructured objects,
@@ -56,11 +61,17 @@ type ClusterReconciler struct {
 	UnstructuredCachingClient client.Client
 
 	externalTracker external.ObjectTracker
+
+	// patchEngine is used to apply patches during computeDesiredState.
+	patchEngine patches.Engine
 }
 
 func (r *ClusterReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Manager, options controller.Options) error {
 	c, err := ctrl.NewControllerManagedBy(mgr).
-		For(&clusterv1.Cluster{}).
+		For(&clusterv1.Cluster{}, builder.WithPredicates(
+			// Only reconcile Cluster with topology.
+			predicates.ClusterHasTopology(ctrl.LoggerFrom(ctx)),
+		)).
 		Named("topology/cluster").
 		Watches(
 			&source.Kind{Type: &clusterv1.ClusterClass{}},
@@ -69,6 +80,8 @@ func (r *ClusterReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Manag
 		Watches(
 			&source.Kind{Type: &clusterv1.MachineDeployment{}},
 			handler.EnqueueRequestsFromMapFunc(r.machineDeploymentToCluster),
+			// Only trigger Cluster reconciliation if the MachineDeployment is topology owned.
+			builder.WithPredicates(predicates.ResourceIsTopologyOwned(ctrl.LoggerFrom(ctx))),
 		).
 		WithOptions(options).
 		WithEventFilter(predicates.ResourceNotPausedAndHasFilterLabel(ctrl.LoggerFrom(ctx), r.WatchFilterValue)).
@@ -81,6 +94,8 @@ func (r *ClusterReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Manag
 	r.externalTracker = external.ObjectTracker{
 		Controller: c,
 	}
+	r.patchEngine = patches.NewEngine()
+
 	return nil
 }
 
@@ -89,7 +104,11 @@ func (r *ClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) (_ 
 
 	// Fetch the Cluster instance.
 	cluster := &clusterv1.Cluster{}
-	if err := r.Client.Get(ctx, req.NamespacedName, cluster); err != nil {
+	// Use the live client here so that we do not reconcile a stale cluster object.
+	// Example: If 2 reconcile loops are triggered in quick succession (one from the cluster and the other from the clusterclass)
+	// the first reconcile loop could update the cluster object (set the infrastructure clutser ref and control plane ref). If we
+	// do not use the live client the second reconcile loop could potentially pick up the stale cluster object from the cache.
+	if err := r.APIReader.Get(ctx, req.NamespacedName, cluster); err != nil {
 		if apierrors.IsNotFound(err) {
 			return ctrl.Result{}, nil
 		}
@@ -98,7 +117,9 @@ func (r *ClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) (_ 
 	}
 
 	// Return early, if the Cluster does not use a managed topology.
-	// NOTE: This should be removed as soon as we start to support Clusters moving from managed <-> unmanaged.
+	// NOTE: We're already filtering events, but this is a safeguard for cases like e.g. when
+	// there are MachineDeployments which have the topology owned label, but the corresponding
+	// cluster is not topology owned.
 	if cluster.Spec.Topology == nil {
 		return ctrl.Result{}, nil
 	}
@@ -145,18 +166,9 @@ func (r *ClusterReconciler) reconcile(ctx context.Context, s *scope.Scope) (ctrl
 		return ctrl.Result{}, errors.Wrap(err, "error reading current state of the Cluster topology")
 	}
 
-	// Watch Infrastructure and ControlPlane CRs when they exist.
-	if s.Current.InfrastructureCluster != nil {
-		if err := r.externalTracker.Watch(ctrl.LoggerFrom(ctx), s.Current.InfrastructureCluster,
-			&handler.EnqueueRequestForOwner{OwnerType: &clusterv1.Cluster{}}); err != nil {
-			return ctrl.Result{}, errors.Wrap(err, "error watching Infrastructure CR")
-		}
-	}
-	if s.Current.ControlPlane.Object != nil {
-		if err := r.externalTracker.Watch(ctrl.LoggerFrom(ctx), s.Current.ControlPlane.Object,
-			&handler.EnqueueRequestForOwner{OwnerType: &clusterv1.Cluster{}}); err != nil {
-			return ctrl.Result{}, errors.Wrap(err, "error watching ControlPlane CR")
-		}
+	// Setup watches for InfrastructureCluster and ControlPlane CRs when they exist.
+	if err := r.setupDynamicWatches(ctx, s); err != nil {
+		return ctrl.Result{}, errors.Wrap(err, "error creating dynamic watch")
 	}
 
 	// Computes the desired state of the Cluster and store it in the request scope.
@@ -171,6 +183,27 @@ func (r *ClusterReconciler) reconcile(ctx context.Context, s *scope.Scope) (ctrl
 	}
 
 	return ctrl.Result{}, nil
+}
+
+// setupDynamicWatches create watches for InfrastructureCluster and ControlPlane CRs when they exist.
+func (r *ClusterReconciler) setupDynamicWatches(ctx context.Context, s *scope.Scope) error {
+	if s.Current.InfrastructureCluster != nil {
+		if err := r.externalTracker.Watch(ctrl.LoggerFrom(ctx), s.Current.InfrastructureCluster,
+			&handler.EnqueueRequestForOwner{OwnerType: &clusterv1.Cluster{}},
+			// Only trigger Cluster reconciliation if the InfrastructureCluster is topology owned.
+			predicates.ResourceIsTopologyOwned(ctrl.LoggerFrom(ctx))); err != nil {
+			return errors.Wrap(err, "error watching Infrastructure CR")
+		}
+	}
+	if s.Current.ControlPlane.Object != nil {
+		if err := r.externalTracker.Watch(ctrl.LoggerFrom(ctx), s.Current.ControlPlane.Object,
+			&handler.EnqueueRequestForOwner{OwnerType: &clusterv1.Cluster{}},
+			// Only trigger Cluster reconciliation if the ControlPlane is topology owned.
+			predicates.ResourceIsTopologyOwned(ctrl.LoggerFrom(ctx))); err != nil {
+			return errors.Wrap(err, "error watching ControlPlane CR")
+		}
+	}
+	return nil
 }
 
 // clusterClassToCluster is a handler.ToRequestsFunc to be used to enqueue requests for reconciliation

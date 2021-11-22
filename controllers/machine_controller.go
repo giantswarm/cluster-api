@@ -32,12 +32,12 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/klog/v2"
+	kubedrain "k8s.io/kubectl/pkg/drain"
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	"sigs.k8s.io/cluster-api/api/v1beta1/index"
 	"sigs.k8s.io/cluster-api/controllers/external"
 	"sigs.k8s.io/cluster-api/controllers/noderefutil"
 	"sigs.k8s.io/cluster-api/controllers/remote"
-	kubedrain "sigs.k8s.io/cluster-api/third_party/kubernetes-drain"
 	"sigs.k8s.io/cluster-api/util"
 	"sigs.k8s.io/cluster-api/util/annotations"
 	"sigs.k8s.io/cluster-api/util/collections"
@@ -75,8 +75,10 @@ var (
 
 // MachineReconciler reconciles a Machine object.
 type MachineReconciler struct {
-	Client           client.Client
-	Tracker          *remote.ClusterCacheTracker
+	Client  client.Client
+	Tracker *remote.ClusterCacheTracker
+
+	// WatchFilterValue is the label value used to filter events prior to reconciliation.
 	WatchFilterValue string
 
 	controller      controller.Controller
@@ -103,7 +105,10 @@ func (r *MachineReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Manag
 		&source.Kind{Type: &clusterv1.Cluster{}},
 		handler.EnqueueRequestsFromMapFunc(clusterToMachines),
 		// TODO: should this wait for Cluster.Status.InfrastructureReady similar to Infra Machine resources?
-		predicates.ClusterUnpaused(ctrl.LoggerFrom(ctx)),
+		predicates.All(ctrl.LoggerFrom(ctx),
+			predicates.ClusterUnpaused(ctrl.LoggerFrom(ctx)),
+			predicates.ResourceHasFilterLabel(ctrl.LoggerFrom(ctx), r.WatchFilterValue),
+		),
 	)
 	if err != nil {
 		return errors.Wrap(err, "failed to add Watch for Clusters to controller manager")
@@ -201,7 +206,7 @@ func patchMachine(ctx context.Context, patchHelper *patch.Helper, machine *clust
 			clusterv1.MachineHealthCheckSuccededCondition,
 			clusterv1.MachineOwnerRemediatedCondition,
 		),
-		conditions.WithStepCounterIf(machine.ObjectMeta.DeletionTimestamp.IsZero()),
+		conditions.WithStepCounterIf(machine.ObjectMeta.DeletionTimestamp.IsZero() && machine.Spec.ProviderID == nil),
 		conditions.WithStepCounterIfOnly(
 			clusterv1.BootstrapReadyCondition,
 			clusterv1.InfrastructureReadyCondition,
@@ -272,7 +277,7 @@ func (r *MachineReconciler) reconcileDelete(ctx context.Context, cluster *cluste
 	log := ctrl.LoggerFrom(ctx, "cluster", cluster.Name)
 
 	err := r.isDeleteNodeAllowed(ctx, cluster, m)
-	isDeleteNodeAllowed := err == nil //nolint:ifshort
+	isDeleteNodeAllowed := err == nil
 	if err != nil {
 		switch err {
 		case errNoControlPlaneNodes, errLastControlPlaneNode, errNilNodeRef, errClusterIsBeingDeleted, errControlPlaneIsBeingDeleted:
@@ -507,9 +512,10 @@ func (r *MachineReconciler) drainNode(ctx context.Context, cluster *clusterv1.Cl
 
 	drainer := &kubedrain.Helper{
 		Client:              kubeClient,
+		Ctx:                 ctx,
 		Force:               true,
 		IgnoreAllDaemonSets: true,
-		DeleteLocalData:     true,
+		DeleteEmptyDirData:  true,
 		GracePeriodSeconds:  -1,
 		// If a pod is not evicted in 20 seconds, retry the eviction next time the
 		// machine gets reconciled again (to allow other machines to be reconciled).
@@ -524,7 +530,6 @@ func (r *MachineReconciler) drainNode(ctx context.Context, cluster *clusterv1.Cl
 		},
 		Out:    writer{klog.Info},
 		ErrOut: writer{klog.Error},
-		DryRun: false,
 	}
 
 	if noderefutil.IsNodeUnreachable(node) {
@@ -532,13 +537,13 @@ func (r *MachineReconciler) drainNode(ctx context.Context, cluster *clusterv1.Cl
 		drainer.SkipWaitForDeleteTimeoutSeconds = 60 * 5 // 5 minutes
 	}
 
-	if err := kubedrain.RunCordonOrUncordon(ctx, drainer, node, true); err != nil {
+	if err := kubedrain.RunCordonOrUncordon(drainer, node, true); err != nil {
 		// Machine will be re-reconciled after a cordon failure.
 		log.Error(err, "Cordon failed")
 		return ctrl.Result{}, errors.Errorf("unable to cordon node %s: %v", node.Name, err)
 	}
 
-	if err := kubedrain.RunNodeDrain(ctx, drainer, node.Name); err != nil {
+	if err := kubedrain.RunNodeDrain(drainer, node.Name); err != nil {
 		// Machine will be re-reconciled after a drain failure.
 		log.Error(err, "Drain failed, retry in 20s")
 		return ctrl.Result{RequeueAfter: 20 * time.Second}, nil

@@ -20,6 +20,7 @@ aliases:
   # non-admin folks who have write-access and can approve any PRs in the repo
   cluster-api-maintainers:
   - CecileRobertMichon
+  - enxebre
   - fabriziopandini
   - vincepri
 
@@ -27,7 +28,6 @@ aliases:
   cluster-api-reviewers:
   - JoelSpeed
   - sbueringer
-  - enxebre
   - stmcginnis
 
   # -----------------------------------------------------------
@@ -51,6 +51,7 @@ aliases:
   # -----------------------------------------------------------
 
   cluster-api-controlplane-provider-kubeadm-maintainers:
+  - randomvariable
   cluster-api-controlplane-provider-kubeadm-reviewers:
 
   # -----------------------------------------------------------
@@ -61,8 +62,31 @@ aliases:
   cluster-api-clusterctl-reviewers:
 
   # -----------------------------------------------------------
+  # OWNER_ALIASES for test
+  # -----------------------------------------------------------
+
+  cluster-api-test-reviewers:
+  - randomvariable
+  cluster-api-test-maintainers:
+  - sbueringer
+
+  # -----------------------------------------------------------
+  # OWNER_ALIASES for test/framework
+  # -----------------------------------------------------------
+
+  cluster-api-test-framework-reviewers:
+  cluster-api-test-framework-maintainers:
+
+  # -----------------------------------------------------------
   # OWNER_ALIASES for test/infrastructure/docker
   # -----------------------------------------------------------
 
   cluster-api-provider-docker-reviewers:
   cluster-api-provider-docker-maintainers:
+
+  # -----------------------------------------------------------
+  # OWNER_ALIASES for docs
+  # -----------------------------------------------------------
+
+  cluster-api-docs-reviewers:
+  cluster-api-docs-maintainers:

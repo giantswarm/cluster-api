@@ -36,6 +36,9 @@ type ObjectTreeOptions struct {
 	// to signal to the presentation layer to show all the conditions for the objects.
 	ShowOtherConditions string
 
+	// ShowMachineSets instructs the discovery process to include machine sets in the ObjectTree.
+	ShowMachineSets bool
+
 	// DisableNoEcho disables hiding objects if the object's ready condition has the
 	// same Status, Severity and Reason of the parent's object ready condition (it is an echo)
 	DisableNoEcho bool
@@ -55,6 +58,12 @@ type ObjectTree struct {
 
 // NewObjectTree creates a new object tree with the given root and options.
 func NewObjectTree(root client.Object, options ObjectTreeOptions) *ObjectTree {
+	// If it is requested to show all the conditions for the root, add
+	// the ShowObjectConditionsAnnotation to signal this to the presentation layer.
+	if isObjDebug(root, options.ShowOtherConditions) {
+		addAnnotation(root, ShowObjectConditionsAnnotation, "True")
+	}
+
 	return &ObjectTree{
 		root:      root,
 		options:   options,

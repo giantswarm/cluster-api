@@ -37,7 +37,10 @@ import (
 func LoggerFrom(ctx context.Context) Logger {
 	log := ctrl.LoggerFrom(ctx)
 	return &topologyReconcileLogger{
-		Logger: log,
+		// We use call depth 1 so the logger prints the log line of the caller of the log func (e.g. Infof)
+		// not of the log func.
+		// NOTE: We do this once here, so that we don't have to do this on every log call.
+		Logger: log.WithCallDepth(1),
 	}
 }
 
@@ -53,6 +56,9 @@ type Logger interface {
 
 	// WithMachineDeployment adds to the logger information about the MachineDeployment object being processed.
 	WithMachineDeployment(md *clusterv1.MachineDeployment) Logger
+
+	// WithValues adds key-value pairs of context to a logger.
+	WithValues(keysAndValues ...interface{}) Logger
 
 	// V returns a logger value for a specific verbosity level, relative to
 	// this logger.
@@ -76,40 +82,50 @@ type topologyReconcileLogger struct {
 // WithObject adds to the logger information about the object being modified by reconcile, which in most case it is
 // a resources being part of the Cluster by reconciled.
 func (l *topologyReconcileLogger) WithObject(obj client.Object) Logger {
-	l.Logger = l.Logger.WithValues(
-		"object groupVersion", obj.GetObjectKind().GroupVersionKind().GroupVersion().String(),
-		"object kind", obj.GetObjectKind().GroupVersionKind().Kind,
-		"object", obj.GetName(),
-	)
-	return l
+	return &topologyReconcileLogger{
+		Logger: l.Logger.WithValues(
+			"object groupVersion", obj.GetObjectKind().GroupVersionKind().GroupVersion().String(),
+			"object kind", obj.GetObjectKind().GroupVersionKind().Kind,
+			"object", obj.GetName(),
+		),
+	}
 }
 
 // WithRef adds to the logger information about the object ref being modified by reconcile, which in most case it is
 // a resources being part of the Cluster by reconciled.
 func (l *topologyReconcileLogger) WithRef(ref *corev1.ObjectReference) Logger {
-	l.Logger = l.Logger.WithValues(
-		"object groupVersion", ref.APIVersion,
-		"object kind", ref.Kind,
-		"object", ref.Name,
-	)
-	return l
+	return &topologyReconcileLogger{
+		Logger: l.Logger.WithValues(
+			"object groupVersion", ref.APIVersion,
+			"object kind", ref.Kind,
+			"object", ref.Name,
+		),
+	}
 }
 
 // WithMachineDeployment adds to the logger information about the MachineDeployment object being processed.
 func (l *topologyReconcileLogger) WithMachineDeployment(md *clusterv1.MachineDeployment) Logger {
 	topologyName := md.Labels[clusterv1.ClusterTopologyMachineDeploymentLabelName]
-	l.Logger = l.Logger.WithValues(
-		"machineDeployment name", md.GetName(),
-		"machineDeployment topologyName", topologyName,
-	)
+	return &topologyReconcileLogger{
+		Logger: l.Logger.WithValues(
+			"machineDeployment name", md.GetName(),
+			"machineDeployment topologyName", topologyName,
+		),
+	}
+}
+
+// WithValues adds key-value pairs of context to a logger.
+func (l *topologyReconcileLogger) WithValues(keysAndValues ...interface{}) Logger {
+	l.Logger = l.Logger.WithValues(keysAndValues...)
 	return l
 }
 
 // V returns a logger value for a specific verbosity level, relative to
 // this logger.
 func (l *topologyReconcileLogger) V(level int) Logger {
-	l.Logger = l.Logger.V(level)
-	return l
+	return &topologyReconcileLogger{
+		Logger: l.Logger.V(level),
+	}
 }
 
 // Infof logs to the INFO log.

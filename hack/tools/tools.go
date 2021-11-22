@@ -1,3 +1,4 @@
+//go:build tools
 // +build tools
 
 /*
@@ -22,6 +23,7 @@ package tools
 import (
 	_ "github.com/drone/envsubst/v2/cmd/envsubst"
 	_ "github.com/joelanford/go-apidiff"
+	_ "github.com/mikefarah/yq/v4"
 	_ "github.com/onsi/ginkgo/ginkgo"
 	_ "gotest.tools/gotestsum"
 	_ "k8s.io/code-generator/cmd/conversion-gen"

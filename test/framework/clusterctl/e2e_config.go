@@ -23,13 +23,13 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
 
 	. "github.com/onsi/gomega"
-
 	"github.com/pkg/errors"
 	"k8s.io/apimachinery/pkg/util/version"
 	"k8s.io/utils/pointer"
@@ -274,8 +274,10 @@ func (c *E2EConfig) Defaults() {
 			}
 		}
 	}
+	imageReplacer := strings.NewReplacer("{OS}", runtime.GOOS, "{ARCH}", runtime.GOARCH)
 	for i := range c.Images {
 		containerImage := &c.Images[i]
+		containerImage.Name = imageReplacer.Replace(containerImage.Name)
 		if containerImage.LoadBehavior == "" {
 			containerImage.LoadBehavior = MustLoadImage
 		}

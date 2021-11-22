@@ -51,7 +51,6 @@ var (
 func TestComputeInfrastructureCluster(t *testing.T) {
 	// templates and ClusterClass
 	infrastructureClusterTemplate := builder.InfrastructureClusterTemplate(metav1.NamespaceDefault, "template1").
-		WithSpecFields(map[string]interface{}{"spec.template.spec.fakeSetting": true}).
 		Build()
 	clusterClass := builder.ClusterClass(metav1.NamespaceDefault, "class1").
 		WithInfrastructureClusterTemplate(infrastructureClusterTemplate).
@@ -91,6 +90,9 @@ func TestComputeInfrastructureCluster(t *testing.T) {
 			currentRef:  nil,
 			obj:         obj,
 		})
+
+		// Ensure no ownership is added to generated InfrastructureCluster.
+		g.Expect(obj.GetOwnerReferences()).To(HaveLen(0))
 	})
 	t.Run("If there is already a reference to the infrastructureCluster, it preserves the reference name", func(t *testing.T) {
 		g := NewWithT(t)
@@ -143,7 +145,6 @@ func TestComputeControlPlaneInfrastructureMachineTemplate(t *testing.T) {
 	}
 
 	infrastructureMachineTemplate := builder.InfrastructureMachineTemplate(metav1.NamespaceDefault, "template1").
-		WithSpecFields(map[string]interface{}{"spec.template.spec.fakeSetting": true}).
 		Build()
 	clusterClass := builder.ClusterClass(metav1.NamespaceDefault, "class1").
 		WithControlPlaneMetadata(labels, annotations).
@@ -176,6 +177,11 @@ func TestComputeControlPlaneInfrastructureMachineTemplate(t *testing.T) {
 			currentRef:  nil,
 			obj:         obj,
 		})
+
+		// Ensure Cluster ownership is added to generated InfrastructureCluster.
+		g.Expect(obj.GetOwnerReferences()).To(HaveLen(1))
+		g.Expect(obj.GetOwnerReferences()[0].Kind).To(Equal("Cluster"))
+		g.Expect(obj.GetOwnerReferences()[0].Name).To(Equal(cluster.Name))
 	})
 	t.Run("If there is already a reference to the infrastructureMachineTemplate, it preserves the reference name", func(t *testing.T) {
 		g := NewWithT(t)
@@ -215,7 +221,6 @@ func TestComputeControlPlane(t *testing.T) {
 	annotations := map[string]string{"a1": ""}
 
 	controlPlaneTemplate := builder.ControlPlaneTemplate(metav1.NamespaceDefault, "template1").
-		WithSpecFields(map[string]interface{}{"spec.template.spec.fakeSetting": true}).
 		Build()
 	clusterClass := builder.ClusterClass(metav1.NamespaceDefault, "class1").
 		WithControlPlaneMetadata(labels, annotations).
@@ -273,6 +278,9 @@ func TestComputeControlPlane(t *testing.T) {
 		assertNestedField(g, obj, version, contract.ControlPlane().Version().Path()...)
 		assertNestedField(g, obj, int64(replicas), contract.ControlPlane().Replicas().Path()...)
 		assertNestedFieldUnset(g, obj, contract.ControlPlane().MachineTemplate().InfrastructureRef().Path()...)
+
+		// Ensure no ownership is added to generated ControlPlane.
+		g.Expect(obj.GetOwnerReferences()).To(HaveLen(0))
 	})
 	t.Run("Skips setting replicas if required", func(t *testing.T) {
 		g := NewWithT(t)
@@ -666,15 +674,13 @@ func TestComputeCluster(t *testing.T) {
 
 func TestComputeMachineDeployment(t *testing.T) {
 	workerInfrastructureMachineTemplate := builder.InfrastructureMachineTemplate(metav1.NamespaceDefault, "linux-worker-inframachinetemplate").
-		WithSpecFields(map[string]interface{}{"spec.template.spec.fakeSetting": true}).
 		Build()
 	workerBootstrapTemplate := builder.BootstrapTemplate(metav1.NamespaceDefault, "linux-worker-bootstraptemplate").
 		Build()
 	labels := map[string]string{"fizz": "buzz", "foo": "bar"}
 	annotations := map[string]string{"annotation-1": "annotation-1-val"}
 
-	md1 := builder.MachineDeploymentClass(metav1.NamespaceDefault, "class1").
-		WithClass("linux-worker").
+	md1 := builder.MachineDeploymentClass("linux-worker").
 		WithLabels(labels).
 		WithAnnotations(annotations).
 		WithInfrastructureTemplate(workerInfrastructureMachineTemplate).
@@ -682,7 +688,7 @@ func TestComputeMachineDeployment(t *testing.T) {
 		Build()
 	mcds := []clusterv1.MachineDeploymentClass{*md1}
 	fakeClass := builder.ClusterClass(metav1.NamespaceDefault, "class1").
-		WithWorkerMachineDeploymentClasses(mcds).
+		WithWorkerMachineDeploymentClasses(mcds...).
 		Build()
 
 	version := "v1.21.2"
@@ -732,7 +738,18 @@ func TestComputeMachineDeployment(t *testing.T) {
 		g.Expect(err).ToNot(HaveOccurred())
 
 		g.Expect(actual.BootstrapTemplate.GetLabels()).To(HaveKeyWithValue(clusterv1.ClusterTopologyMachineDeploymentLabelName, "big-pool-of-machines"))
+
+		// Ensure Cluster ownership is added to generated BootstrapTemplate.
+		g.Expect(actual.BootstrapTemplate.GetOwnerReferences()).To(HaveLen(1))
+		g.Expect(actual.BootstrapTemplate.GetOwnerReferences()[0].Kind).To(Equal("Cluster"))
+		g.Expect(actual.BootstrapTemplate.GetOwnerReferences()[0].Name).To(Equal(cluster.Name))
+
 		g.Expect(actual.InfrastructureMachineTemplate.GetLabels()).To(HaveKeyWithValue(clusterv1.ClusterTopologyMachineDeploymentLabelName, "big-pool-of-machines"))
+
+		// Ensure Cluster ownership is added to generated InfrastructureMachineTemplate.
+		g.Expect(actual.InfrastructureMachineTemplate.GetOwnerReferences()).To(HaveLen(1))
+		g.Expect(actual.InfrastructureMachineTemplate.GetOwnerReferences()[0].Kind).To(Equal("Cluster"))
+		g.Expect(actual.InfrastructureMachineTemplate.GetOwnerReferences()[0].Name).To(Equal(cluster.Name))
 
 		actualMd := actual.Object
 		g.Expect(*actualMd.Spec.Replicas).To(Equal(replicas))
@@ -743,6 +760,9 @@ func TestComputeMachineDeployment(t *testing.T) {
 		g.Expect(actualMd.Labels).To(HaveKeyWithValue(clusterv1.ClusterTopologyMachineDeploymentLabelName, "big-pool-of-machines"))
 		g.Expect(actualMd.Labels).To(HaveKey(clusterv1.ClusterTopologyOwnedLabel))
 		g.Expect(controllerutil.ContainsFinalizer(actualMd, clusterv1.MachineDeploymentTopologyFinalizer)).To(BeTrue())
+
+		g.Expect(actualMd.Spec.Selector.MatchLabels).To(HaveKey(clusterv1.ClusterTopologyOwnedLabel))
+		g.Expect(actualMd.Spec.Selector.MatchLabels).To(HaveKeyWithValue(clusterv1.ClusterTopologyMachineDeploymentLabelName, "big-pool-of-machines"))
 
 		g.Expect(actualMd.Spec.Template.ObjectMeta.Labels).To(HaveKeyWithValue("foo", "baz"))
 		g.Expect(actualMd.Spec.Template.ObjectMeta.Labels).To(HaveKeyWithValue("fizz", "buzz"))
@@ -1174,6 +1194,13 @@ func TestTemplateToTemplate(t *testing.T) {
 	template := builder.InfrastructureClusterTemplate(metav1.NamespaceDefault, "infrastructureClusterTemplate").
 		WithSpecFields(map[string]interface{}{"spec.template.spec.fakeSetting": true}).
 		Build()
+	annotations := template.GetAnnotations()
+	if annotations == nil {
+		annotations = map[string]string{}
+	}
+	annotations[corev1.LastAppliedConfigAnnotation] = "foo"
+	template.SetAnnotations(annotations)
+
 	cluster := &clusterv1.Cluster{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "cluster1",
@@ -1282,6 +1309,7 @@ func assertTemplateToTemplate(g *WithT, in assertTemplateInput) {
 	}
 	g.Expect(in.obj.GetAnnotations()).To(HaveKeyWithValue(clusterv1.TemplateClonedFromGroupKindAnnotation, in.templateRef.GroupVersionKind().GroupKind().String()))
 	g.Expect(in.obj.GetAnnotations()).To(HaveKeyWithValue(clusterv1.TemplateClonedFromNameAnnotation, in.templateRef.Name))
+	g.Expect(in.obj.GetAnnotations()).ToNot(HaveKey(corev1.LastAppliedConfigAnnotation))
 	for k, v := range in.annotations {
 		g.Expect(in.obj.GetAnnotations()).To(HaveKeyWithValue(k, v))
 	}
@@ -1317,4 +1345,29 @@ func duplicateMachineDeploymentsState(s scope.MachineDeploymentsStateMap) scope.
 		n[k] = v
 	}
 	return n
+}
+
+func TestMergeMap(t *testing.T) {
+	t.Run("Merge maps", func(t *testing.T) {
+		g := NewWithT(t)
+
+		m := mergeMap(
+			map[string]string{
+				"a": "a",
+				"b": "b",
+			}, map[string]string{
+				"a": "ax",
+				"c": "c",
+			},
+		)
+		g.Expect(m).To(HaveKeyWithValue("a", "a"))
+		g.Expect(m).To(HaveKeyWithValue("b", "b"))
+		g.Expect(m).To(HaveKeyWithValue("c", "c"))
+	})
+	t.Run("Nils empty maps", func(t *testing.T) {
+		g := NewWithT(t)
+
+		m := mergeMap(map[string]string{}, map[string]string{})
+		g.Expect(m).To(BeNil())
+	})
 }

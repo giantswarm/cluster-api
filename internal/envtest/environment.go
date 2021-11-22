@@ -51,6 +51,7 @@ import (
 	expv1 "sigs.k8s.io/cluster-api/exp/api/v1beta1"
 	"sigs.k8s.io/cluster-api/internal/builder"
 	"sigs.k8s.io/cluster-api/util/kubeconfig"
+	"sigs.k8s.io/cluster-api/webhooks"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
@@ -99,7 +100,7 @@ func Run(ctx context.Context, input RunInput) int {
 	}
 
 	// Bootstrapping test environment
-	env := new(input.ManagerUncachedObjs...)
+	env := newEnvironment(input.ManagerUncachedObjs...)
 
 	if input.SetupIndexes != nil {
 		input.SetupIndexes(ctx, env.Manager)
@@ -143,13 +144,13 @@ type Environment struct {
 	cancelManager context.CancelFunc
 }
 
-// new creates a new environment spinning up a local api-server.
+// newEnvironment creates a new environment spinning up a local api-server.
 //
 // This function should be called only once for each package you're running tests within,
 // usually the environment is initialized in a suite_test.go file within a `BeforeSuite` ginkgo block.
-func new(uncachedObjs ...client.Object) *Environment {
+func newEnvironment(uncachedObjs ...client.Object) *Environment {
 	// Get the root of the current file to use in CRD paths.
-	_, filename, _, _ := goruntime.Caller(0) //nolint
+	_, filename, _, _ := goruntime.Caller(0) //nolint:dogsled
 	root := path.Join(path.Dir(filename), "..", "..")
 
 	// Create the test environment.
@@ -160,17 +161,17 @@ func new(uncachedObjs ...client.Object) *Environment {
 			filepath.Join(root, "controlplane", "kubeadm", "config", "crd", "bases"),
 			filepath.Join(root, "bootstrap", "kubeadm", "config", "crd", "bases"),
 		},
-		CRDs: []apiextensionsv1.CustomResourceDefinition{
-			*builder.GenericBootstrapConfigCRD.DeepCopy(),
-			*builder.GenericBootstrapConfigTemplateCRD.DeepCopy(),
-			*builder.GenericControlPlaneCRD.DeepCopy(),
-			*builder.GenericControlPlaneTemplateCRD.DeepCopy(),
-			*builder.GenericInfrastructureMachineCRD.DeepCopy(),
-			*builder.GenericInfrastructureMachineTemplateCRD.DeepCopy(),
-			*builder.GenericInfrastructureClusterCRD.DeepCopy(),
-			*builder.GenericInfrastructureClusterTemplateCRD.DeepCopy(),
-			*builder.GenericRemediationCRD.DeepCopy(),
-			*builder.GenericRemediationTemplateCRD.DeepCopy(),
+		CRDs: []*apiextensionsv1.CustomResourceDefinition{
+			builder.GenericBootstrapConfigCRD.DeepCopy(),
+			builder.GenericBootstrapConfigTemplateCRD.DeepCopy(),
+			builder.GenericControlPlaneCRD.DeepCopy(),
+			builder.GenericControlPlaneTemplateCRD.DeepCopy(),
+			builder.GenericInfrastructureMachineCRD.DeepCopy(),
+			builder.GenericInfrastructureMachineTemplateCRD.DeepCopy(),
+			builder.GenericInfrastructureClusterCRD.DeepCopy(),
+			builder.GenericInfrastructureClusterTemplateCRD.DeepCopy(),
+			builder.GenericRemediationCRD.DeepCopy(),
+			builder.GenericRemediationTemplateCRD.DeepCopy(),
 		},
 		// initialize webhook here to be able to test the envtest install via webhookOptions
 		// This should set LocalServingCertDir and LocalServingPort that are used below.
@@ -215,10 +216,10 @@ func new(uncachedObjs ...client.Object) *Environment {
 	// Set minNodeStartupTimeout for Test, so it does not need to be at least 30s
 	clusterv1.SetMinNodeStartupTimeout(metav1.Duration{Duration: 1 * time.Millisecond})
 
-	if err := (&clusterv1.Cluster{}).SetupWebhookWithManager(mgr); err != nil {
+	if err := (&webhooks.Cluster{Client: mgr.GetClient()}).SetupWebhookWithManager(mgr); err != nil {
 		klog.Fatalf("unable to create webhook: %+v", err)
 	}
-	if err := (&clusterv1.ClusterClass{}).SetupWebhookWithManager(mgr); err != nil {
+	if err := (&webhooks.ClusterClass{}).SetupWebhookWithManager(mgr); err != nil {
 		klog.Fatalf("unable to create webhook: %+v", err)
 	}
 	if err := (&clusterv1.Machine{}).SetupWebhookWithManager(mgr); err != nil {
@@ -274,7 +275,7 @@ func (e *Environment) start(ctx context.Context) {
 			panic(fmt.Sprintf("Failed to start the test environment manager: %v", err))
 		}
 	}()
-	e.Manager.Elected()
+	<-e.Manager.Elected()
 	e.WaitForWebhooks()
 }
 

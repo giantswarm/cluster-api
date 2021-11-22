@@ -71,10 +71,12 @@ type ImageMeta struct {
 // DockerClusterStatus defines the observed state of DockerCluster.
 type DockerClusterStatus struct {
 	// Ready denotes that the docker cluster (infrastructure) is ready.
+	// +optional
 	Ready bool `json:"ready"`
 
 	// FailureDomains don't mean much in CAPD since it's all local, but we can see how the rest of cluster API
 	// will use this if we populate it.
+	// +optional
 	FailureDomains clusterv1.FailureDomains `json:"failureDomains,omitempty"`
 
 	// Conditions defines current service state of the DockerCluster.
@@ -95,6 +97,7 @@ type APIEndpoint struct {
 // +kubebuilder:subresource:status
 // +kubebuilder:storageversion
 // +kubebuilder:object:root=true
+// +kubebuilder:printcolumn:name="Cluster",type="string",JSONPath=".metadata.labels['cluster\\.x-k8s\\.io/cluster-name']",description="Cluster"
 // +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp",description="Time duration since creation of DockerCluster"
 
 // DockerCluster is the Schema for the dockerclusters API.

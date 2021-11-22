@@ -18,7 +18,7 @@ package v1beta1
 
 import clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 
-// Conditions and condition Reasons for the KubeadmControlPlane object
+// Conditions and condition Reasons for the KubeadmControlPlane object.
 
 const (
 	// MachinesReadyCondition reports an aggregate of current status of the machines controlled by the KubeadmControlPlane.
@@ -111,7 +111,7 @@ const (
 
 const (
 	// EtcdClusterHealthyCondition documents the overall etcd cluster's health.
-	EtcdClusterHealthyCondition clusterv1.ConditionType = "EtcdClusterHealthyCondition"
+	EtcdClusterHealthyCondition clusterv1.ConditionType = "EtcdClusterHealthy"
 
 	// EtcdClusterInspectionFailedReason documents a failure in inspecting the etcd cluster status.
 	EtcdClusterInspectionFailedReason = "EtcdClusterInspectionFailed"

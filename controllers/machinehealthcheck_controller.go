@@ -24,13 +24,12 @@ import (
 	"strings"
 	"time"
 
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-
 	"github.com/go-logr/logr"
 	"github.com/pkg/errors"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/types"
 	kerrors "k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/apimachinery/pkg/util/intstr"
@@ -72,8 +71,10 @@ const (
 
 // MachineHealthCheckReconciler reconciles a MachineHealthCheck object.
 type MachineHealthCheckReconciler struct {
-	Client           client.Client
-	Tracker          *remote.ClusterCacheTracker
+	Client  client.Client
+	Tracker *remote.ClusterCacheTracker
+
+	// WatchFilterValue is the label value used to filter events prior to reconciliation.
 	WatchFilterValue string
 
 	controller controller.Controller
@@ -97,7 +98,10 @@ func (r *MachineHealthCheckReconciler) SetupWithManager(ctx context.Context, mgr
 		&source.Kind{Type: &clusterv1.Cluster{}},
 		handler.EnqueueRequestsFromMapFunc(r.clusterToMachineHealthCheck),
 		// TODO: should this wait for Cluster.Status.InfrastructureReady similar to Infra Machine resources?
-		predicates.ClusterUnpaused(ctrl.LoggerFrom(ctx)),
+		predicates.All(ctrl.LoggerFrom(ctx),
+			predicates.ClusterUnpaused(ctrl.LoggerFrom(ctx)),
+			predicates.ResourceHasFilterLabel(ctrl.LoggerFrom(ctx), r.WatchFilterValue),
+		),
 	)
 	if err != nil {
 		return errors.Wrap(err, "failed to add Watch for Clusters to controller manager")
@@ -215,7 +219,7 @@ func (r *MachineHealthCheckReconciler) reconcile(ctx context.Context, logger log
 	// do sort to avoid keep changing m.Status as the returned machines are not in order
 	sort.Strings(m.Status.Targets)
 
-	nodeStartupTimeout := m.Spec.NodeStartupTimeout // nolint:ifshort
+	nodeStartupTimeout := m.Spec.NodeStartupTimeout
 	if nodeStartupTimeout == nil {
 		nodeStartupTimeout = &clusterv1.DefaultNodeStartupTimeout
 	}

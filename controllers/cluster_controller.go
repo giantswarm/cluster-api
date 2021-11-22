@@ -23,8 +23,6 @@ import (
 	"strings"
 	"time"
 
-	"sigs.k8s.io/cluster-api/util/collections"
-
 	"github.com/pkg/errors"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -37,6 +35,7 @@ import (
 	"sigs.k8s.io/cluster-api/feature"
 	"sigs.k8s.io/cluster-api/util"
 	"sigs.k8s.io/cluster-api/util/annotations"
+	"sigs.k8s.io/cluster-api/util/collections"
 	"sigs.k8s.io/cluster-api/util/conditions"
 	"sigs.k8s.io/cluster-api/util/patch"
 	"sigs.k8s.io/cluster-api/util/predicates"
@@ -64,7 +63,9 @@ const (
 
 // ClusterReconciler reconciles a Cluster object.
 type ClusterReconciler struct {
-	Client           client.Client
+	Client client.Client
+
+	// WatchFilterValue is the label value used to filter events prior to reconciliation.
 	WatchFilterValue string
 
 	recorder        record.EventRecorder
@@ -429,7 +430,7 @@ func (c clusterDescendants) filterOwnedDescendants(cluster *clusterv1.Cluster) (
 		obj := o.(client.Object)
 		acc, err := meta.Accessor(obj)
 		if err != nil {
-			return nil // nolint:nilerr // We don't want to exit the EachListItem loop, just continue
+			return nil //nolint:nilerr // We don't want to exit the EachListItem loop, just continue
 		}
 
 		if util.IsOwnedByObject(acc, cluster) {
