@@ -28,7 +28,7 @@ import (
 
 // ANCHOR: MachineSetSpec
 
-// MachineSetSpec defines the desired state of MachineSet
+// MachineSetSpec defines the desired state of MachineSet.
 type MachineSetSpec struct {
 	// Replicas is the number of desired replicas.
 	// This is a pointer to distinguish between explicit zero and unspecified.
@@ -63,7 +63,7 @@ type MachineSetSpec struct {
 
 // ANCHOR: MachineTemplateSpec
 
-// MachineTemplateSpec describes the data needed to create a Machine from a template
+// MachineTemplateSpec describes the data needed to create a Machine from a template.
 type MachineTemplateSpec struct {
 	// Standard object's metadata.
 	// More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#metadata
@@ -104,7 +104,7 @@ const (
 
 // ANCHOR: MachineSetStatus
 
-// MachineSetStatus defines the observed state of MachineSet
+// MachineSetStatus defines the observed state of MachineSet.
 type MachineSetStatus struct {
 	// Selector is the same as the label selector but in the string format to avoid introspection
 	// by clients. The string will be in the same format as the query-param syntax.
@@ -180,7 +180,7 @@ func (m *MachineSet) Validate() field.ErrorList {
 	return errors
 }
 
-// DefaultingFunction sets default MachineSet field values.
+// Default sets default MachineSet field values.
 func (m *MachineSet) Default() {
 	log.Printf("Defaulting fields for MachineSet %s\n", m.Name)
 
@@ -205,7 +205,7 @@ func (m *MachineSet) Default() {
 // +kubebuilder:subresource:status
 // +kubebuilder:subresource:scale:specpath=.spec.replicas,statuspath=.status.replicas,selectorpath=.status.selector
 
-// MachineSet is the Schema for the machinesets API
+// MachineSet is the Schema for the machinesets API.
 type MachineSet struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
@@ -216,7 +216,7 @@ type MachineSet struct {
 
 // +kubebuilder:object:root=true
 
-// MachineSetList contains a list of MachineSet
+// MachineSetList contains a list of MachineSet.
 type MachineSetList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
