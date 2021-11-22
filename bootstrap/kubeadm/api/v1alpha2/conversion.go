@@ -89,7 +89,7 @@ func (src *KubeadmConfig) ConvertTo(dstRaw conversion.Hub) error {
 func (dst *KubeadmConfig) ConvertFrom(srcRaw conversion.Hub) error {
 	src := srcRaw.(*v1beta1.KubeadmConfig)
 	if err := Convert_v1beta1_KubeadmConfig_To_v1alpha2_KubeadmConfig(src, dst, nil); err != nil {
-		return nil
+		return err
 	}
 
 	// Preserve Hub data on down-conversion.

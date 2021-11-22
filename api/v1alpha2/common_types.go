@@ -24,10 +24,15 @@ import (
 type MachineAddressType string
 
 const (
-	MachineHostName    MachineAddressType = "Hostname"
-	MachineExternalIP  MachineAddressType = "ExternalIP"
-	MachineInternalIP  MachineAddressType = "InternalIP"
+	// MachineHostName is Hostname.
+	MachineHostName MachineAddressType = "Hostname"
+	// MachineExternalIP is ExternalIP.
+	MachineExternalIP MachineAddressType = "ExternalIP"
+	// MachineInternalIP is InternalIP.
+	MachineInternalIP MachineAddressType = "InternalIP"
+	// MachineExternalDNS is ExternalDNS.
 	MachineExternalDNS MachineAddressType = "ExternalDNS"
+	// MachineInternalDNS is InternalDNS.
 	MachineInternalDNS MachineAddressType = "InternalDNS"
 )
 

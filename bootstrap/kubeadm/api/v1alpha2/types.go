@@ -16,7 +16,7 @@ limitations under the License.
 
 package v1alpha2
 
-// KubeadmConfigTemplateResource defines the Template structure
+// KubeadmConfigTemplateResource defines the Template structure.
 type KubeadmConfigTemplateResource struct {
 	Spec KubeadmConfigSpec `json:"spec,omitempty"`
 }

@@ -20,7 +20,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// KubeadmConfigTemplateSpec defines the desired state of KubeadmConfigTemplate
+// KubeadmConfigTemplateSpec defines the desired state of KubeadmConfigTemplate.
 type KubeadmConfigTemplateSpec struct {
 	Template KubeadmConfigTemplateResource `json:"template"`
 }
@@ -28,7 +28,7 @@ type KubeadmConfigTemplateSpec struct {
 // +kubebuilder:object:root=true
 // +kubebuilder:resource:path=kubeadmconfigtemplates,scope=Namespaced,categories=cluster-api
 
-// KubeadmConfigTemplate is the Schema for the kubeadmconfigtemplates API
+// KubeadmConfigTemplate is the Schema for the kubeadmconfigtemplates API.
 type KubeadmConfigTemplate struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
@@ -38,7 +38,7 @@ type KubeadmConfigTemplate struct {
 
 // +kubebuilder:object:root=true
 
-// KubeadmConfigTemplateList contains a list of KubeadmConfigTemplate
+// KubeadmConfigTemplateList contains a list of KubeadmConfigTemplate.
 type KubeadmConfigTemplateList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`

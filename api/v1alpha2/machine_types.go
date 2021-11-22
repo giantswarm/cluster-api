@@ -32,15 +32,15 @@ const (
 	// MachineControlPlaneLabelName is the label set on machines part of a control plane.
 	MachineControlPlaneLabelName = "cluster.x-k8s.io/control-plane"
 
-	// ExcludeNodeDrainingAnnotation annotation explicitly skips node draining if set
+	// ExcludeNodeDrainingAnnotation annotation explicitly skips node draining if set.
 	ExcludeNodeDrainingAnnotation = "machine.cluster.x-k8s.io.io/exclude-node-draining"
 )
 
 // ANCHOR: MachineSpec
 
-// MachineSpec defines the desired state of Machine
+// MachineSpec defines the desired state of Machine.
 type MachineSpec struct {
-	// DEPRECATED: ObjectMeta has no function and isn't used anywhere.
+	// Deprecated: ObjectMeta has no function and isn't used anywhere.
 	// +optional
 	ObjectMeta `json:"metadata,omitempty"`
 
@@ -75,7 +75,7 @@ type MachineSpec struct {
 
 // ANCHOR: MachineStatus
 
-// MachineStatus defines the observed state of Machine
+// MachineStatus defines the observed state of Machine.
 type MachineStatus struct {
 	// NodeRef will point to the corresponding Node if it exists.
 	// +optional
@@ -200,7 +200,7 @@ type Bootstrap struct {
 // +kubebuilder:printcolumn:name="Phase",type="string",JSONPath=".status.phase",description="Machine status such as Terminating/Pending/Running/Failed etc"
 // +kubebuilder:printcolumn:name="NodeName",type="string",JSONPath=".status.nodeRef.name",description="Node name associated with this machine",priority=1
 
-// Machine is the Schema for the machines API
+// Machine is the Schema for the machines API.
 type Machine struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
@@ -211,7 +211,7 @@ type Machine struct {
 
 // +kubebuilder:object:root=true
 
-// MachineList contains a list of Machine
+// MachineList contains a list of Machine.
 type MachineList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`

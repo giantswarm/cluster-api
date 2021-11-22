@@ -21,14 +21,15 @@ import (
 	"k8s.io/apimachinery/pkg/util/intstr"
 )
 
+// MachineDeploymentStrategyType is the string type for machine deployment strategy.
 type MachineDeploymentStrategyType string
 
 const (
-	// Replace the old MachineSet by new one using rolling update
+	// RollingUpdateMachineDeploymentStrategyType - Replace the old MachineSet by new one using rolling update
 	// i.e. gradually scale down the old MachineSet and scale up the new one.
 	RollingUpdateMachineDeploymentStrategyType MachineDeploymentStrategyType = "RollingUpdate"
 
-	// RevisionAnnotation is the revision annotation of a machine deployment's machine sets which records its rollout sequence
+	// RevisionAnnotation is the revision annotation of a machine deployment's machine sets which records its rollout sequence.
 	RevisionAnnotation = "machinedeployment.clusters.k8s.io/revision"
 	// RevisionHistoryAnnotation maintains the history of all old revisions that a machine set has served for a machine deployment.
 	RevisionHistoryAnnotation = "machinedeployment.clusters.k8s.io/revision-history"
@@ -44,7 +45,7 @@ const (
 
 // ANCHOR: MachineDeploymentSpec
 
-// MachineDeploymentSpec defines the desired state of MachineDeployment
+// MachineDeploymentSpec defines the desired state of MachineDeployment.
 type MachineDeploymentSpec struct {
 	// Number of desired machines. Defaults to 1.
 	// This is a pointer to distinguish between explicit zero and not specified.
@@ -149,7 +150,7 @@ type MachineRollingUpdateDeployment struct {
 
 // ANCHOR: MachineDeploymentStatus
 
-// MachineDeploymentStatus defines the observed state of MachineDeployment
+// MachineDeploymentStatus defines the observed state of MachineDeployment.
 type MachineDeploymentStatus struct {
 	// The generation observed by the deployment controller.
 	// +optional
@@ -196,7 +197,7 @@ type MachineDeploymentStatus struct {
 // +kubebuilder:subresource:status
 // +kubebuilder:subresource:scale:specpath=.spec.replicas,statuspath=.status.replicas,selectorpath=.status.selector
 
-// MachineDeployment is the Schema for the machinedeployments API
+// MachineDeployment is the Schema for the machinedeployments API.
 type MachineDeployment struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
@@ -207,7 +208,7 @@ type MachineDeployment struct {
 
 // +kubebuilder:object:root=true
 
-// MachineDeploymentList contains a list of MachineDeployment
+// MachineDeploymentList contains a list of MachineDeployment.
 type MachineDeploymentList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
