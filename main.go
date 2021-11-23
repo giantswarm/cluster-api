@@ -34,6 +34,7 @@ import (
 	cliflag "k8s.io/component-base/cli/flag"
 	"k8s.io/klog/v2"
 	"k8s.io/klog/v2/klogr"
+	clusterv1alpha2 "sigs.k8s.io/cluster-api/api/v1alpha2"
 	clusterv1alpha3 "sigs.k8s.io/cluster-api/api/v1alpha3"
 	clusterv1alpha4 "sigs.k8s.io/cluster-api/api/v1alpha4"
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
@@ -90,7 +91,7 @@ func init() {
 	_ = clientgoscheme.AddToScheme(scheme)
 	_ = apiextensionsv1.AddToScheme(scheme)
 
-	_ = clusterv1alpha3.AddToScheme(scheme)
+	_ = clusterv1alpha2.AddToScheme(scheme)
 	_ = clusterv1alpha3.AddToScheme(scheme)
 	_ = clusterv1alpha4.AddToScheme(scheme)
 	_ = clusterv1.AddToScheme(scheme)
