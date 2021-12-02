@@ -29,21 +29,30 @@ jobs:
       - run:
           name: Re-tag images for git tags
           command: |
-            [[ -n $CIRCLE_TAG ]] && docker tag quay.io/giantswarm/cluster-api-controller-amd64:$CIRCLE_TAG quay.io/giantswarm/cluster-api-controller:$CIRCLE_TAG
-            [[ -n $CIRCLE_TAG ]] && docker tag quay.io/giantswarm/kubeadm-control-plane-controller-amd64:$CIRCLE_TAG quay.io/giantswarm/kubeadm-control-plane-controller:$CIRCLE_TAG
-            [[ -n $CIRCLE_TAG ]] && docker tag quay.io/giantswarm/kubeadm-bootstrap-controller-amd64:$CIRCLE_TAG quay.io/giantswarm/kubeadm-bootstrap-controller:$CIRCLE_TAG
-            [[ -n $CIRCLE_TAG ]] && docker tag quay.io/giantswarm/cluster-api-controller-amd64:$ registry-intl.cn-shanghai.aliyuncs.com/giantswarm/cluster-api-controller:$
-            [[ -n $CIRCLE_TAG ]] && docker tag quay.io/giantswarm/kubeadm-control-plane-controller-amd64:$ registry-intl.cn-shanghai.aliyuncs.com/giantswarm/kubeadm-control-plane-controller:$
-            [[ -n $CIRCLE_TAG ]] && docker tag quay.io/giantswarm/kubeadm-bootstrap-controller-amd64:$ registry-intl.cn-shanghai.aliyuncs.com/giantswarm/kubeadm-bootstrap-controller:$
+            docker tag quay.io/giantswarm/cluster-api-controller-amd64:$CIRCLE_TAG quay.io/giantswarm/cluster-api-controller:$CIRCLE_TAG
+            docker tag quay.io/giantswarm/kubeadm-control-plane-controller-amd64:$CIRCLE_TAG quay.io/giantswarm/kubeadm-control-plane-controller:$CIRCLE_TAG
+            docker tag quay.io/giantswarm/kubeadm-bootstrap-controller-amd64:$CIRCLE_TAG quay.io/giantswarm/kubeadm-bootstrap-controller:$CIRCLE_TAG
+            docker tag quay.io/giantswarm/cluster-api-controller-amd64:$ registry-intl.cn-shanghai.aliyuncs.com/giantswarm/cluster-api-controller:$
+            docker tag quay.io/giantswarm/kubeadm-control-plane-controller-amd64:$ registry-intl.cn-shanghai.aliyuncs.com/giantswarm/kubeadm-control-plane-controller:$
+            docker tag quay.io/giantswarm/kubeadm-bootstrap-controller-amd64:$ registry-intl.cn-shanghai.aliyuncs.com/giantswarm/kubeadm-bootstrap-controller:$
+          filters:
+            tags:
+              only: /^v.*/
       - run:
           name: Push images to quay
           command: |
             docker push quay.io/giantswarm/cluster-api-controller:$CIRCLE_SHA1
             docker push quay.io/giantswarm/kubeadm-control-plane-controller:$CIRCLE_SHA1
             docker push quay.io/giantswarm/kubeadm-bootstrap-controller:$CIRCLE_SHA1
-            [[ -n $CIRCLE_TAG ]] && docker push quay.io/giantswarm/cluster-api-controller:$CIRCLE_TAG
-            [[ -n $CIRCLE_TAG ]] && docker push quay.io/giantswarm/kubeadm-control-plane-controller:$CIRCLE_TAG
-            [[ -n $CIRCLE_TAG ]] && docker push quay.io/giantswarm/kubeadm-bootstrap-controller:$CIRCLE_TAG
+      - run:
+          name: Push images for git tags to quay
+          command: |
+            docker push quay.io/giantswarm/cluster-api-controller:$CIRCLE_TAG
+            docker push quay.io/giantswarm/kubeadm-control-plane-controller:$CIRCLE_TAG
+            docker push quay.io/giantswarm/kubeadm-bootstrap-controller:$CIRCLE_TAG
+          filters:
+            tags:
+              only: /^v.*/
       - run:
           name: Login to aliyun
           command: |
@@ -54,9 +63,15 @@ jobs:
             docker push registry-intl.cn-shanghai.aliyuncs.com/giantswarm/cluster-api-controller:$CIRCLE_SHA1
             docker push registry-intl.cn-shanghai.aliyuncs.com/giantswarm/kubeadm-control-plane-controller:$CIRCLE_SHA1
             docker push registry-intl.cn-shanghai.aliyuncs.com/giantswarm/kubeadm-bootstrap-controller:$CIRCLE_SHA1
-            [[ -n $CIRCLE_TAG ]] && docker push registry-intl.cn-shanghai.aliyuncs.com/giantswarm/cluster-api-controller:$CIRCLE_TAG
-            [[ -n $CIRCLE_TAG ]] && docker push registry-intl.cn-shanghai.aliyuncs.com/giantswarm/kubeadm-control-plane-controller:$CIRCLE_TAG
-            [[ -n $CIRCLE_TAG ]] && docker push registry-intl.cn-shanghai.aliyuncs.com/giantswarm/kubeadm-bootstrap-controller:$CIRCLE_TAG
+      - run:
+          name: Push image for git tags to aliyun
+          command: |
+            docker push registry-intl.cn-shanghai.aliyuncs.com/giantswarm/cluster-api-controller:$CIRCLE_TAG
+            docker push registry-intl.cn-shanghai.aliyuncs.com/giantswarm/kubeadm-control-plane-controller:$CIRCLE_TAG
+            docker push registry-intl.cn-shanghai.aliyuncs.com/giantswarm/kubeadm-bootstrap-controller:$CIRCLE_TAG
+          filters:
+            tags:
+              only: /^v.*/
 
 workflows:
   version: 2
