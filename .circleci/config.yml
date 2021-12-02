@@ -3,9 +3,6 @@ version: 2.1
 
 jobs:
   build:
-    filters:
-      tags:
-        only: /^v.*/
     machine:
       image: "ubuntu-2004:202010-01"
     steps:
@@ -74,3 +71,6 @@ workflows:
       - build:
           context:
             - architect
+          filters:
+            tags:
+              only: /^v.*/
