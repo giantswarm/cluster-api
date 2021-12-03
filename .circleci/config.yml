@@ -8,6 +8,11 @@ jobs:
     steps:
       - checkout
       - run:
+          name: Print env vars
+          command: |
+            echo "CIRCLE_SHA1=${CIRCLE_SHA1}"
+            echo "CIRCLE_TAG=${CIRCLE_TAG}"
+      - run:
           environment:
             REGISTRY: quay.io/giantswarm
           name: Build the CAPI docker images
