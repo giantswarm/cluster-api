@@ -8,6 +8,11 @@ jobs:
     steps:
       - checkout
       - run:
+          name: Print env vars
+          command: |
+            echo "CIRCLE_SHA1=${CIRCLE_SHA1}"
+            echo "CIRCLE_TAG=${CIRCLE_TAG}"
+      - run:
           environment:
             REGISTRY: quay.io/giantswarm
           name: Build the CAPI docker images
@@ -27,11 +32,26 @@ jobs:
             docker tag quay.io/giantswarm/kubeadm-control-plane-controller-amd64:$CIRCLE_SHA1 registry-intl.cn-shanghai.aliyuncs.com/giantswarm/kubeadm-control-plane-controller:$CIRCLE_SHA1
             docker tag quay.io/giantswarm/kubeadm-bootstrap-controller-amd64:$CIRCLE_SHA1 registry-intl.cn-shanghai.aliyuncs.com/giantswarm/kubeadm-bootstrap-controller:$CIRCLE_SHA1
       - run:
+          name: Re-tag images for git tags
+          command: |
+            if [[ -n $CIRCLE_TAG ]]; then docker tag quay.io/giantswarm/cluster-api-controller-amd64:$CIRCLE_SHA1 quay.io/giantswarm/cluster-api-controller:$CIRCLE_TAG; fi
+            if [[ -n $CIRCLE_TAG ]]; then docker tag quay.io/giantswarm/kubeadm-control-plane-controller-amd64:$CIRCLE_SHA1 quay.io/giantswarm/kubeadm-control-plane-controller:$CIRCLE_TAG; fi
+            if [[ -n $CIRCLE_TAG ]]; then docker tag quay.io/giantswarm/kubeadm-bootstrap-controller-amd64:$CIRCLE_SHA1 quay.io/giantswarm/kubeadm-bootstrap-controller:$CIRCLE_TAG; fi
+            if [[ -n $CIRCLE_TAG ]]; then docker tag quay.io/giantswarm/cluster-api-controller-amd64:$CIRCLE_SHA1 registry-intl.cn-shanghai.aliyuncs.com/giantswarm/cluster-api-controller:$CIRCLE_TAG; fi
+            if [[ -n $CIRCLE_TAG ]]; then docker tag quay.io/giantswarm/kubeadm-control-plane-controller-amd64:$CIRCLE_SHA1 registry-intl.cn-shanghai.aliyuncs.com/giantswarm/kubeadm-control-plane-controller:$CIRCLE_TAG; fi
+            if [[ -n $CIRCLE_TAG ]]; then docker tag quay.io/giantswarm/kubeadm-bootstrap-controller-amd64:$CIRCLE_SHA1 registry-intl.cn-shanghai.aliyuncs.com/giantswarm/kubeadm-bootstrap-controller:$CIRCLE_TAG; fi
+      - run:
           name: Push images to quay
           command: |
             docker push quay.io/giantswarm/cluster-api-controller:$CIRCLE_SHA1
             docker push quay.io/giantswarm/kubeadm-control-plane-controller:$CIRCLE_SHA1
             docker push quay.io/giantswarm/kubeadm-bootstrap-controller:$CIRCLE_SHA1
+      - run:
+          name: Push images for git tags to quay
+          command: |
+            if [[ -n $CIRCLE_TAG ]]; then docker push quay.io/giantswarm/cluster-api-controller:$CIRCLE_TAG; fi
+            if [[ -n $CIRCLE_TAG ]]; then docker push quay.io/giantswarm/kubeadm-control-plane-controller:$CIRCLE_TAG; fi
+            if [[ -n $CIRCLE_TAG ]]; then docker push quay.io/giantswarm/kubeadm-bootstrap-controller:$CIRCLE_TAG; fi
       - run:
           name: Login to aliyun
           command: |
@@ -42,7 +62,12 @@ jobs:
             docker push registry-intl.cn-shanghai.aliyuncs.com/giantswarm/cluster-api-controller:$CIRCLE_SHA1
             docker push registry-intl.cn-shanghai.aliyuncs.com/giantswarm/kubeadm-control-plane-controller:$CIRCLE_SHA1
             docker push registry-intl.cn-shanghai.aliyuncs.com/giantswarm/kubeadm-bootstrap-controller:$CIRCLE_SHA1
-
+      - run:
+          name: Push image for git tags to aliyun
+          command: |
+            if [[ -n $CIRCLE_TAG ]]; then docker push registry-intl.cn-shanghai.aliyuncs.com/giantswarm/cluster-api-controller:$CIRCLE_TAG; fi
+            if [[ -n $CIRCLE_TAG ]]; then docker push registry-intl.cn-shanghai.aliyuncs.com/giantswarm/kubeadm-control-plane-controller:$CIRCLE_TAG; fi
+            if [[ -n $CIRCLE_TAG ]]; then docker push registry-intl.cn-shanghai.aliyuncs.com/giantswarm/kubeadm-bootstrap-controller:$CIRCLE_TAG; fi
 
 workflows:
   version: 2
@@ -51,3 +76,6 @@ workflows:
       - build:
           context:
             - architect
+          filters:
+            tags:
+              only: /^v.*/
