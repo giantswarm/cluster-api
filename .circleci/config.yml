@@ -34,12 +34,17 @@ jobs:
       - run:
           name: Re-tag images for git tags
           command: |
-            [[ -n $CIRCLE_TAG ]] && docker tag quay.io/giantswarm/cluster-api-controller-amd64:$CIRCLE_SHA1 quay.io/giantswarm/cluster-api-controller:$CIRCLE_TAG
-            [[ -n $CIRCLE_TAG ]] && docker tag quay.io/giantswarm/kubeadm-control-plane-controller-amd64:$CIRCLE_SHA1 quay.io/giantswarm/kubeadm-control-plane-controller:$CIRCLE_TAG
-            [[ -n $CIRCLE_TAG ]] && docker tag quay.io/giantswarm/kubeadm-bootstrap-controller-amd64:$CIRCLE_SHA1 quay.io/giantswarm/kubeadm-bootstrap-controller:$CIRCLE_TAG
-            [[ -n $CIRCLE_TAG ]] && docker tag quay.io/giantswarm/cluster-api-controller-amd64:$CIRCLE_SHA1 registry-intl.cn-shanghai.aliyuncs.com/giantswarm/cluster-api-controller:$CIRCLE_TAG
-            [[ -n $CIRCLE_TAG ]] && docker tag quay.io/giantswarm/kubeadm-control-plane-controller-amd64:$CIRCLE_SHA1 registry-intl.cn-shanghai.aliyuncs.com/giantswarm/kubeadm-control-plane-controller:$CIRCLE_TAG
-            [[ -n $CIRCLE_TAG ]] && docker tag quay.io/giantswarm/kubeadm-bootstrap-controller-amd64:$CIRCLE_SHA1 registry-intl.cn-shanghai.aliyuncs.com/giantswarm/kubeadm-bootstrap-controller:$CIRCLE_TAG
+            docker tag quay.io/giantswarm/cluster-api-controller-amd64:$CIRCLE_SHA1 quay.io/giantswarm/cluster-api-controller:$CIRCLE_TAG
+            docker tag quay.io/giantswarm/kubeadm-control-plane-controller-amd64:$CIRCLE_SHA1 quay.io/giantswarm/kubeadm-control-plane-controller:$CIRCLE_TAG
+            docker tag quay.io/giantswarm/kubeadm-bootstrap-controller-amd64:$CIRCLE_SHA1 quay.io/giantswarm/kubeadm-bootstrap-controller:$CIRCLE_TAG
+            docker tag quay.io/giantswarm/cluster-api-controller-amd64:$CIRCLE_SHA1 registry-intl.cn-shanghai.aliyuncs.com/giantswarm/cluster-api-controller:$CIRCLE_TAG
+            docker tag quay.io/giantswarm/kubeadm-control-plane-controller-amd64:$CIRCLE_SHA1 registry-intl.cn-shanghai.aliyuncs.com/giantswarm/kubeadm-control-plane-controller:$CIRCLE_TAG
+            docker tag quay.io/giantswarm/kubeadm-bootstrap-controller-amd64:$CIRCLE_SHA1 registry-intl.cn-shanghai.aliyuncs.com/giantswarm/kubeadm-bootstrap-controller:$CIRCLE_TAG
+          filters:
+            tags:
+              only: /^v.*/
+            branches:
+              ignore: /.*/
       - run:
           name: Push images to quay
           command: |
@@ -49,9 +54,14 @@ jobs:
       - run:
           name: Push images for git tags to quay
           command: |
-            [[ -n $CIRCLE_TAG ]] && docker push quay.io/giantswarm/cluster-api-controller:$CIRCLE_TAG
-            [[ -n $CIRCLE_TAG ]] && docker push quay.io/giantswarm/kubeadm-control-plane-controller:$CIRCLE_TAG
-            [[ -n $CIRCLE_TAG ]] && docker push quay.io/giantswarm/kubeadm-bootstrap-controller:$CIRCLE_TAG
+            docker push quay.io/giantswarm/cluster-api-controller:$CIRCLE_TAG
+            docker push quay.io/giantswarm/kubeadm-control-plane-controller:$CIRCLE_TAG
+            docker push quay.io/giantswarm/kubeadm-bootstrap-controller:$CIRCLE_TAG
+          filters:
+            tags:
+              only: /^v.*/
+            branches:
+              ignore: /.*/
       - run:
           name: Login to aliyun
           command: |
@@ -65,9 +75,14 @@ jobs:
       - run:
           name: Push image for git tags to aliyun
           command: |
-            [[ -n $CIRCLE_TAG ]] && docker push registry-intl.cn-shanghai.aliyuncs.com/giantswarm/cluster-api-controller:$CIRCLE_TAG
-            [[ -n $CIRCLE_TAG ]] && docker push registry-intl.cn-shanghai.aliyuncs.com/giantswarm/kubeadm-control-plane-controller:$CIRCLE_TAG
-            [[ -n $CIRCLE_TAG ]] && docker push registry-intl.cn-shanghai.aliyuncs.com/giantswarm/kubeadm-bootstrap-controller:$CIRCLE_TAG
+            docker push registry-intl.cn-shanghai.aliyuncs.com/giantswarm/cluster-api-controller:$CIRCLE_TAG
+            docker push registry-intl.cn-shanghai.aliyuncs.com/giantswarm/kubeadm-control-plane-controller:$CIRCLE_TAG
+            docker push registry-intl.cn-shanghai.aliyuncs.com/giantswarm/kubeadm-bootstrap-controller:$CIRCLE_TAG
+          filters:
+            tags:
+              only: /^v.*/
+            branches:
+              ignore: /.*/
 
 workflows:
   version: 2
