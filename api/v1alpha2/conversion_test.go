@@ -22,20 +22,19 @@ import (
 	fuzz "github.com/google/gofuzz"
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
-	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"k8s.io/apimachinery/pkg/api/apitesting/fuzzer"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	runtimeserializer "k8s.io/apimachinery/pkg/runtime/serializer"
 	"k8s.io/utils/pointer"
+
 	"sigs.k8s.io/cluster-api/api/v1beta1"
 	utilconversion "sigs.k8s.io/cluster-api/util/conversion"
 )
 
 func TestFuzzyConversion(t *testing.T) {
 	t.Run("for Cluster", utilconversion.FuzzTestFunc(utilconversion.FuzzTestFuncInput{
-		Hub:         &v1beta1.Cluster{},
-		Spoke:       &Cluster{},
-		FuzzerFuncs: []fuzzer.FuzzerFuncs{ClusterJSONFuzzFuncs},
+		Hub:   &v1beta1.Cluster{},
+		Spoke: &Cluster{},
 	}))
 	t.Run("for Machine", utilconversion.FuzzTestFunc(utilconversion.FuzzTestFuncInput{
 		Hub:         &v1beta1.Machine{},
@@ -352,19 +351,6 @@ func BootstrapFuzzer(obj *Bootstrap, c fuzz.Continue) {
 
 	// Bootstrap.Data has been removed in v1alpha4, so setting it to nil in order to avoid v1alpha3 --> <hub> --> v1alpha3 round trip errors.
 	obj.Data = nil
-}
-
-func ClusterJSONFuzzFuncs(_ runtimeserializer.CodecFactory) []interface{} {
-	return []interface{}{
-		ClusterVariableFuzzer,
-	}
-}
-
-func ClusterVariableFuzzer(in *v1beta1.ClusterVariable, c fuzz.Continue) {
-	c.FuzzNoCustom(in)
-
-	// Not every random byte array is valid JSON, e.g. a string without `""`,so we're setting a valid value.
-	in.Value = apiextensionsv1.JSON{Raw: []byte("\"test-string\"")}
 }
 
 func MachineSpecFuzzer(in *v1beta1.MachineSpec, c fuzz.Continue) {
