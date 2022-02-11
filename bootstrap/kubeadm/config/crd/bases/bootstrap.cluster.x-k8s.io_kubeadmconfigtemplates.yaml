@@ -22,7 +22,7 @@ spec:
     schema:
       openAPIV3Schema:
         description: KubeadmConfigTemplate is the Schema for the kubeadmconfigtemplates
-          API
+          API.
         properties:
           apiVersion:
             description: 'APIVersion defines the versioned schema of this representation
@@ -37,10 +37,10 @@ spec:
           metadata:
             type: object
           spec:
-            description: KubeadmConfigTemplateSpec defines the desired state of KubeadmConfigTemplate
+            description: KubeadmConfigTemplateSpec defines the desired state of KubeadmConfigTemplate.
             properties:
               template:
-                description: KubeadmConfigTemplateResource defines the Template structure
+                description: KubeadmConfigTemplateResource defines the Template structure.
                 properties:
                   spec:
                     description: KubeadmConfigSpec defines the desired state of KubeadmConfig.

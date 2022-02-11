@@ -37,7 +37,7 @@ spec:
     name: v1alpha2
     schema:
       openAPIV3Schema:
-        description: Machine is the Schema for the machines API
+        description: Machine is the Schema for the machines API.
         properties:
           apiVersion:
             description: 'APIVersion defines the versioned schema of this representation
@@ -52,7 +52,7 @@ spec:
           metadata:
             type: object
           spec:
-            description: MachineSpec defines the desired state of Machine
+            description: MachineSpec defines the desired state of Machine.
             properties:
               bootstrap:
                 description: Bootstrap is a reference to a local struct which encapsulates
@@ -141,7 +141,7 @@ spec:
                     type: string
                 type: object
               metadata:
-                description: 'DEPRECATED: ObjectMeta has no function and isn''t used
+                description: 'Deprecated: ObjectMeta has no function and isn''t used
                   anywhere.'
                 properties:
                   annotations:
@@ -260,7 +260,7 @@ spec:
             - infrastructureRef
             type: object
           status:
-            description: MachineStatus defines the observed state of Machine
+            description: MachineStatus defines the observed state of Machine.
             properties:
               addresses:
                 description: Addresses is a list of addresses assigned to the machine.

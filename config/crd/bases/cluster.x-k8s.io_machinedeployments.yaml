@@ -23,7 +23,7 @@ spec:
   - name: v1alpha2
     schema:
       openAPIV3Schema:
-        description: MachineDeployment is the Schema for the machinedeployments API
+        description: MachineDeployment is the Schema for the machinedeployments API.
         properties:
           apiVersion:
             description: 'APIVersion defines the versioned schema of this representation
@@ -38,7 +38,7 @@ spec:
           metadata:
             type: object
           spec:
-            description: MachineDeploymentSpec defines the desired state of MachineDeployment
+            description: MachineDeploymentSpec defines the desired state of MachineDeployment.
             properties:
               minReadySeconds:
                 description: Minimum number of seconds for which a newly created machine
@@ -361,7 +361,7 @@ spec:
                             type: string
                         type: object
                       metadata:
-                        description: 'DEPRECATED: ObjectMeta has no function and isn''t
+                        description: 'Deprecated: ObjectMeta has no function and isn''t
                           used anywhere.'
                         properties:
                           annotations:
@@ -493,7 +493,7 @@ spec:
             - template
             type: object
           status:
-            description: MachineDeploymentStatus defines the observed state of MachineDeployment
+            description: MachineDeploymentStatus defines the observed state of MachineDeployment.
             properties:
               availableReplicas:
                 description: Total number of available machines (ready for at least

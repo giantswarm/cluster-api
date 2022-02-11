@@ -23,7 +23,7 @@ spec:
   - name: v1alpha2
     schema:
       openAPIV3Schema:
-        description: MachineSet is the Schema for the machinesets API
+        description: MachineSet is the Schema for the machinesets API.
         properties:
           apiVersion:
             description: 'APIVersion defines the versioned schema of this representation
@@ -38,7 +38,7 @@ spec:
           metadata:
             type: object
           spec:
-            description: MachineSetSpec defines the desired state of MachineSet
+            description: MachineSetSpec defines the desired state of MachineSet.
             properties:
               deletePolicy:
                 description: DeletePolicy defines the policy used to identify nodes
@@ -308,7 +308,7 @@ spec:
                             type: string
                         type: object
                       metadata:
-                        description: 'DEPRECATED: ObjectMeta has no function and isn''t
+                        description: 'Deprecated: ObjectMeta has no function and isn''t
                           used anywhere.'
                         properties:
                           annotations:
@@ -439,7 +439,7 @@ spec:
             - selector
             type: object
           status:
-            description: MachineSetStatus defines the observed state of MachineSet
+            description: MachineSetStatus defines the observed state of MachineSet.
             properties:
               availableReplicas:
                 description: The number of available replicas (ready for at least
