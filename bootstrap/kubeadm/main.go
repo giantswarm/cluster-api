@@ -35,6 +35,7 @@ import (
 	"k8s.io/klog/v2"
 	"k8s.io/klog/v2/klogr"
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
+	kubeadmbootstrapv1alpha2 "sigs.k8s.io/cluster-api/bootstrap/kubeadm/api/v1alpha2"
 	kubeadmbootstrapv1alpha3 "sigs.k8s.io/cluster-api/bootstrap/kubeadm/api/v1alpha3"
 	kubeadmbootstrapv1alpha4 "sigs.k8s.io/cluster-api/bootstrap/kubeadm/api/v1alpha4"
 	kubeadmbootstrapv1 "sigs.k8s.io/cluster-api/bootstrap/kubeadm/api/v1beta1"
@@ -60,6 +61,7 @@ func init() {
 	_ = clientgoscheme.AddToScheme(scheme)
 	_ = clusterv1.AddToScheme(scheme)
 	_ = expv1.AddToScheme(scheme)
+	_ = kubeadmbootstrapv1alpha2.AddToScheme(scheme)
 	_ = kubeadmbootstrapv1alpha3.AddToScheme(scheme)
 	_ = kubeadmbootstrapv1alpha4.AddToScheme(scheme)
 	_ = kubeadmbootstrapv1.AddToScheme(scheme)
