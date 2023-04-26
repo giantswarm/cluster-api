@@ -1,0 +1,86 @@
+version: 2.1
+
+jobs:
+  test:
+    resource_class: xlarge
+    docker:
+      - image: cimg/go:1.26.8
+    steps:
+      - checkout
+      - run:
+          name: Generate CRDs
+          command: make generate
+      - run:
+          name: Check diff
+          command: git diff --exit-code
+      - run:
+          name: Run tests
+          command: make test
+
+  build:
+    resource_class: xlarge
+    machine:
+      image: ubuntu-2604:2026.07.1
+    environment:
+      COMPONENTS: core kubeadm-bootstrap kubeadm-control-plane
+      PLATFORMS: amd64 arm64
+      REGISTRY_AZURE: gsoci.azurecr.io/giantswarm
+      REGISTRY_ALIYUN: giantswarm-registry.cn-shanghai.cr.aliyuncs.com/giantswarm
+      BUILDX_NO_DEFAULT_ATTESTATIONS: "1"
+    steps:
+      - checkout
+      - run:
+          name: Compute jobs
+          command: echo "JOBS=$(( $(wc -w \<<< "${COMPONENTS}") * $(wc -w \<<< "${PLATFORMS}") ))" | tee --append "${BASH_ENV}"
+      - run:
+          name: Build images
+          command: |-
+            # Iterate registries.
+            for registry in "${REGISTRY_AZURE}" "${REGISTRY_ALIYUN}"
+            do
+              # Build images.
+              make --jobs "${JOBS}" docker-build-all ALL_DOCKER_BUILD="${COMPONENTS}" ALL_ARCH="${PLATFORMS}" REGISTRY="${registry}" TAG="${CIRCLE_TAG:-${CIRCLE_SHA1}}"
+            done
+      - run:
+          name: Push to Azure
+          command: |-
+            # Log in to registry.
+            docker login --username "${ACR_GSOCI_USERNAME}" --password "${ACR_GSOCI_PASSWORD}" "${REGISTRY_AZURE%%/*}"
+
+            # Push images.
+            make --jobs "${JOBS}" docker-push-all ALL_DOCKER_BUILD="${COMPONENTS}" ALL_ARCH="${PLATFORMS}" REGISTRY="${REGISTRY_AZURE}" TAG="${CIRCLE_TAG:-${CIRCLE_SHA1}}"
+      - run:
+          name: Push to Aliyun
+          command: |-
+            # Try up to 100 times.
+            for i in {1..100}
+            do
+              # Log in to registry.
+              docker login --username "${ALIYUN_USERNAME}" --password "${ALIYUN_PASSWORD}" "${REGISTRY_ALIYUN%%/*}" && \
+              \
+              # Push images.
+              make --jobs "${JOBS}" docker-push-all ALL_DOCKER_BUILD="${COMPONENTS}" ALL_ARCH="${PLATFORMS}" REGISTRY="${REGISTRY_ALIYUN}" TAG="${CIRCLE_TAG:-${CIRCLE_SHA1}}" && exit 0
+
+              # Print attempt.
+              echo "Attempt #${i} failed."
+              sleep 60
+            done
+
+            # Exit erroneously.
+            exit 1
+
+workflows:
+  build:
+    jobs:
+      - test:
+          filters:
+            tags:
+              only: /^v.*/
+      - build:
+          context:
+            - architect
+          filters:
+            tags:
+              only: /^v.*/
+          requires:
+            - test
