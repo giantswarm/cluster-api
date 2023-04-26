@@ -9,6 +9,9 @@ jobs:
       ALL_ARCH: "amd64 arm64"
       REGISTRY_QUAY: quay.io/giantswarm
       REGISTRY_CHINA: giantswarm-registry.cn-shanghai.cr.aliyuncs.com/giantswarm
+
+      # We don't build all components, e.g. not CAPD or clusterctl
+      ALL_DOCKER_BUILD: "core kubeadm-bootstrap kubeadm-control-plane"
     steps:
       - checkout
       - run:
@@ -37,11 +40,11 @@ jobs:
             rm .dockerignore
 
             for registry in $REGISTRY_QUAY $REGISTRY_CHINA; do
-              make docker-build-all ALL_ARCH="$ALL_ARCH" TAG=$CIRCLE_SHA1 REGISTRY=$registry
+              make docker-build-all ALL_ARCH="$ALL_ARCH" ALL_DOCKER_BUILD="$ALL_DOCKER_BUILD" TAG=$CIRCLE_SHA1 REGISTRY=$registry
 
               if [ -n "$CIRCLE_TAG" ]; then
                 echo "Building tag $CIRCLE_TAG"
-                make docker-build-all ALL_ARCH="$ALL_ARCH" TAG="$CIRCLE_TAG" REGISTRY=$registry
+                make docker-build-all ALL_ARCH="$ALL_ARCH" ALL_DOCKER_BUILD="$ALL_DOCKER_BUILD" TAG="$CIRCLE_TAG" REGISTRY=$registry
               fi
             done
 
@@ -51,11 +54,11 @@ jobs:
           command: |
             docker login --username $QUAY_USERNAME --password $QUAY_PASSWORD quay.io
 
-            make docker-push-all ALL_ARCH="$ALL_ARCH" TAG=$CIRCLE_SHA1 REGISTRY=$REGISTRY_QUAY
+            make docker-push-all ALL_ARCH="$ALL_ARCH" ALL_DOCKER_BUILD="$ALL_DOCKER_BUILD" TAG=$CIRCLE_SHA1 REGISTRY=$REGISTRY_QUAY
 
             if [ -n "$CIRCLE_TAG" ]; then
               echo "Pushing tag $CIRCLE_TAG"
-              make docker-push-all ALL_ARCH="$ALL_ARCH" TAG="$CIRCLE_TAG" REGISTRY=$REGISTRY_QUAY
+              make docker-push-all ALL_ARCH="$ALL_ARCH" ALL_DOCKER_BUILD="$ALL_DOCKER_BUILD" TAG="$CIRCLE_TAG" REGISTRY=$REGISTRY_QUAY
             fi
 
       - run:
@@ -66,11 +69,11 @@ jobs:
                 set -eu
                 docker login --username $ALIYUN_USERNAME --password $ALIYUN_PASSWORD giantswarm-registry.cn-shanghai.cr.aliyuncs.com
 
-                make docker-push-all ALL_ARCH="$ALL_ARCH" TAG=$CIRCLE_SHA1 REGISTRY=$REGISTRY_CHINA
+                make docker-push-all ALL_ARCH="$ALL_ARCH" ALL_DOCKER_BUILD="$ALL_DOCKER_BUILD" TAG=$CIRCLE_SHA1 REGISTRY=$REGISTRY_CHINA
 
                 if [ -n "${CIRCLE_TAG:-}" ]; then
                   echo "Pushing tag $CIRCLE_TAG"
-                  make docker-push-all ALL_ARCH="$ALL_ARCH" TAG="$CIRCLE_TAG" REGISTRY=$REGISTRY_CHINA
+                  make docker-push-all ALL_ARCH="$ALL_ARCH" ALL_DOCKER_BUILD="$ALL_DOCKER_BUILD" TAG="$CIRCLE_TAG" REGISTRY=$REGISTRY_CHINA
                 fi
               ) || { echo "Failed attempt ${n}"; continue; }
 
