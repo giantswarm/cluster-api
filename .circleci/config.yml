@@ -44,6 +44,8 @@ jobs:
                 make docker-build-all ALL_ARCH="$ALL_ARCH" TAG="$CIRCLE_TAG" REGISTRY=$registry
               fi
             done
+
+            docker images
       - run:
           name: Push to quay
           command: |
