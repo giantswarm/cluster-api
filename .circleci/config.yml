@@ -12,6 +12,7 @@ jobs:
 
       # We don't build all components, e.g. not CAPD or clusterctl
       ALL_DOCKER_BUILD: "core kubeadm-bootstrap kubeadm-control-plane"
+    resource_class: xlarge # building several Docker images for multiple architectures is otherwise slow
     steps:
       - checkout
       - run:
