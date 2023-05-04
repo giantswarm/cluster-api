@@ -36,6 +36,48 @@ Now, check the [CircleCI pipeline](https://app.circleci.com/pipelines/github/gia
 To test the changes in the app:
 
 - Replace `.image.tag` in [the app's `values.yaml`](https://github.com/giantswarm/cluster-api-app/blob/master/helm/cluster-api/values.yaml) with your commit SHA
-- Run `make generate`
+- Run `cd cluster-api-app && make generate`
 - Push a feature branch
 - Check the test app release thoroughly on a management cluster
+
+### Release
+
+We want to use stable upstream release tags unless a hotfix is required ([decision](https://intranet.giantswarm.io/docs/product/pdr/010_fork_management/)).
+
+So if you have a non-urgent fix, create an upstream PR and wait until it gets released. Then release like this:
+
+- On our `release-*` branch, merge the latest upstream commit and build new tags
+
+  ```sh
+  git remote add upstream https://github.com/kubernetes-sigs/cluster-api.git
+  git fetch upstream
+  git checkout release-1.FILLME
+  git merge vX.Y.Z # desired release of upstream
+  git push && git push --tags
+  ```
+
+- Check that CircleCI pipeline succeeds for the desired Git tag in order to produce images
+- Replace `.image.tag` in [the app's `values.yaml`](https://github.com/giantswarm/cluster-api-app/blob/master/helm/cluster-api/values.yaml) with the new tag
+- Test as described above
+- Open PR
+- Once merged, bump the version in the respective collection to deploy it (e.g. [capa-app-collection](https://github.com/giantswarm/capa-app-collection/))
+
+In the _rare_ case of an urgent hotfix, we can create an intermediate release tag like this and use it in `.image.tag` instead of a stable upstream release:
+
+```sh
+# Find the latest upstream release on which our `main` branch is based.
+# Get the short commit SHA with `git rev-parse --short HEAD`.
+# Then add and push a Git tag to trigger image builds.
+git tag vX.Y.Z-gs-SHORT_COMMIT_SHA
+git push origin --tags TAG_FROM_ABOVE
+```
+
+### Keep fork customizations up to date
+
+Only these files should differ between upstream and our fork:
+
+```sh
+git diff main..release-1.FILLME -- .circleci/ README.md
+```
+
+If this shows any output, please align the `main` branch with the others.
