@@ -18,6 +18,7 @@ package remote
 
 import (
 	"context"
+	"crypto/rsa"
 	"fmt"
 	"os"
 	"sync"
@@ -48,6 +49,7 @@ import (
 
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	"sigs.k8s.io/cluster-api/feature"
+	"sigs.k8s.io/cluster-api/util/certs"
 	"sigs.k8s.io/cluster-api/util/conditions"
 )
 
@@ -166,12 +168,23 @@ func (t *ClusterCacheTracker) GetRESTConfig(ctc context.Context, cluster client.
 	return accessor.config, nil
 }
 
+// GetEtcdClientCertificateKey returns a cached certificate key to be used for generating certificates for accessing etcd in the given cluster.
+func (t *ClusterCacheTracker) GetEtcdClientCertificateKey(ctx context.Context, cluster client.ObjectKey) (*rsa.PrivateKey, error) {
+	accessor, err := t.getClusterAccessor(ctx, cluster, t.indexes...)
+	if err != nil {
+		return nil, err
+	}
+
+	return accessor.etcdClientCertificateKey, nil
+}
+
 // clusterAccessor represents the combination of a delegating client, cache, and watches for a remote cluster.
 type clusterAccessor struct {
-	cache   *stoppableCache
-	client  client.Client
-	watches sets.Set[string]
-	config  *rest.Config
+	cache                    *stoppableCache
+	client                   client.Client
+	watches                  sets.Set[string]
+	config                   *rest.Config
+	etcdClientCertificateKey *rsa.PrivateKey
 }
 
 // clusterAccessorExists returns true if a clusterAccessor exists for cluster.
@@ -335,11 +348,27 @@ func (t *ClusterCacheTracker) newClusterAccessor(ctx context.Context, cluster cl
 		return nil, err
 	}
 
+	// Wrap the client with a client that sets timeouts on all Get and List calls
+	// If we don't set timeouts here Get and List calls can get stuck if they lazily create a new informer
+	// and the informer than doesn't sync because the workload cluster apiserver is not reachable.
+	// An alternative would be to set timeouts in the contexts we pass into all Get and List calls.
+	// It should be reasonable to have Get and List calls timeout within the duration configured in the restConfig.
+	delegatingClient = newClientWithTimeout(delegatingClient, config.Timeout)
+
+	// Generating a new private key to be used for generating temporary certificates to connect to
+	// etcd on the target cluster.
+	// NOTE: Generating a private key is an expensive operation, so we store it in the cluster accessor.
+	etcdKey, err := certs.NewPrivateKey()
+	if err != nil {
+		return nil, errors.Wrapf(err, "error creating etcd client key for remote cluster %q", cluster.String())
+	}
+
 	return &clusterAccessor{
-		cache:   cache,
-		config:  config,
-		client:  delegatingClient,
-		watches: sets.Set[string]{},
+		cache:                    cache,
+		config:                   config,
+		client:                   delegatingClient,
+		watches:                  sets.Set[string]{},
+		etcdClientCertificateKey: etcdKey,
 	}, nil
 }
 
@@ -580,4 +609,34 @@ func (t *ClusterCacheTracker) healthCheckCluster(ctx context.Context, in *health
 		t.log.Error(err, "Error health checking cluster", "Cluster", klog.KRef(in.cluster.Namespace, in.cluster.Name))
 		t.deleteAccessor(ctx, in.cluster)
 	}
+}
+
+// newClientWithTimeout returns a new client which sets the specified timeout on all Get and List calls.
+// If we don't set timeouts here Get and List calls can get stuck if they lazily create a new informer
+// and the informer than doesn't sync because the workload cluster apiserver is not reachable.
+// An alternative would be to set timeouts in the contexts we pass into all Get and List calls.
+func newClientWithTimeout(client client.Client, timeout time.Duration) client.Client {
+	return clientWithTimeout{
+		Client:  client,
+		timeout: timeout,
+	}
+}
+
+type clientWithTimeout struct {
+	client.Client
+	timeout time.Duration
+}
+
+var _ client.Client = &clientWithTimeout{}
+
+func (c clientWithTimeout) Get(ctx context.Context, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+	ctx, cancel := context.WithTimeout(ctx, c.timeout)
+	defer cancel()
+	return c.Client.Get(ctx, key, obj, opts...)
+}
+
+func (c clientWithTimeout) List(ctx context.Context, list client.ObjectList, opts ...client.ListOption) error {
+	ctx, cancel := context.WithTimeout(ctx, c.timeout)
+	defer cancel()
+	return c.Client.List(ctx, list, opts...)
 }

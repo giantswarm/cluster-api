@@ -207,11 +207,21 @@ func (r *KubeadmControlPlaneReconciler) Reconcile(ctx context.Context, req ctrl.
 			reterr = kerrors.NewAggregate([]error{reterr, err})
 		}
 
-		// TODO: remove this as soon as we have a proper remote cluster cache in place.
-		// Make KCP to requeue in case status is not ready, so we can check for node status without waiting for a full resync (by default 10 minutes).
-		// Only requeue if we are not going in exponential backoff due to error, or if we are not already re-queueing, or if the object has a deletion timestamp.
-		if reterr == nil && !res.Requeue && res.RequeueAfter <= 0 && kcp.ObjectMeta.DeletionTimestamp.IsZero() {
+		// Only requeue if there is no error, Requeue or RequeueAfter and the object does not have a deletion timestamp.
+		if reterr == nil && res.IsZero() && kcp.ObjectMeta.DeletionTimestamp.IsZero() {
+			// Make KCP requeue in case node status is not ready, so we can check for node status without waiting for a full
+			// resync (by default 10 minutes).
+			// The alternative solution would be to watch the control plane nodes in the Cluster - similar to how the
+			// MachineSet and MachineHealthCheck controllers watch the nodes under their control.
 			if !kcp.Status.Ready {
+				res = ctrl.Result{RequeueAfter: 20 * time.Second}
+			}
+
+			// Make KCP requeue if ControlPlaneComponentsHealthyCondition is false so we can check for control plane component
+			// status without waiting for a full resync (by default 10 minutes).
+			// Otherwise this condition can lead to a delay in provisioning MachineDeployments when MachineSet preflight checks are enabled.
+			// The alternative solution to this requeue would be watching the relevant pods inside each workload cluster which would be very expensive.
+			if conditions.IsFalse(kcp, controlplanev1.ControlPlaneComponentsHealthyCondition) {
 				res = ctrl.Result{RequeueAfter: 20 * time.Second}
 			}
 		}
@@ -371,11 +381,6 @@ func (r *KubeadmControlPlaneReconciler) reconcile(ctx context.Context, cluster *
 		return result, err
 	}
 
-	// Reconcile certificate expiry for machines that don't have the expiry annotation on KubeadmConfig yet.
-	if result, err := r.reconcileCertificateExpiries(ctx, controlPlane); err != nil || !result.IsZero() {
-		return result, err
-	}
-
 	// Control plane machines rollout due to configuration changes (e.g. upgrades) takes precedence over other operations.
 	needRollout := controlPlane.MachinesNeedingRollout()
 	switch {
@@ -443,6 +448,14 @@ func (r *KubeadmControlPlaneReconciler) reconcile(ctx context.Context, cluster *
 	// Update CoreDNS deployment.
 	if err := workloadCluster.UpdateCoreDNS(ctx, kcp, parsedVersion); err != nil {
 		return ctrl.Result{}, errors.Wrap(err, "failed to update CoreDNS deployment")
+	}
+
+	// Reconcile certificate expiry for Machines that don't have the expiry annotation on KubeadmConfig yet.
+	// Note: This requires that all control plane machines are working. We moved this to the end of the reconcile
+	// as nothing in the same reconcile depends on it and to ensure it doesn't block anything else,
+	// especially MHC remediation and rollout of changes to recover the control plane.
+	if result, err := r.reconcileCertificateExpiries(ctx, controlPlane); err != nil || !result.IsZero() {
+		return result, err
 	}
 
 	return ctrl.Result{}, nil
@@ -585,35 +598,40 @@ func (r *KubeadmControlPlaneReconciler) syncMachines(ctx context.Context, contro
 			{"f:metadata", "f:annotations"},
 			{"f:metadata", "f:labels"},
 		}
-		infraMachine := controlPlane.InfraResources[machineName]
-		// Cleanup managed fields of all InfrastructureMachines to drop ownership of labels and annotations
-		// from "manager". We do this so that InfrastructureMachines that are created using the Create method
-		// can also work with SSA. Otherwise, labels and annotations would be co-owned by our "old" "manager"
-		// and "capi-kubeadmcontrolplane" and then we would not be able to e.g. drop labels and annotations.
-		if err := ssa.DropManagedFields(ctx, r.Client, infraMachine, kcpManagerName, labelsAndAnnotationsManagedFieldPaths); err != nil {
-			return errors.Wrapf(err, "failed to clean up managedFields of InfrastructureMachine %s", klog.KObj(infraMachine))
-		}
-		// Update in-place mutating fields on InfrastructureMachine.
-		if err := r.updateExternalObject(ctx, infraMachine, controlPlane.KCP, controlPlane.Cluster); err != nil {
-			return errors.Wrapf(err, "failed to update InfrastructureMachine %s", klog.KObj(infraMachine))
+		infraMachine, infraMachineFound := controlPlane.InfraResources[machineName]
+		// Only update the InfraMachine if it is already found, otherwise just skip it.
+		// This could happen e.g. if the cache is not up-to-date yet.
+		if infraMachineFound {
+			// Cleanup managed fields of all InfrastructureMachines to drop ownership of labels and annotations
+			// from "manager". We do this so that InfrastructureMachines that are created using the Create method
+			// can also work with SSA. Otherwise, labels and annotations would be co-owned by our "old" "manager"
+			// and "capi-kubeadmcontrolplane" and then we would not be able to e.g. drop labels and annotations.
+			if err := ssa.DropManagedFields(ctx, r.Client, infraMachine, kcpManagerName, labelsAndAnnotationsManagedFieldPaths); err != nil {
+				return errors.Wrapf(err, "failed to clean up managedFields of InfrastructureMachine %s", klog.KObj(infraMachine))
+			}
+			// Update in-place mutating fields on InfrastructureMachine.
+			if err := r.updateExternalObject(ctx, infraMachine, controlPlane.KCP, controlPlane.Cluster); err != nil {
+				return errors.Wrapf(err, "failed to update InfrastructureMachine %s", klog.KObj(infraMachine))
+			}
 		}
 
-		kubeadmConfig, ok := controlPlane.GetKubeadmConfig(machineName)
-		if !ok || kubeadmConfig == nil {
-			return errors.Wrapf(err, "failed to retrieve KubeadmConfig for machine %s", machineName)
-		}
-		// Note: Set the GroupVersionKind because updateExternalObject depends on it.
-		kubeadmConfig.SetGroupVersionKind(m.Spec.Bootstrap.ConfigRef.GroupVersionKind())
-		// Cleanup managed fields of all KubeadmConfigs to drop ownership of labels and annotations
-		// from "manager". We do this so that KubeadmConfigs that are created using the Create method
-		// can also work with SSA. Otherwise, labels and annotations would be co-owned by our "old" "manager"
-		// and "capi-kubeadmcontrolplane" and then we would not be able to e.g. drop labels and annotations.
-		if err := ssa.DropManagedFields(ctx, r.Client, kubeadmConfig, kcpManagerName, labelsAndAnnotationsManagedFieldPaths); err != nil {
-			return errors.Wrapf(err, "failed to clean up managedFields of KubeadmConfig %s", klog.KObj(kubeadmConfig))
-		}
-		// Update in-place mutating fields on BootstrapConfig.
-		if err := r.updateExternalObject(ctx, kubeadmConfig, controlPlane.KCP, controlPlane.Cluster); err != nil {
-			return errors.Wrapf(err, "failed to update KubeadmConfig %s", klog.KObj(kubeadmConfig))
+		kubeadmConfig, kubeadmConfigFound := controlPlane.KubeadmConfigs[machineName]
+		// Only update the KubeadmConfig if it is already found, otherwise just skip it.
+		// This could happen e.g. if the cache is not up-to-date yet.
+		if kubeadmConfigFound {
+			// Note: Set the GroupVersionKind because updateExternalObject depends on it.
+			kubeadmConfig.SetGroupVersionKind(m.Spec.Bootstrap.ConfigRef.GroupVersionKind())
+			// Cleanup managed fields of all KubeadmConfigs to drop ownership of labels and annotations
+			// from "manager". We do this so that KubeadmConfigs that are created using the Create method
+			// can also work with SSA. Otherwise, labels and annotations would be co-owned by our "old" "manager"
+			// and "capi-kubeadmcontrolplane" and then we would not be able to e.g. drop labels and annotations.
+			if err := ssa.DropManagedFields(ctx, r.Client, kubeadmConfig, kcpManagerName, labelsAndAnnotationsManagedFieldPaths); err != nil {
+				return errors.Wrapf(err, "failed to clean up managedFields of KubeadmConfig %s", klog.KObj(kubeadmConfig))
+			}
+			// Update in-place mutating fields on BootstrapConfig.
+			if err := r.updateExternalObject(ctx, kubeadmConfig, controlPlane.KCP, controlPlane.Cluster); err != nil {
+				return errors.Wrapf(err, "failed to update KubeadmConfig %s", klog.KObj(kubeadmConfig))
+			}
 		}
 	}
 	// Update the patch helpers.

@@ -23,6 +23,7 @@ spec:
       jsonPath: .status.phase
       name: Phase
       type: string
+    deprecated: true
     name: v1alpha3
     schema:
       openAPIV3Schema:
@@ -284,6 +285,7 @@ spec:
       jsonPath: .status.phase
       name: Phase
       type: string
+    deprecated: true
     name: v1alpha4
     schema:
       openAPIV3Schema:
@@ -1006,10 +1008,10 @@ spec:
                         type: integer
                     type: object
                   rolloutAfter:
-                    description: 'RolloutAfter performs a rollout of the entire cluster
+                    description: "RolloutAfter performs a rollout of the entire cluster
                       one component at a time, control plane first and then machine
-                      deployments. Deprecated: This field has no function and is going
-                      to be removed in the next apiVersion.'
+                      deployments. \n Deprecated: This field has no function and is
+                      going to be removed in the next apiVersion."
                     format: date-time
                     type: string
                   variables:

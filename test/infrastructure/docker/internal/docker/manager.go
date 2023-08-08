@@ -19,9 +19,7 @@ package docker
 import (
 	"context"
 	"fmt"
-	"net"
 
-	"github.com/pkg/errors"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/kind/pkg/apis/config/v1alpha4"
 	"sigs.k8s.io/kind/pkg/cluster/constants"
@@ -29,6 +27,7 @@ import (
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	"sigs.k8s.io/cluster-api/test/infrastructure/container"
 	"sigs.k8s.io/cluster-api/test/infrastructure/docker/internal/docker/types"
+	"sigs.k8s.io/cluster-api/test/infrastructure/kind"
 )
 
 // KubeadmContainerPort is the port that kubeadm listens on in the container.
@@ -40,31 +39,28 @@ const ControlPlanePort = 6443
 // DefaultNetwork is the default network name to use in kind.
 const DefaultNetwork = "kind"
 
+// haproxyEntrypoint is the entrypoint used to start the haproxy load balancer container.
+var haproxyEntrypoint = []string{"haproxy", "-W", "-db", "-f", "/usr/local/etc/haproxy/haproxy.cfg"}
+
 // Manager is the kind manager type.
 type Manager struct{}
 
 type nodeCreateOpts struct {
 	Name         string
-	Image        string
 	ClusterName  string
 	Role         string
+	EntryPoint   []string
 	Mounts       []v1alpha4.Mount
 	PortMappings []v1alpha4.PortMapping
 	Labels       map[string]string
 	IPFamily     clusterv1.ClusterIPFamily
+	KindMapping  kind.Mapping
 }
 
 // CreateControlPlaneNode will create a new control plane container.
-func (m *Manager) CreateControlPlaneNode(ctx context.Context, name, image, clusterName, listenAddress string, port int32, mounts []v1alpha4.Mount, portMappings []v1alpha4.PortMapping, labels map[string]string, ipFamily clusterv1.ClusterIPFamily) (*types.Node, error) {
-	// gets a random host port for the API server
-	if port == 0 {
-		p, err := getPort()
-		if err != nil {
-			return nil, errors.Wrap(err, "failed to get port for API server")
-		}
-		port = p
-	}
-
+// NOTE: If port is 0 picking a host port for the control plane is delegated to the container runtime and is not stable across container restarts.
+// This means that connection to a control plane node may take some time to recover if the underlying container is restarted.
+func (m *Manager) CreateControlPlaneNode(ctx context.Context, name, clusterName, listenAddress string, port int32, mounts []v1alpha4.Mount, portMappings []v1alpha4.PortMapping, labels map[string]string, ipFamily clusterv1.ClusterIPFamily, kindMapping kind.Mapping) (*types.Node, error) {
 	// add api server port mapping
 	portMappingsWithAPIServer := append(portMappings, v1alpha4.PortMapping{
 		ListenAddress: listenAddress,
@@ -74,13 +70,13 @@ func (m *Manager) CreateControlPlaneNode(ctx context.Context, name, image, clust
 	})
 	createOpts := &nodeCreateOpts{
 		Name:         name,
-		Image:        image,
 		ClusterName:  clusterName,
 		Role:         constants.ControlPlaneNodeRoleValue,
 		PortMappings: portMappingsWithAPIServer,
 		Mounts:       mounts,
 		Labels:       labels,
 		IPFamily:     ipFamily,
+		KindMapping:  kindMapping,
 	}
 	node, err := createNode(ctx, createOpts)
 	if err != nil {
@@ -91,32 +87,24 @@ func (m *Manager) CreateControlPlaneNode(ctx context.Context, name, image, clust
 }
 
 // CreateWorkerNode will create a new worker container.
-func (m *Manager) CreateWorkerNode(ctx context.Context, name, image, clusterName string, mounts []v1alpha4.Mount, portMappings []v1alpha4.PortMapping, labels map[string]string, ipFamily clusterv1.ClusterIPFamily) (*types.Node, error) {
+func (m *Manager) CreateWorkerNode(ctx context.Context, name, clusterName string, mounts []v1alpha4.Mount, portMappings []v1alpha4.PortMapping, labels map[string]string, ipFamily clusterv1.ClusterIPFamily, kindMapping kind.Mapping) (*types.Node, error) {
 	createOpts := &nodeCreateOpts{
 		Name:         name,
-		Image:        image,
 		ClusterName:  clusterName,
 		Role:         constants.WorkerNodeRoleValue,
 		PortMappings: portMappings,
 		Mounts:       mounts,
 		Labels:       labels,
 		IPFamily:     ipFamily,
+		KindMapping:  kindMapping,
 	}
 	return createNode(ctx, createOpts)
 }
 
 // CreateExternalLoadBalancerNode will create a new container to act as the load balancer for external access.
+// NOTE: If port is 0 picking a host port for the load balancer is delegated to the container runtime and is not stable across container restarts.
+// This can break the Kubeconfig in kind, i.e. the file resulting from `kind get kubeconfig -n $CLUSTER_NAME' if the load balancer container is restarted.
 func (m *Manager) CreateExternalLoadBalancerNode(ctx context.Context, name, image, clusterName, listenAddress string, port int32, _ clusterv1.ClusterIPFamily) (*types.Node, error) {
-	// gets a random host port for control-plane load balancer
-	// gets a random host port for the API server
-	if port == 0 {
-		p, err := getPort()
-		if err != nil {
-			return nil, errors.Wrap(err, "failed to get port for API server")
-		}
-		port = p
-	}
-
 	// load balancer port mapping
 	portMappings := []v1alpha4.PortMapping{{
 		ListenAddress: listenAddress,
@@ -126,10 +114,16 @@ func (m *Manager) CreateExternalLoadBalancerNode(ctx context.Context, name, imag
 	}}
 	createOpts := &nodeCreateOpts{
 		Name:         name,
-		Image:        image,
 		ClusterName:  clusterName,
 		Role:         constants.ExternalLoadBalancerNodeRoleValue,
 		PortMappings: portMappings,
+		EntryPoint:   haproxyEntrypoint,
+		// Load balancer doesn't have an equivalent in kind, but we use a kind.Mapping to
+		// forward the image name to create node.
+		KindMapping: kind.Mapping{
+			Image: image,
+			Mode:  kind.ModeNone,
+		},
 	}
 	node, err := createNode(ctx, createOpts)
 	if err != nil {
@@ -153,13 +147,14 @@ func createNode(ctx context.Context, opts *nodeCreateOpts) (*types.Node, error) 
 
 	runOptions := &container.RunContainerInput{
 		Name:   opts.Name, // make hostname match container name
-		Image:  opts.Image,
+		Image:  opts.KindMapping.Image,
 		Labels: containerLabels,
 		// runtime persistent storage
 		// this ensures that E.G. pods, logs etc. are not on the container
 		// filesystem, which is not only better for performance, but allows
 		// running kind in kind for "party tricks"
 		// (please don't depend on doing this though!)
+		Entrypoint:   opts.EntryPoint,
 		Volumes:      map[string]string{"/var": ""},
 		Mounts:       generateMountInfo(opts.Mounts),
 		PortMappings: generatePortMappings(opts.PortMappings),
@@ -169,6 +164,7 @@ func createNode(ctx context.Context, opts *nodeCreateOpts) (*types.Node, error) 
 			"/run": "", // systemd wants a writable /run
 		},
 		IPFamily: opts.IPFamily,
+		KindMode: opts.KindMapping.Mode,
 	}
 	if opts.Role == constants.ControlPlaneNodeRoleValue {
 		runOptions.EnvironmentVars = map[string]string{
@@ -188,20 +184,7 @@ func createNode(ctx context.Context, opts *nodeCreateOpts) (*types.Node, error) 
 		return nil, err
 	}
 
-	return types.NewNode(opts.Name, opts.Image, opts.Role), nil
-}
-
-// helper used to get a free TCP port for the API server.
-func getPort() (int32, error) {
-	listener, err := net.Listen("tcp", ":0") //nolint:gosec
-	if err != nil {
-		return 0, err
-	}
-	port := listener.Addr().(*net.TCPAddr).Port
-	if err := listener.Close(); err != nil {
-		return 0, err
-	}
-	return int32(port), nil
+	return types.NewNode(opts.Name, opts.KindMapping.Image, opts.Role), nil
 }
 
 func generateMountInfo(mounts []v1alpha4.Mount) []container.Mount {
