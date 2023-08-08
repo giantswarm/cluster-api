@@ -54,8 +54,19 @@ If you have a non-urgent fix, create an upstream PR and wait until it gets relea
   git remote add upstream https://github.com/kubernetes-sigs/cluster-api.git
   git fetch upstream
   git checkout release-X.Y
-  git merge vX.Y.Z # desired release of upstream
-  git push && git push --tags
+
+  # Create a merge commit using upstream's desired release tag (the one we want
+  # to upgrade to)
+  git merge --no-ff vX.Y.Z
+
+  # Since we want the combined content of our repo and the upstream Git tag,
+  # we need to create our own tag on the merge commit
+  git tag "vX.Y.Z-gs-$(git rev-parse --short HEAD)"
+
+  git push
+
+  # Push our own, single tag (assuming `origin` is the Giant Swarm fork)
+  git push origin "vX.Y.Z-gs-$(git rev-parse --short HEAD)"
   ```
 
 - Check that CircleCI pipeline succeeds for the desired Git tag in order to produce images. If the tag build fails, fix it.
