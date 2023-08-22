@@ -33,7 +33,7 @@ Please follow the development workflow:
     ```sh
     git fetch upstream
 
-    git checkout release-X.Y
+    git checkout -b my-working-branch release-X.Y
 
     # Create a merge commit using upstream's desired release tag (the one we want
     # to upgrade to).
@@ -55,7 +55,7 @@ Please follow the development workflow:
   - Or: you want to implement something else, such as working on some issue that we have which is not fixed in upstream yet. Note that for testing changes to upstream, you probably better base your work on the `upstream/main` branch and try your change together with the latest commits from upstream. This also avoids merge conflicts. Maintainers can then help you cherry-pick into their release branches. The latest release branch is usually a bit behind `main`.
 
     ```sh
-    git checkout release-X.Y # or `git checkout main && git pull upstream main`, see hint above
+    git checkout -b my-working-branch release-X.Y # or based on `main` instead of `release-X.Y`, see hint above
 
     # Make some changes and commit as usual
     git commit
@@ -95,7 +95,7 @@ git fetch upstream
 git diff `# the upstream tag we merged recently` vX.Y.Z..origin/release-X.Y `# our release branch` -- ':!.circleci/' ':!README.md'
 ```
 
-And we should also keep our `master` and `release-X.Y` branches in sync, so this diff should be empty:
+And we should also keep our `main` and `release-X.Y` branches in sync, so this diff should be empty:
 
 ```sh
 git diff main..release-X.Y -- .circleci/ README.md
