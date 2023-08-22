@@ -22,24 +22,6 @@ jobs:
             export DOCKER_BUILDKIT=1
             export BUILDKIT_PROGRESS=plain
 
-            # Add release manifest to our Docker image. These are used by
-            # https://github.com/giantswarm/cluster-api-app to fetch CRD manifests. We don't create
-            # GitHub releases as https://github.com/kubernetes-sigs/cluster-api/releases, so our fork
-            # uses this alternative way of providing the files.
-            awk '
-                /RUN.*go-build/ {
-                    print "RUN make release-manifests RELEASE_TAG=REPLACE_ME_RELEASE_TAG REGISTRY=REPLACE_ME_REGISTRY"
-                }
-                /COPY --from=builder \/workspace\/manager/ {
-                    print "COPY --from=builder /workspace/out/cluster-api-components.yaml /for-cluster-api-app-only/cluster-api-components.yaml"
-                }
-
-                { print }
-                ' Dockerfile >/tmp/Dockerfile && mv /tmp/Dockerfile Dockerfile
-            # `make release-manifests` needs `config/`, `hack/`, `Makefile` and probably more, so just copy
-            # everything into the Docker context
-            rm .dockerignore
-
             for registry in $REGISTRY_QUAY $REGISTRY_CHINA; do
               make docker-build-all ALL_ARCH="$ALL_ARCH" ALL_DOCKER_BUILD="$ALL_DOCKER_BUILD" TAG=$CIRCLE_SHA1 REGISTRY=$registry
 
