@@ -1086,7 +1086,6 @@ docker-push-all: $(addprefix docker-push-,$(ALL_ARCH))  ## Push the docker image
 	$(MAKE) docker-push-manifest-docker-infrastructure
 	$(MAKE) docker-push-manifest-in-memory-infrastructure
 	$(MAKE) docker-push-manifest-test-extension
-	$(MAKE) docker-push-clusterctl
 
 docker-push-%:
 	$(MAKE) ARCH=$* docker-push
