@@ -733,7 +733,7 @@ docker-build-all: $(addprefix docker-build-,$(ALL_ARCH)) ## Build docker images 
 docker-build-%:
 	$(MAKE) ARCH=$* docker-build
 
-ALL_DOCKER_BUILD = core kubeadm-bootstrap kubeadm-control-plane docker-infrastructure in-memory-infrastructure test-extension clusterctl
+ALL_DOCKER_BUILD = core kubeadm-bootstrap kubeadm-control-plane docker-infrastructure in-memory-infrastructure test-extension 
 
 .PHONY: docker-build
 docker-build: docker-pull-prerequisites ## Run docker-build-* targets for all the images
