@@ -1095,7 +1095,6 @@ docker-push: ## Push the docker images to be included in the release
 	docker push $(CONTROLLER_IMG)-$(ARCH):$(TAG)
 	docker push $(KUBEADM_BOOTSTRAP_CONTROLLER_IMG)-$(ARCH):$(TAG)
 	docker push $(KUBEADM_CONTROL_PLANE_CONTROLLER_IMG)-$(ARCH):$(TAG)
-	docker push $(CLUSTERCTL_IMG)-$(ARCH):$(TAG)
 	docker push $(CAPD_CONTROLLER_IMG)-$(ARCH):$(TAG)
 	docker push $(CAPIM_CONTROLLER_IMG)-$(ARCH):$(TAG)
 	docker push $(TEST_EXTENSION_IMG)-$(ARCH):$(TAG)
