@@ -6,7 +6,7 @@ require (
 	github.com/MakeNowJust/heredoc v1.0.0
 	github.com/Masterminds/sprig/v3 v3.2.3
 	github.com/blang/semver v3.5.1+incompatible
-	github.com/coredns/corefile-migration v1.0.20
+	github.com/coredns/corefile-migration v1.0.21
 	github.com/davecgh/go-spew v1.1.1
 	github.com/docker/distribution v2.8.2+incompatible
 	github.com/drone/envsubst/v2 v2.0.0-20210730161058-179042472c46
@@ -29,7 +29,7 @@ require (
 	github.com/valyala/fastjson v1.6.4
 	go.etcd.io/etcd/api/v3 v3.5.6
 	go.etcd.io/etcd/client/v3 v3.5.6
-	golang.org/x/net v0.8.0 // indirect
+	golang.org/x/net v0.13.0 // indirect
 	golang.org/x/oauth2 v0.6.0
 	google.golang.org/grpc v1.55.0
 	k8s.io/api v0.26.1
@@ -122,10 +122,10 @@ require (
 	go.uber.org/multierr v1.8.0 // indirect
 	go.uber.org/zap v1.24.0 // indirect
 	go4.org v0.0.0-20201209231011-d4a079459e60 // indirect
-	golang.org/x/crypto v0.3.0 // indirect
-	golang.org/x/sys v0.6.0 // indirect
-	golang.org/x/term v0.6.0 // indirect
-	golang.org/x/text v0.8.0
+	golang.org/x/crypto v0.11.0 // indirect
+	golang.org/x/sys v0.10.0 // indirect
+	golang.org/x/term v0.10.0 // indirect
+	golang.org/x/text v0.11.0
 	golang.org/x/time v0.3.0 // indirect
 	gomodules.xyz/jsonpatch/v2 v2.2.0
 	google.golang.org/appengine v1.6.7 // indirect

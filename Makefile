@@ -23,7 +23,7 @@ SHELL:=/usr/bin/env bash
 #
 # Go.
 #
-GO_VERSION ?= 1.19.6
+GO_VERSION ?= 1.20.8
 GO_CONTAINER_IMAGE ?= docker.io/library/golang:$(GO_VERSION)
 
 # Use GOPROXY environment variable if set
@@ -59,6 +59,7 @@ BIN_DIR := bin
 TEST_DIR := test
 TOOLS_DIR := hack/tools
 TOOLS_BIN_DIR := $(abspath $(TOOLS_DIR)/$(BIN_DIR))
+DOCS_DIR := docs
 E2E_FRAMEWORK_DIR := $(TEST_DIR)/framework
 CAPD_DIR := $(TEST_DIR)/infrastructure/docker
 TEST_EXTENSION_DIR := $(TEST_DIR)/extension
@@ -153,6 +154,8 @@ YQ_BIN := yq
 YQ :=  $(abspath $(TOOLS_BIN_DIR)/$(YQ_BIN)-$(YQ_VER))
 YQ_PKG := github.com/mikefarah/yq/v4
 
+PLANTUML_VER := 1.2023
+
 GINKGO_BIN := ginkgo
 GINGKO_VER := $(call get_go_version,github.com/onsi/ginkgo/v2)
 GINKGO := $(abspath $(TOOLS_BIN_DIR)/$(GINKGO_BIN)-$(GINGKO_VER))
@@ -162,6 +165,11 @@ GOLANGCI_LINT_BIN := golangci-lint
 GOLANGCI_LINT_VER := $(shell cat .github/workflows/golangci-lint.yml | grep [[:space:]]version: | sed 's/.*version: //')
 GOLANGCI_LINT := $(abspath $(TOOLS_BIN_DIR)/$(GOLANGCI_LINT_BIN)-$(GOLANGCI_LINT_VER))
 GOLANGCI_LINT_PKG := github.com/golangci/golangci-lint/cmd/golangci-lint
+
+GOVULNCHECK_BIN := govulncheck
+GOVULNCHECK_VER := v1.0.0
+GOVULNCHECK := $(abspath $(TOOLS_BIN_DIR)/$(GOVULNCHECK_BIN)-$(GOVULNCHECK_VER))
+GOVULNCHECK_PKG := golang.org/x/vuln/cmd/govulncheck
 
 CONVERSION_VERIFIER_BIN := conversion-verifier
 CONVERSION_VERIFIER := $(abspath $(TOOLS_BIN_DIR)/$(CONVERSION_VERIFIER_BIN))
@@ -539,7 +547,16 @@ generate-metrics-config: $(ENVSUBST_BIN) ## Generate ./hack/observability/kube-s
 
 .PHONY: generate-diagrams
 generate-diagrams: ## Generate diagrams for *.plantuml files
-	$(MAKE) -C docs diagrams
+	$(MAKE) generate-diagrams-book
+	$(MAKE) generate-diagrams-proposals
+
+.PHONY: generate-diagrams-book
+generate-diagrams-book: ## Generate diagrams for *.plantuml files in book
+	docker run -v $(ROOT_DIR)/$(DOCS_DIR):/$(DOCS_DIR)$(DOCKER_VOL_OPTS)  plantuml/plantuml:$(PLANTUML_VER) /$(DOCS_DIR)/book/**/*.plantuml
+
+.PHONY: generate-diagrams-proposals
+generate-diagrams-proposals: ## Generate diagrams for *.plantuml files in proposals
+	docker run -v $(ROOT_DIR)/$(DOCS_DIR):/$(DOCS_DIR)$(DOCKER_VOL_OPTS)  plantuml/plantuml:$(PLANTUML_VER) /$(DOCS_DIR)/proposals/**/*.plantuml
 
 ## --------------------------------------
 ## Lint / Verify
@@ -622,6 +639,24 @@ verify-tiltfile: ## Verify Tiltfile format
 .PHONY: verify-container-images
 verify-container-images: ## Verify container images
 	TRACE=$(TRACE) ./hack/verify-container-images.sh
+
+.PHONY: verify-govulncheck
+verify-govulncheck: $(GOVULNCHECK) ## Verify code for vulnerabilities
+	$(GOVULNCHECK) ./... && R1=$$? || R1=$$?; \
+	$(GOVULNCHECK) -C "$(TOOLS_DIR)" ./... && R2=$$? || R2=$$?; \
+	$(GOVULNCHECK) -C "$(TEST_DIR)" ./... && R3=$$? || R3=$$?; \
+	if [ "$$R1" -ne "0" ] || [ "$$R2" -ne "0" ] || [ "$$R3" -ne "0" ]; then \
+		exit 1; \
+	fi
+
+.PHONY: verify-security
+verify-security: ## Verify code and images for vulnerabilities
+	$(MAKE) verify-container-images && R1=$$? || R1=$$?; \
+	$(MAKE) verify-govulncheck && R2=$$? || R2=$$?; \
+	if [ "$$R1" -ne "0" ] || [ "$$R2" -ne "0" ]; then \
+	  echo "Check for vulnerabilities failed! There are vulnerabilities to be fixed"; \
+		exit 1; \
+	fi
 
 ## --------------------------------------
 ## Binaries
@@ -1195,6 +1230,9 @@ $(GINKGO_BIN): $(GINKGO) ## Build a local copy of ginkgo.
 .PHONY: $(GOLANGCI_LINT_BIN)
 $(GOLANGCI_LINT_BIN): $(GOLANGCI_LINT) ## Build a local copy of golangci-lint.
 
+.PHONY: $(GOVULNCHECK_BIN)
+$(GOVULNCHECK_BIN): $(GOVULNCHECK) ## Build a local copy of govulncheck.
+
 $(CONTROLLER_GEN): # Build controller-gen from tools folder.
 	GOBIN=$(TOOLS_BIN_DIR) $(GO_INSTALL) $(CONTROLLER_GEN_PKG) $(CONTROLLER_GEN_BIN) $(CONTROLLER_GEN_VER)
 
@@ -1245,6 +1283,9 @@ $(GINKGO): # Build ginkgo from tools folder.
 
 $(GOLANGCI_LINT): # Build golangci-lint from tools folder.
 	GOBIN=$(TOOLS_BIN_DIR) $(GO_INSTALL) $(GOLANGCI_LINT_PKG) $(GOLANGCI_LINT_BIN) $(GOLANGCI_LINT_VER)
+
+$(GOVULNCHECK): # Build govulncheck.
+	GOBIN=$(TOOLS_BIN_DIR) $(GO_INSTALL) $(GOVULNCHECK_PKG) $(GOVULNCHECK_BIN) $(GOVULNCHECK_VER)
 
 ## --------------------------------------
 ## Helpers
