@@ -2,8 +2,6 @@
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
 #     http://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
@@ -1083,9 +1081,6 @@ docker-push-all: $(addprefix docker-push-,$(ALL_ARCH))  ## Push the docker image
 	$(MAKE) docker-push-manifest-core
 	$(MAKE) docker-push-manifest-kubeadm-bootstrap
 	$(MAKE) docker-push-manifest-kubeadm-control-plane
-	$(MAKE) docker-push-manifest-docker-infrastructure
-	$(MAKE) docker-push-manifest-in-memory-infrastructure
-	$(MAKE) docker-push-manifest-test-extension
 
 docker-push-%:
 	$(MAKE) ARCH=$* docker-push
@@ -1095,9 +1090,6 @@ docker-push: ## Push the docker images to be included in the release
 	docker push $(CONTROLLER_IMG)-$(ARCH):$(TAG)
 	docker push $(KUBEADM_BOOTSTRAP_CONTROLLER_IMG)-$(ARCH):$(TAG)
 	docker push $(KUBEADM_CONTROL_PLANE_CONTROLLER_IMG)-$(ARCH):$(TAG)
-	docker push $(CAPD_CONTROLLER_IMG)-$(ARCH):$(TAG)
-	docker push $(CAPIM_CONTROLLER_IMG)-$(ARCH):$(TAG)
-	docker push $(TEST_EXTENSION_IMG)-$(ARCH):$(TAG)
 
 .PHONY: docker-push-manifest-core
 docker-push-manifest-core: ## Push the multiarch manifest for the core docker images
