@@ -106,6 +106,11 @@ func main() {
 	InitFlags(pflag.CommandLine)
 	pflag.CommandLine.SetNormalizeFunc(cliflag.WordSepNormalizeFunc)
 	pflag.CommandLine.AddGoFlagSet(flag.CommandLine)
+	// Set log level 2 as default.
+	if err := pflag.CommandLine.Set("v", "2"); err != nil {
+		setupLog.Error(err, "failed to set log level: %v")
+		os.Exit(1)
+	}
 	pflag.Parse()
 
 	// Validates logs flags using Kubernetes component-base machinery and apply them
@@ -123,6 +128,7 @@ func main() {
 	ctrl.SetLogger(klog.Background())
 
 	// Initialize the golang profiler server, if required.
+	// TODO(sbueringer): remove this once we switched to using a manager.
 	if profilerAddress != "" {
 		setupLog.Info(fmt.Sprintf("Profiler listening for requests at %s", profilerAddress))
 		go func() {

@@ -11,6 +11,7 @@
   - [CLIs](#clis)
 - [Branches](#branches)
   - [Support and guarantees](#support-and-guarantees)
+  - [Removal of v1alpha3 & v1alpha4 apiVersions](#removal-of-v1alpha3--v1alpha4-apiversions)
 - [Contributing a Patch](#contributing-a-patch)
 - [Documentation changes](#documentation-changes)
 - [Releases](#releases)
@@ -22,6 +23,7 @@
 - [Features and bugs](#features-and-bugs)
 - [Experiments](#experiments)
 - [Breaking Changes](#breaking-changes)
+- [Dependency Licence Management](#dependency-licence-management)
 - [API conventions](#api-conventions)
   - [Optional vs. Required](#optional-vs-required)
     - [Example](#example)
@@ -94,8 +96,9 @@ We generally allow backports of following changes to all supported branches:
 - Dependency bumps for CVE (usually limited to CVE resolution; backports of non-CVE related version bumps are considered exceptions to be evaluated case by case)
 - Cert-manager version bumps (to avoid having releases with cert-manager versions that are out of support, when possible)
 - Changes required to support new Kubernetes versions, when possible. See [supported Kubernetes versions](https://cluster-api.sigs.k8s.io/reference/versions.html#supported-kubernetes-versions) for more details.
-- Changes to use the latest Go patch release. If the Go minor version of a supported branch goes out of support, we will consider on a case-by-case basis
-  to bump to a newer Go minor version (e.g. to pick up CVE fixes). This could have impact on everyone importing Cluster API.
+- Changes to use the latest Go patch version to build controller images.
+- Changes to bump the Go minor version used to build controller images, if the Go minor version of a supported branch goes out of support (e.g. to pick up bug and CVE fixes). 
+  This has no impact on folks importing Cluster API as we won't modify the version in `go.mod` and the version in the `Makefile` does not affect them.
 
 We generally allow backports of following changes only to the latest supported branch:
 - Improvements to existing docs (the latest supported branch hosts the current version of the book)
@@ -163,8 +166,9 @@ Cluster API maintains the most recent release/releases for all supported API and
 
 | Minor Release | API Version  | Supported Until                                     |
 |---------------|--------------|-----------------------------------------------------|
-| v1.4.x        | **v1beta1**  | when v1.6.0 will be released                        |
-| v1.3.x        | **v1beta1**  | when v1.5.0 will be released, tentatively July 2023 |
+| v1.5.x        | **v1beta1**  | when v1.7.0 will be released                        |
+| v1.4.x        | **v1beta1**  | when v1.6.0 will be released, tentatively Nov 2023  |
+| v1.3.x        | **v1beta1**  | EOL since 2023-07-25 - v1.5.0 release date          |
 | v1.2.x        | **v1beta1**  | EOL since 2023-03-28 - v1.4.0 release date          |
 | v1.1.x        | **v1beta1**  | EOL since 2022-07-18 - v1.2.0 release date (*)      |
 | v1.0.x        | **v1beta1**  | EOL since 2022-02-02 - v1.1.0 release date (*)      |
@@ -179,13 +183,19 @@ Cluster API maintains the most recent release/releases for all supported API and
 
 We are going to remove the apiVersions in upcoming releases:
 * v1.5:
-  * Kubernetes API server will stop serving the v1alpha3 apiVersion
+  * Kubernetes API server stops serving the v1alpha3 apiVersion
 * v1.6:
-  * v1alpha3 apiVersion will be removed from the CRDs
-  * Kubernetes API server will stop serving the v1alpha4 apiVersion
+  * v1alpha3 apiVersion is removed from the CRDs
+  * Kubernetes API server stops serving the v1alpha4 apiVersion
 * v1.7
-  * v1alpha4 apiVersion will be removed from the CRDs
+  * v1alpha4 apiVersion is removed from the CRDs
 For more details and latest information please see the following issue: [Removing v1alpha3 & v1alpha4 apiVersions](https://github.com/kubernetes-sigs/cluster-api/issues/8038).
+
+Note: Removal of a deprecated APIVersion in Kubernetes [can cause issues with garbage collection by the kube-controller-manager](https://github.com/kubernetes/kubernetes/issues/102641)
+This means that some objects which rely on garbage collection for cleanup - e.g. MachineSets and their descendent objects, like Machines and InfrastructureMachines, may not be cleaned up properly if those
+objects were created with an APIVersion which is no longer served.
+To avoid these issues it's advised to ensure a restart to the kube-controller-manager is done after upgrading to a version of Cluster API which drops support for an APIVersion - e.g. v1.5 and v1.6.
+This can be accomplished with any Kubernetes control-plane rollout, including a Kubernetes version upgrade, or by manually stopping and restarting the kube-controller-manager.
 
 ## Contributing a Patch
 
@@ -407,6 +417,10 @@ There may, at times, need to be exceptions where breaking changes are allowed in
 discretion of the project's maintainers, and must be carefully considered before merging. An example of an allowed
 breaking change might be a fix for a behavioral bug that was released in an initial minor version (such as `v0.3.0`).
 
+## Dependency Licence Management
+
+Cluster API follows the [license policy of the CNCF](https://github.com/cncf/foundation/blob/main/allowed-third-party-license-policy.md). This sets limits on which
+licenses dependencies and other artifacts use. For go dependencies only dependencies listed in the `go.mod` are considered dependencies. This is in line with [how dependencies are reviewed in Kubernetes](https://github.com/kubernetes/community/blob/master/contributors/devel/sig-architecture/vendor.md#reviewing-and-approving-dependency-changes).
 
 ## API conventions
 
@@ -528,6 +542,7 @@ As of today there are following OWNERS files/Owner groups defining sub areas:
 - [kubeadm Control Plane Provider (KCP)](https://github.com/kubernetes-sigs/cluster-api/tree/main/controlplane/kubeadm)
 - [Cluster Managed topologies, ClusterClass](https://github.com/kubernetes-sigs/cluster-api/tree/main/internal/controllers/topology)
 - [Infrastructure Provider Docker (CAPD)](https://github.com/kubernetes-sigs/cluster-api/tree/main/test/infrastructure/docker)
+- [Infrastructure Provider in-memory](https://github.com/kubernetes-sigs/cluster-api/tree/main/test/infrastructure/inmemory)
 - [Test](https://github.com/kubernetes-sigs/cluster-api/tree/main/test)
 - [Test Framework](https://github.com/kubernetes-sigs/cluster-api/tree/main/test/framework)
 - [Docs](https://github.com/kubernetes-sigs/cluster-api/tree/main/docs)

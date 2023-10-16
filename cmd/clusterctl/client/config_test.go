@@ -17,6 +17,7 @@ limitations under the License.
 package client
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -51,7 +52,7 @@ func Test_clusterctlClient_GetProvidersConfig(t *testing.T) {
 		{
 			name: "Returns default providers",
 			field: field{
-				client: newFakeClient(newFakeConfig()),
+				client: newFakeClient(context.Background(), newFakeConfig(context.Background())),
 			},
 			// note: these will be sorted by name by the Providers() call, so be sure they are in alphabetical order here too
 			wantProviders: []string{
@@ -59,11 +60,14 @@ func Test_clusterctlClient_GetProvidersConfig(t *testing.T) {
 				config.KubeadmBootstrapProviderName,
 				config.KubeKeyK3sBootstrapProviderName,
 				config.MicroK8sBootstrapProviderName,
+				config.OracleCloudNativeBootstrapProviderName,
 				config.TalosBootstrapProviderName,
+				config.KamajiControlPlaneProviderName,
 				config.KubeadmControlPlaneProviderName,
 				config.KubeKeyK3sControlPlaneProviderName,
 				config.MicroK8sControlPlaneProviderName,
 				config.NestedControlPlaneProviderName,
+				config.OracleCloudNativeControlPlaneProviderName,
 				config.TalosControlPlaneProviderName,
 				config.AWSProviderName,
 				config.AzureProviderName,
@@ -75,6 +79,7 @@ func Test_clusterctlClient_GetProvidersConfig(t *testing.T) {
 				config.GCPProviderName,
 				config.HetznerProviderName,
 				config.IBMCloudProviderName,
+				config.InMemoryProviderName,
 				config.KubeKeyProviderName,
 				config.KubevirtProviderName,
 				config.MAASProviderName,
@@ -90,13 +95,14 @@ func Test_clusterctlClient_GetProvidersConfig(t *testing.T) {
 				config.VclusterProviderName,
 				config.VirtinkProviderName,
 				config.VSphereProviderName,
+				config.HelmAddonProviderName,
 			},
 			wantErr: false,
 		},
 		{
 			name: "Returns default providers and custom providers if defined",
 			field: field{
-				client: newFakeClient(newFakeConfig().WithProvider(customProviderConfig)),
+				client: newFakeClient(context.Background(), newFakeConfig(context.Background()).WithProvider(customProviderConfig)),
 			},
 			// note: these will be sorted by name by the Providers() call, so be sure they are in alphabetical order here too
 			wantProviders: []string{
@@ -105,11 +111,14 @@ func Test_clusterctlClient_GetProvidersConfig(t *testing.T) {
 				config.KubeadmBootstrapProviderName,
 				config.KubeKeyK3sBootstrapProviderName,
 				config.MicroK8sBootstrapProviderName,
+				config.OracleCloudNativeBootstrapProviderName,
 				config.TalosBootstrapProviderName,
+				config.KamajiControlPlaneProviderName,
 				config.KubeadmControlPlaneProviderName,
 				config.KubeKeyK3sControlPlaneProviderName,
 				config.MicroK8sControlPlaneProviderName,
 				config.NestedControlPlaneProviderName,
+				config.OracleCloudNativeControlPlaneProviderName,
 				config.TalosControlPlaneProviderName,
 				config.AWSProviderName,
 				config.AzureProviderName,
@@ -121,6 +130,7 @@ func Test_clusterctlClient_GetProvidersConfig(t *testing.T) {
 				config.GCPProviderName,
 				config.HetznerProviderName,
 				config.IBMCloudProviderName,
+				config.InMemoryProviderName,
 				config.KubeKeyProviderName,
 				config.KubevirtProviderName,
 				config.MAASProviderName,
@@ -136,6 +146,7 @@ func Test_clusterctlClient_GetProvidersConfig(t *testing.T) {
 				config.VclusterProviderName,
 				config.VirtinkProviderName,
 				config.VSphereProviderName,
+				config.HelmAddonProviderName,
 			},
 			wantErr: false,
 		},
@@ -150,7 +161,7 @@ func Test_clusterctlClient_GetProvidersConfig(t *testing.T) {
 				return
 			}
 
-			g.Expect(err).NotTo(HaveOccurred())
+			g.Expect(err).ToNot(HaveOccurred())
 			g.Expect(got).To(HaveLen(len(tt.wantProviders)))
 
 			for i, gotProvider := range got {
@@ -162,15 +173,17 @@ func Test_clusterctlClient_GetProvidersConfig(t *testing.T) {
 }
 
 func Test_clusterctlClient_GetProviderComponents(t *testing.T) {
-	config1 := newFakeConfig().
+	ctx := context.Background()
+
+	config1 := newFakeConfig(ctx).
 		WithProvider(capiProviderConfig)
 
-	repository1 := newFakeRepository(capiProviderConfig, config1).
+	repository1 := newFakeRepository(ctx, capiProviderConfig, config1).
 		WithPaths("root", "components.yaml").
 		WithDefaultVersion("v1.0.0").
 		WithFile("v1.0.0", "components.yaml", componentsYAML("ns1"))
 
-	client := newFakeClient(config1).
+	client := newFakeClient(ctx, config1).
 		WithRepository(repository1)
 
 	type args struct {
@@ -212,15 +225,17 @@ func Test_clusterctlClient_GetProviderComponents(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			g := NewWithT(t)
 
+			ctx := context.Background()
+
 			options := ComponentsOptions{
 				TargetNamespace: tt.args.targetNameSpace,
 			}
-			got, err := client.GetProviderComponents(tt.args.provider, capiProviderConfig.Type(), options)
+			got, err := client.GetProviderComponents(ctx, tt.args.provider, capiProviderConfig.Type(), options)
 			if tt.wantErr {
 				g.Expect(err).To(HaveOccurred())
 				return
 			}
-			g.Expect(err).NotTo(HaveOccurred())
+			g.Expect(err).ToNot(HaveOccurred())
 
 			g.Expect(got.Name()).To(Equal(tt.want.provider.Name()))
 			g.Expect(got.Version()).To(Equal(tt.want.version))
@@ -231,13 +246,15 @@ func Test_clusterctlClient_GetProviderComponents(t *testing.T) {
 func Test_getComponentsByName_withEmptyVariables(t *testing.T) {
 	g := NewWithT(t)
 
+	ctx := context.Background()
+
 	// Create a fake config with a provider named P1 and a variable named foo.
 	repository1Config := config.NewProvider("p1", "url", clusterctlv1.InfrastructureProviderType)
 
-	config1 := newFakeConfig().
+	config1 := newFakeConfig(ctx).
 		WithProvider(repository1Config)
 
-	repository1 := newFakeRepository(repository1Config, config1).
+	repository1 := newFakeRepository(ctx, repository1Config, config1).
 		WithPaths("root", "components.yaml").
 		WithDefaultVersion("v1.0.0").
 		WithFile("v1.0.0", "components.yaml", componentsYAML("${FOO}")).
@@ -252,7 +269,7 @@ func Test_getComponentsByName_withEmptyVariables(t *testing.T) {
 
 	// Create a new fakeClient that allows to execute tests on the fake config,
 	// the fake repositories and the fake cluster.
-	client := newFakeClient(config1).
+	client := newFakeClient(ctx, config1).
 		WithRepository(repository1).
 		WithCluster(cluster1)
 
@@ -260,8 +277,8 @@ func Test_getComponentsByName_withEmptyVariables(t *testing.T) {
 		TargetNamespace:     "ns1",
 		SkipTemplateProcess: true,
 	}
-	components, err := client.GetProviderComponents(repository1Config.Name(), repository1Config.Type(), options)
-	g.Expect(err).NotTo(HaveOccurred())
+	components, err := client.GetProviderComponents(ctx, repository1Config.Name(), repository1Config.Type(), options)
+	g.Expect(err).ToNot(HaveOccurred())
 	g.Expect(components.Variables()).To(HaveLen(1))
 	g.Expect(components.Name()).To(Equal("p1"))
 }
@@ -404,7 +421,9 @@ func Test_clusterctlClient_templateOptionsToVariables(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			g := NewWithT(t)
 
-			config := newFakeConfig().
+			ctx := context.Background()
+
+			config := newFakeConfig(ctx).
 				WithVar("KUBERNETES_VERSION", "v3.4.5") // with this line we are simulating an env var
 
 			c := &clusterctlClient{
@@ -415,11 +434,11 @@ func Test_clusterctlClient_templateOptionsToVariables(t *testing.T) {
 				g.Expect(err).To(HaveOccurred())
 				return
 			}
-			g.Expect(err).NotTo(HaveOccurred())
+			g.Expect(err).ToNot(HaveOccurred())
 
 			for name, wantValue := range tt.wantVars {
 				gotValue, err := config.Variables().Get(name)
-				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(err).ToNot(HaveOccurred())
 				g.Expect(gotValue).To(Equal(wantValue))
 			}
 		})
@@ -427,7 +446,9 @@ func Test_clusterctlClient_templateOptionsToVariables(t *testing.T) {
 }
 
 func Test_clusterctlClient_templateOptionsToVariables_withExistingMachineCountVariables(t *testing.T) {
-	configClient := newFakeConfig().
+	ctx := context.Background()
+
+	configClient := newFakeConfig(ctx).
 		WithVar("CONTROL_PLANE_MACHINE_COUNT", "3").
 		WithVar("WORKER_MACHINE_COUNT", "10")
 
@@ -466,11 +487,13 @@ func Test_clusterctlClient_templateOptionsToVariables_withExistingMachineCountVa
 func Test_clusterctlClient_GetClusterTemplate(t *testing.T) {
 	g := NewWithT(t)
 
+	ctx := context.Background()
+
 	rawTemplate := templateYAML("ns3", "${ CLUSTER_NAME }")
 
 	// Template on a file
 	tmpDir, err := os.MkdirTemp("", "cc")
-	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(err).ToNot(HaveOccurred())
 	defer os.RemoveAll(tmpDir)
 
 	path := filepath.Join(tmpDir, "cluster-template.yaml")
@@ -491,10 +514,10 @@ func Test_clusterctlClient_GetClusterTemplate(t *testing.T) {
 		},
 	}
 
-	config1 := newFakeConfig().
+	config1 := newFakeConfig(ctx).
 		WithProvider(infraProviderConfig)
 
-	repository1 := newFakeRepository(infraProviderConfig, config1).
+	repository1 := newFakeRepository(ctx, infraProviderConfig, config1).
 		WithPaths("root", "components").
 		WithDefaultVersion("v3.0.0").
 		WithFile("v3.0.0", "cluster-template.yaml", rawTemplate)
@@ -504,7 +527,7 @@ func Test_clusterctlClient_GetClusterTemplate(t *testing.T) {
 		WithObjs(configMap).
 		WithObjs(test.FakeCAPISetupObjects()...)
 
-	client := newFakeClient(config1).
+	client := newFakeClient(ctx, config1).
 		WithCluster(cluster1).
 		WithRepository(repository1)
 
@@ -629,18 +652,18 @@ func Test_clusterctlClient_GetClusterTemplate(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			gs := NewWithT(t)
 
-			got, err := client.GetClusterTemplate(tt.args.options)
+			got, err := client.GetClusterTemplate(ctx, tt.args.options)
 			if tt.wantErr {
 				gs.Expect(err).To(HaveOccurred())
 				return
 			}
-			gs.Expect(err).NotTo(HaveOccurred())
+			gs.Expect(err).ToNot(HaveOccurred())
 
 			gs.Expect(got.Variables()).To(Equal(tt.want.variables))
 			gs.Expect(got.TargetNamespace()).To(Equal(tt.want.targetNamespace))
 
 			gotYaml, err := got.Yaml()
-			gs.Expect(err).NotTo(HaveOccurred())
+			gs.Expect(err).ToNot(HaveOccurred())
 			gs.Expect(gotYaml).To(Equal(tt.want.yaml))
 		})
 	}
@@ -649,11 +672,13 @@ func Test_clusterctlClient_GetClusterTemplate(t *testing.T) {
 func Test_clusterctlClient_GetClusterTemplate_withClusterClass(t *testing.T) {
 	g := NewWithT(t)
 
+	ctx := context.Background()
+
 	rawTemplate := mangedTopologyTemplateYAML("ns4", "${CLUSTER_NAME}", "dev")
 	rawClusterClassTemplate := clusterClassYAML("ns4", "dev")
-	config1 := newFakeConfig().WithProvider(infraProviderConfig)
+	config1 := newFakeConfig(ctx).WithProvider(infraProviderConfig)
 
-	repository1 := newFakeRepository(infraProviderConfig, config1).
+	repository1 := newFakeRepository(ctx, infraProviderConfig, config1).
 		WithPaths("root", "components").
 		WithDefaultVersion("v3.0.0").
 		WithFile("v3.0.0", "cluster-template-dev.yaml", rawTemplate).
@@ -663,12 +688,12 @@ func Test_clusterctlClient_GetClusterTemplate_withClusterClass(t *testing.T) {
 		WithProviderInventory(infraProviderConfig.Name(), infraProviderConfig.Type(), "v3.0.0", "ns4").
 		WithObjs(test.FakeCAPISetupObjects()...)
 
-	client := newFakeClient(config1).
+	client := newFakeClient(ctx, config1).
 		WithCluster(cluster1).
 		WithRepository(repository1)
 
 	// Assert output
-	got, err := client.GetClusterTemplate(GetClusterTemplateOptions{
+	got, err := client.GetClusterTemplate(ctx, GetClusterTemplateOptions{
 		Kubeconfig:      Kubeconfig{Path: "kubeconfig", Context: "mgmt-context"},
 		ClusterName:     "test",
 		TargetNamespace: "ns1",
@@ -676,7 +701,7 @@ func Test_clusterctlClient_GetClusterTemplate_withClusterClass(t *testing.T) {
 			Flavor: "dev",
 		},
 	})
-	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(err).ToNot(HaveOccurred())
 	g.Expect(got.Variables()).To(Equal([]string{"CLUSTER_NAME"}))
 	g.Expect(got.TargetNamespace()).To(Equal("ns1"))
 	g.Expect(got.Objs()).To(ContainElement(MatchClusterClass("dev", "ns1")))
@@ -688,7 +713,7 @@ func Test_clusterctlClient_GetClusterTemplate_onEmptyCluster(t *testing.T) {
 
 	// Template on a file
 	tmpDir, err := os.MkdirTemp("", "cc")
-	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(err).ToNot(HaveOccurred())
 	defer os.RemoveAll(tmpDir)
 
 	path := filepath.Join(tmpDir, "cluster-template.yaml")
@@ -709,18 +734,18 @@ func Test_clusterctlClient_GetClusterTemplate_onEmptyCluster(t *testing.T) {
 		},
 	}
 
-	config1 := newFakeConfig().
+	config1 := newFakeConfig(ctx).
 		WithProvider(infraProviderConfig)
 
 	cluster1 := newFakeCluster(cluster.Kubeconfig{Path: "kubeconfig", Context: "mgmt-context"}, config1).
 		WithObjs(configMap)
 
-	repository1 := newFakeRepository(infraProviderConfig, config1).
+	repository1 := newFakeRepository(ctx, infraProviderConfig, config1).
 		WithPaths("root", "components").
 		WithDefaultVersion("v3.0.0").
 		WithFile("v3.0.0", "cluster-template.yaml", rawTemplate)
 
-	client := newFakeClient(config1).
+	client := newFakeClient(ctx, config1).
 		WithCluster(cluster1).
 		WithRepository(repository1)
 
@@ -821,18 +846,18 @@ func Test_clusterctlClient_GetClusterTemplate_onEmptyCluster(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			gs := NewWithT(t)
 
-			got, err := client.GetClusterTemplate(tt.args.options)
+			got, err := client.GetClusterTemplate(ctx, tt.args.options)
 			if tt.wantErr {
 				gs.Expect(err).To(HaveOccurred())
 				return
 			}
-			gs.Expect(err).NotTo(HaveOccurred())
+			gs.Expect(err).ToNot(HaveOccurred())
 
 			gs.Expect(got.Variables()).To(Equal(tt.want.variables))
 			gs.Expect(got.TargetNamespace()).To(Equal(tt.want.targetNamespace))
 
 			gotYaml, err := got.Yaml()
-			gs.Expect(err).NotTo(HaveOccurred())
+			gs.Expect(err).ToNot(HaveOccurred())
 			gs.Expect(gotYaml).To(Equal(tt.want.yaml))
 		})
 	}
@@ -845,9 +870,9 @@ func newFakeClientWithoutCluster(configClient config.Client) *fakeClient {
 	}
 
 	var err error
-	fake.internalClient, err = newClusterctlClient("fake-config",
+	fake.internalClient, err = newClusterctlClient(context.Background(), "fake-config",
 		InjectConfig(fake.configClient),
-		InjectRepositoryFactory(func(input RepositoryClientFactoryInput) (repository.Client, error) {
+		InjectRepositoryFactory(func(ctx context.Context, input RepositoryClientFactoryInput) (repository.Client, error) {
 			if _, ok := fake.repositories[input.Provider.ManifestLabel()]; !ok {
 				return nil, errors.Errorf("repository for kubeconfig %q does not exist", input.Provider.ManifestLabel())
 			}
@@ -864,10 +889,12 @@ func newFakeClientWithoutCluster(configClient config.Client) *fakeClient {
 func Test_clusterctlClient_GetClusterTemplate_withoutCluster(t *testing.T) {
 	rawTemplate := templateYAML("ns3", "${ CLUSTER_NAME }")
 
-	config1 := newFakeConfig().
+	ctx := context.Background()
+
+	config1 := newFakeConfig(ctx).
 		WithProvider(infraProviderConfig)
 
-	repository1 := newFakeRepository(infraProviderConfig, config1).
+	repository1 := newFakeRepository(ctx, infraProviderConfig, config1).
 		WithPaths("root", "components").
 		WithDefaultVersion("v3.0.0").
 		WithFile("v3.0.0", "cluster-template.yaml", rawTemplate)
@@ -932,18 +959,18 @@ func Test_clusterctlClient_GetClusterTemplate_withoutCluster(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			gs := NewWithT(t)
 
-			got, err := client.GetClusterTemplate(tt.args.options)
+			got, err := client.GetClusterTemplate(ctx, tt.args.options)
 			if tt.wantErr {
 				gs.Expect(err).To(HaveOccurred())
 				return
 			}
-			gs.Expect(err).NotTo(HaveOccurred())
+			gs.Expect(err).ToNot(HaveOccurred())
 
 			gs.Expect(got.Variables()).To(Equal(tt.want.variables))
 			gs.Expect(got.TargetNamespace()).To(Equal(tt.want.targetNamespace))
 
 			gotYaml, err := got.Yaml()
-			gs.Expect(err).NotTo(HaveOccurred())
+			gs.Expect(err).ToNot(HaveOccurred())
 			gs.Expect(gotYaml).To(Equal(tt.want.yaml))
 		})
 	}
@@ -955,7 +982,7 @@ func Test_clusterctlClient_ProcessYAML(t *testing.T) {
 v2: ${VAR2=default2}
 v3: ${VAR3:-default3}`
 	dir, err := os.MkdirTemp("", "clusterctl")
-	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(err).ToNot(HaveOccurred())
 	defer os.RemoveAll(dir)
 
 	templateFile := filepath.Join(dir, "template.yaml")
@@ -1029,13 +1056,13 @@ v3: default3`,
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			config1 := newFakeConfig().
+			config1 := newFakeConfig(ctx).
 				WithProvider(infraProviderConfig)
 			cluster1 := newFakeCluster(cluster.Kubeconfig{}, config1)
 
-			client := newFakeClient(config1).WithCluster(cluster1)
+			client := newFakeClient(ctx, config1).WithCluster(cluster1)
 
-			printer, err := client.ProcessYAML(tt.options)
+			printer, err := client.ProcessYAML(ctx, tt.options)
 			if tt.expectErr {
 				g.Expect(err).To(HaveOccurred())
 				return

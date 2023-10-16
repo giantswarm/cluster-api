@@ -23,7 +23,6 @@ import (
 	"testing"
 	"time"
 
-	// +kubebuilder:scaffold:imports
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
@@ -41,6 +40,7 @@ import (
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	"sigs.k8s.io/cluster-api/api/v1beta1/index"
 	"sigs.k8s.io/cluster-api/controllers/remote"
+	machinecontroller "sigs.k8s.io/cluster-api/internal/controllers/machine"
 	machinesetcontroller "sigs.k8s.io/cluster-api/internal/controllers/machineset"
 	"sigs.k8s.io/cluster-api/internal/test/envtest"
 )
@@ -76,7 +76,7 @@ func TestMain(m *testing.M) {
 			mgr,
 			remote.ClusterCacheTrackerOptions{
 				Log:     &log,
-				Indexes: remote.DefaultIndexes,
+				Indexes: []remote.Index{remote.NodeProviderIDIndex},
 			},
 		)
 		if err != nil {
@@ -88,18 +88,40 @@ func TestMain(m *testing.M) {
 		}).SetupWithManager(ctx, mgr, controller.Options{MaxConcurrentReconciles: 1}); err != nil {
 			panic(fmt.Sprintf("Failed to start ClusterCacheReconciler: %v", err))
 		}
-		if err := (&machinesetcontroller.Reconciler{
-			Client:    mgr.GetClient(),
-			APIReader: mgr.GetAPIReader(),
-			Tracker:   tracker,
+
+		unstructuredCachingClient, err := client.New(mgr.GetConfig(), client.Options{
+			HTTPClient: mgr.GetHTTPClient(),
+			Cache: &client.CacheOptions{
+				Reader:       mgr.GetCache(),
+				Unstructured: true,
+			},
+		})
+		if err != nil {
+			panic(fmt.Sprintf("unable to create unstructuredCachineClient: %v", err))
+		}
+
+		if err := (&machinecontroller.Reconciler{
+			Client:                    mgr.GetClient(),
+			UnstructuredCachingClient: unstructuredCachingClient,
+			APIReader:                 mgr.GetAPIReader(),
+			Tracker:                   tracker,
 		}).SetupWithManager(ctx, mgr, controller.Options{MaxConcurrentReconciles: 1}); err != nil {
-			panic(fmt.Sprintf("Failed to start MMachineSetReconciler: %v", err))
+			panic(fmt.Sprintf("Failed to start MachineReconciler: %v", err))
+		}
+		if err := (&machinesetcontroller.Reconciler{
+			Client:                    mgr.GetClient(),
+			UnstructuredCachingClient: unstructuredCachingClient,
+			APIReader:                 mgr.GetAPIReader(),
+			Tracker:                   tracker,
+		}).SetupWithManager(ctx, mgr, controller.Options{MaxConcurrentReconciles: 1}); err != nil {
+			panic(fmt.Sprintf("Failed to start MachineSetReconciler: %v", err))
 		}
 		if err := (&Reconciler{
-			Client:    mgr.GetClient(),
-			APIReader: mgr.GetAPIReader(),
+			Client:                    mgr.GetClient(),
+			UnstructuredCachingClient: unstructuredCachingClient,
+			APIReader:                 mgr.GetAPIReader(),
 		}).SetupWithManager(ctx, mgr, controller.Options{MaxConcurrentReconciles: 1}); err != nil {
-			panic(fmt.Sprintf("Failed to start MMachineDeploymentReconciler: %v", err))
+			panic(fmt.Sprintf("Failed to start MachineDeploymentReconciler: %v", err))
 		}
 	}
 

@@ -95,12 +95,14 @@ func TestExtensionConfigValidationFeatureGated(t *testing.T) {
 			defer utilfeature.SetFeatureGateDuringTest(t, feature.Gates, feature.RuntimeSDK, tt.featureGate)()
 			webhook := ExtensionConfig{}
 			g := NewWithT(t)
-			err := webhook.validate(context.TODO(), tt.old, tt.new)
+			warnings, err := webhook.validate(context.TODO(), tt.old, tt.new)
 			if tt.expectErr {
 				g.Expect(err).To(HaveOccurred())
+				g.Expect(warnings).To(BeEmpty())
 				return
 			}
 			g.Expect(err).ToNot(HaveOccurred())
+			g.Expect(warnings).To(BeEmpty())
 		})
 	}
 }
@@ -127,8 +129,8 @@ func TestExtensionConfigDefault(t *testing.T) {
 	t.Run("for Extension", util.CustomDefaultValidateTest(ctx, extensionConfig, extensionConfigWebhook))
 
 	g.Expect(extensionConfigWebhook.Default(ctx, extensionConfig)).To(Succeed())
-	g.Expect(extensionConfig.Spec.NamespaceSelector).To(Equal(&metav1.LabelSelector{}))
-	g.Expect(extensionConfig.Spec.ClientConfig.Service.Port).To(Equal(pointer.Int32(443)))
+	g.Expect(extensionConfig.Spec.NamespaceSelector).To(BeComparableTo(&metav1.LabelSelector{}))
+	g.Expect(extensionConfig.Spec.ClientConfig.Service.Port).To(BeComparableTo(pointer.Int32(443)))
 }
 
 func TestExtensionConfigValidate(t *testing.T) {
@@ -340,12 +342,14 @@ func TestExtensionConfigValidate(t *testing.T) {
 				g.Expect(webhook.Default(ctx, tt.old)).To(Succeed())
 			}
 
-			err := webhook.validate(ctx, tt.old, tt.in)
+			warnings, err := webhook.validate(ctx, tt.old, tt.in)
 			if tt.expectErr {
 				g.Expect(err).To(HaveOccurred())
+				g.Expect(warnings).To(BeEmpty())
 				return
 			}
 			g.Expect(err).ToNot(HaveOccurred())
+			g.Expect(warnings).To(BeEmpty())
 		})
 	}
 }

@@ -3,6 +3,7 @@
 This document details the responsibilities and tasks for each role in the release team.
 
 **Notes**:
+
 * The examples in this document are based on the v1.4 release cycle.
 * This document focuses on tasks that are done for every release. One-time improvement tasks are out of scope.
 * If a task is prefixed with `[Track]` it means it should be ensured that this task is done, but the folks with
@@ -10,43 +11,46 @@ This document details the responsibilities and tasks for each role in the releas
 
 <!-- START doctoc generated TOC please keep comment here to allow auto update -->
 <!-- DON'T EDIT THIS SECTION, INSTEAD RE-RUN doctoc TO UPDATE -->
-**Table of Contents**
 
-- [Release Tasks](#release-tasks)
-  - [Release Lead](#release-lead)
-    - [Responsibilities](#responsibilities)
-    - [Tasks](#tasks)
-      - [Set a tentative release date for the minor release](#set-a-tentative-release-date-for-the-minor-release)
-      - [Assemble release team](#assemble-release-team)
-      - [Finalize release schedule and team](#finalize-release-schedule-and-team)
-      - [Prepare main branch for development of the new release](#prepare-main-branch-for-development-of-the-new-release)
-      - [Create a new GitHub milestone for the next release](#create-a-new-github-milestone-for-the-next-release)
-      - [\[Track\] Remove previously deprecated code](#track-remove-previously-deprecated-code)
-      - [\[Track\] Bump dependencies](#track-bump-dependencies)
-      - [Create a release branch](#create-a-release-branch)
-      - [\[Continuously\] Maintain the GitHub release milestone](#continuously-maintain-the-github-release-milestone)
-      - [\[Continuously\] Bump the Go version](#continuously-bump-the-go-version)
-      - [\[Repeatedly\] Cut a release](#repeatedly-cut-a-release)
-      - [\[Optional\] \[Track\] Bump the Cluster API apiVersion](#optional-track-bump-the-cluster-api-apiversion)
-      - [\[Optional\] \[Track\] Bump the Kubernetes version](#optional-track-bump-the-kubernetes-version)
-  - [Communications/Docs/Release Notes Manager](#communicationsdocsrelease-notes-manager)
-    - [Responsibilities](#responsibilities-1)
-    - [Tasks](#tasks-1)
-      - [Add docs to collect release notes for users and migration notes for provider implementers](#add-docs-to-collect-release-notes-for-users-and-migration-notes-for-provider-implementers)
-      - [Update supported versions](#update-supported-versions)
-      - [Ensure the book for the new release is available](#ensure-the-book-for-the-new-release-is-available)
-      - [Polish release notes](#polish-release-notes)
-      - [Change production branch in Netlify to the new release branch](#change-production-branch-in-netlify-to-the-new-release-branch)
-      - [Update clusterctl links in the quickstart](#update-clusterctl-links-in-the-quickstart)
-      - [Continuously: Communicate key dates to the community](#continuously-communicate-key-dates-to-the-community)
-      - [Communicate beta to providers](#communicate-beta-to-providers)
-  - [CI Signal/Bug Triage/Automation Manager](#ci-signalbug-triageautomation-manager)
-    - [Responsibilities](#responsibilities-2)
-    - [Tasks](#tasks-2)
-      - [Setup jobs and dashboards for a new release branch](#setup-jobs-and-dashboards-for-a-new-release-branch)
-      - [\[Continuously\] Monitor CI signal](#continuously-monitor-ci-signal)
-      - [\[Continuously\] Reduce the amount of flaky tests](#continuously-reduce-the-amount-of-flaky-tests)
-      - [\[Continuously\] Bug triage](#continuously-bug-triage)
+- [Release Lead](#release-lead)
+  - [Responsibilities](#responsibilities)
+  - [Tasks](#tasks)
+    - [Set a tentative release date for the minor release](#set-a-tentative-release-date-for-the-minor-release)
+    - [Assemble release team](#assemble-release-team)
+    - [Finalize release schedule and team](#finalize-release-schedule-and-team)
+    - [Prepare main branch for development of the new release](#prepare-main-branch-for-development-of-the-new-release)
+    - [Create a new GitHub milestone for the next release](#create-a-new-github-milestone-for-the-next-release)
+    - [[Track] Remove previously deprecated code](#track-remove-previously-deprecated-code)
+    - [[Track] Bump dependencies](#track-bump-dependencies)
+    - [Create a release branch](#create-a-release-branch)
+    - [[Continuously] Maintain the GitHub release milestone](#continuously-maintain-the-github-release-milestone)
+    - [[Continuously] Bump the Go version](#continuously-bump-the-go-version)
+    - [[Repeatedly] Cut a release](#repeatedly-cut-a-release)
+    - [[Optional] Public release session](#optional-public-release-session)
+    - [[Optional] [Track] Bump the Cluster API apiVersion](#optional-track-bump-the-cluster-api-apiversion)
+    - [[Optional] [Track] Bump the Kubernetes version](#optional-track-bump-the-kubernetes-version)
+- [Communications/Docs/Release Notes Manager](#communicationsdocsrelease-notes-manager)
+  - [Responsibilities](#responsibilities-1)
+  - [Tasks](#tasks-1)
+    - [Add docs to collect release notes for users and migration notes for provider implementers](#add-docs-to-collect-release-notes-for-users-and-migration-notes-for-provider-implementers)
+    - [Update supported versions](#update-supported-versions)
+    - [Ensure the book for the new release is available](#ensure-the-book-for-the-new-release-is-available)
+    - [Create PR for release notes](#create-pr-for-release-notes)
+    - [Change production branch in Netlify to the new release branch](#change-production-branch-in-netlify-to-the-new-release-branch)
+    - [Update clusterctl links in the quickstart](#update-clusterctl-links-in-the-quickstart)
+    - [Continuously: Communicate key dates to the community](#continuously-communicate-key-dates-to-the-community)
+    - [Communicate beta to providers](#communicate-beta-to-providers)
+- [CI Signal/Bug Triage/Automation Manager](#ci-signalbug-triageautomation-manager)
+  - [Responsibilities](#responsibilities-2)
+  - [Tasks](#tasks-2)
+    - [Setup jobs and dashboards for a new release branch](#setup-jobs-and-dashboards-for-a-new-release-branch)
+    - [[Continuously] Monitor CI signal](#continuously-monitor-ci-signal)
+    - [[Continuously] Reduce the amount of flaky tests](#continuously-reduce-the-amount-of-flaky-tests)
+    - [[Continuously] Bug triage](#continuously-bug-triage)
+- [Maintainer](#maintainer)
+  - [Responsibilities](#responsibilities-3)
+  - [Tasks](#tasks-3)
+    - [[Repeatedly] Publish the release](#repeatedly-publish-the-release)
 
 <!-- END doctoc generated TOC please keep comment here to allow auto update -->
 
@@ -55,18 +59,19 @@ This document details the responsibilities and tasks for each role in the releas
 ### Responsibilities
 
 * Coordination:
-    * Take ultimate accountability for all release tasks to be completed on time
-    * Coordinate release activities
-    * Create and maintain the GitHub release milestone
-    * Track tasks needed to add support for new Kubernetes versions in upcoming releases
-    * Ensure a retrospective happens
+  * Take ultimate accountability for all release tasks to be completed on time
+  * Coordinate release activities
+  * Create and maintain the GitHub release milestone
+  * Track tasks needed to add support for new Kubernetes versions in upcoming releases
+  * Ensure a retrospective happens
+  * Ensure a maintainer is available when a release needs to be cut.
 * Staffing:
-    * Assemble the release team for the current release cycle
-    * Ensure a release lead for the next release cycle is selected and trained
-    * Set a tentative release date for the next release cycle
+  * Assemble the release team for the current release cycle
+  * Ensure a release lead for the next release cycle is selected and trained
+  * Set a tentative release date for the next release cycle
 * Cutting releases:
-    * Release patch releases for supported previous releases at least monthly or more often if needed
-    * Create beta, RC and GA releases for the minor release of the current release cycle
+  * Release patch releases for supported previous releases at least monthly or more often if needed
+  * Create beta, RC and GA releases for the minor release of the current release cycle
 * Release lead should keep an eye on what is going on in the project to be able to react if necessary
 
 ### Tasks
@@ -82,9 +87,10 @@ As of now we ask for volunteers in Slack and office hours.
 
 #### Finalize release schedule and team
 
-1. Finalize release schedule and team in `release-1.4.md`.
-2. Update Slack user group and GitHub team accordingly.
+1. Finalize release schedule and team in the [docs/release/releases](../../docs/release/releases), e.g. [release-1.4.md](../../docs/release/releases/release-1.4.md).
+2. Update @cluster-api-release-team Slack user group and GitHub team accordingly.
    <br>Prior art: https://github.com/kubernetes-sigs/cluster-api/issues/7476
+3. Announce the _release team_ and _release schedule_ to the mailing list.
 
 #### Prepare main branch for development of the new release
 
@@ -92,36 +98,37 @@ The goal of this issue is to bump the versions on the main branch so that the up
 is used for e.g. local development and e2e tests. We also modify tests so that they are testing the previous release.
 
 This comes down to changing occurrences of the old version to the new version, e.g. `v1.3` to `v1.4`:
+
 1. Setup E2E tests for the new release:
-   1. Goal is that we have clusterctl upgrade tests for the latest stable versions of each contract / for each supported branch. For `v1.4` this means:
-      * v1alpha3: `v0.3`
-      * v1alpha4: `v0.4`
-      * v1beta1: `v1.0`, `v1.2`, `v1.3` (will change with each new release)
+   1. Goal is that we have clusterctl upgrade tests for the latest stable versions of each contract / for each supported branch. For `v1.5` this means:
+      * v1beta1: `v1.0`, `v1.3`, `v1.4` (will change with each new release)
    2. Update providers in `docker.yaml`:
-       1. Add a new `v1.3.0` entry.
+       1. Add a new `v1.4.0` entry.
        2. Remove providers that are not used anymore in clusterctl upgrade tests.
-       3. Change `v1.3.99` to `v1.4.99`.
+       3. Change `v1.4.99` to `v1.5.99`.
    3. Adjust `metadata.yaml`'s:
-      1. Create a new `v1.3` `metadata.yaml` (`test/e2e/data/shared/v1.3/metadata.yaml`) by copying
+      1. Create a new `v1.4` `metadata.yaml` (`test/e2e/data/shared/v1.4/metadata.yaml`) by copying
    `test/e2e/data/shared/main/metadata.yaml`
       2. Add the new release to the main `metadata.yaml` (`test/e2e/data/shared/main/metadata.yaml`).
-      3. Remove old `metadata.yaml`'s that are not used anymore in clusterctl upgrade tests.
+      3. Add the new release to the root level `metadata.yaml`
+      4. Remove old `metadata.yaml`'s that are not used anymore in clusterctl upgrade tests.
    4. Adjust cluster templates in `test/e2e/data/infrastructure-docker`:
-      1. Create a new `v1.3` folder. It should be created based on the `main` folder and only contain the templates
+      1. Create a new `v1.4` folder. It should be created based on the `main` folder and only contain the templates
          we use in the clusterctl upgrade tests (as of today `cluster-template` and `cluster-template-topology`).
       2. Remove old folders that are not used anymore in clusterctl upgrade tests.
    5. Modify the test specs in `test/e2e/clusterctl_upgrade_test.go` (according to the versions we want to test described above).
       Please note that both `InitWithKubernetesVersion` and `WorkloadKubernetesVersion` should be the highest mgmt cluster version supported by the respective Cluster API version.
-2. Update `create-local-repository.py` and `tools/tilt-prepare/main.go`: `v1.3.99` => `v1.4.99`.
+2. Update `create-local-repository.py` and `tools/internal/tilt-prepare/main.go`: `v1.4.99` => `v1.5.99`.
 3. Make sure all tests are green (also run `pull-cluster-api-e2e-full-main` and `pull-cluster-api-e2e-workload-upgrade-1-23-latest-main`).
 
 Prior art: 
-- 1.3 - https://github.com/kubernetes-sigs/cluster-api/pull/6834/files
-- 1.4 - https://github.com/kubernetes-sigs/cluster-api/pull/7692/files
+
+* 1.4 - https://github.com/kubernetes-sigs/cluster-api/pull/7692/files
+* 1.5 - https://github.com/kubernetes-sigs/cluster-api/pull/8430/files
 
 #### Create a new GitHub milestone for the next release
 
-The goal of this task is to create a new GitHub milestone for the next release, so that we can already move tasks
+The goal of this task is to create [a new GitHub milestone](https://github.com/kubernetes-sigs/cluster-api/milestones) for the next release, so that we can already move tasks
 out of the current milestone if necessary.
 
 1. Create the milestone for the new release via GitHub UI.
@@ -142,6 +149,7 @@ The goal of this task is to ensure that we have relatively up-to-date dependenci
 This reduces the risk that CVEs are found in outdated dependencies after our release.
 
 We should take a look at the following dependencies:
+
 * Go dependencies in `go.mod` files.
 * Tools used in our Makefile (e.g. kustomize).
 
@@ -150,17 +158,13 @@ We should take a look at the following dependencies:
 The goal of this task is to ensure we have a release branch and the milestone applier applies milestones accordingly.
 From this point forward changes which should land in the release have to be cherry-picked into the release branch.
 
-1. Create the release branch locally based on the latest commit on main and push it:
-   ```bash
-   # Create the release branch
-   git checkout -b release-1.4
-
-   # Push the release branch
-   # Note: `upstream` must be the remote pointing to `github.com/kubernetes-sigs/cluster-api`.
-   git push -u upstream release-1.4
-   ```
+1. Ask the [Maintainer](#maintainer) to create a new release branch.
+  
 2. Update the [milestone applier config](https://github.com/kubernetes/test-infra/blob/0b17ef5ffd6c7aa7d8ca1372d837acfb85f7bec6/config/prow/plugins.yaml#L371) accordingly (e.g. `release-1.4: v1.4` and `main: v1.5`)
    <br>Prior art: [cluster-api: update milestone applier config for v1.3](https://github.com/kubernetes/test-infra/pull/26631)
+
+3. Update the GitHub Actions to work with the new release version.
+   <br>Prior art: [Update actions for 1.5 and make names consistent](https://github.com/kubernetes-sigs/cluster-api/pull/9115)
 
 #### [Continuously] Maintain the GitHub release milestone
 
@@ -168,6 +172,7 @@ The goal of this task is to keep an overview over the current release milestone 
 progress of issues assigned to the milestone.
 
 This can be done by:
+
 1. Regularly checking in with folks implementing an issue in the milestone.
 2. If nobody is working on an issue in the milestone, drop it from the milestone.
 3. Ensuring we have a plan to get `release-blocking` issues implemented in time.
@@ -187,58 +192,62 @@ to a newer Go minor version according to our [backport policy](./../../CONTRIBUT
 
 1. Ensure CI is stable before cutting the release (e.g. by checking with the CI manager)
    Note: special attention should be given to image scan results, so we can avoid cutting a release with CVE or document known CVEs in release notes.
-2. Create and push the release tags to the GitHub repository:
-   ```bash
-   # Export the tag of the release to be cut, e.g.:
-   export RELEASE_TAG=v1.0.1
-
-   # Create tags locally
-   # Warning: The test tag MUST NOT be an annotated tag.
-   git tag -s -a ${RELEASE_TAG} -m ${RELEASE_TAG}
-   git tag test/${RELEASE_TAG}
-
-   # Push tags
-   # Note: `upstream` must be the remote pointing to `github.com/kubernetes-sigs/cluster-api`.
-   git push upstream ${RELEASE_TAG}
-   git push upstream test/${RELEASE_TAG}
-   ```
-   **Note**: This will automatically trigger a [GitHub Action](https://github.com/kubernetes-sigs/cluster-api/actions/workflows/release.yml) to create a draft release and a [ProwJob](https://prow.k8s.io/?repo=kubernetes-sigs%2Fcluster-api&job=post-cluster-api-push-images) to publish images to the staging repository.
+2. Ask the [Communications/Docs/Release Notes Manager](#communicationsdocsrelease-notes-manager) to [create a PR with the release notes](#create-pr-for-release-notes) for the new desired tag and review the PR. Once the PR merges, it will trigger a [GitHub Action](https://github.com/kubernetes-sigs/cluster-api/actions/workflows/release.yml) to create a release branch, push release tags, and create a draft release. This will also trigger a [ProwJob](https://prow.k8s.io/?repo=kubernetes-sigs%2Fcluster-api&job=post-cluster-api-push-images) to publish images to the staging repository.
 3. Promote images from the staging repository to the production registry (`registry.k8s.io/cluster-api`):
     1. Wait until images for the tag have been built and pushed to the [staging repository](https://console.cloud.google.com/gcr/images/k8s-staging-cluster-api) by the [post push images job](https://prow.k8s.io/?repo=kubernetes-sigs%2Fcluster-api&job=post-cluster-api-push-images).
     2. If you don't have a GitHub token, create one by going to your GitHub settings, in [Personal access tokens](https://github.com/settings/tokens). Make sure you give the token the `repo` scope.
     3. Create a PR to promote the images to the production registry:
+
        ```bash
+       # Export the tag of the release to be cut, e.g.:
+       export RELEASE_TAG=v1.0.1
        export GITHUB_TOKEN=<your GH token>
        make promote-images
        ```
+
        **Notes**:
+        * `make promote-images` target tries to figure out your Github user handle in order to find the forked [k8s.io](https://github.com/kubernetes/k8s.io) repository.
+          If you have not forked the repo, please do it before running the Makefile target.
+        * if `make promote-images` fails with an error like `FATAL while checking fork of kubernetes/k8s.io` you may be able to solve it by manually setting the USER_FORK variable i.e.  `export USER_FORK=<personal GitHub handle>`
         * `kpromo` uses `git@github.com:...` as remote to push the branch for the PR. If you don't have `ssh` set up you can configure
           git to use `https` instead via `git config --global url."https://github.com/".insteadOf git@github.com:`.
         * This will automatically create a PR in [k8s.io](https://github.com/kubernetes/k8s.io) and assign the CAPI maintainers.
     4. Merge the PR (/lgtm + /hold cancel) and verify the images are available in the production registry:
-       ```bash
-       docker pull registry.k8s.io/cluster-api/clusterctl:${RELEASE_TAG}
-       docker pull registry.k8s.io/cluster-api/cluster-api-controller:${RELEASE_TAG}
-       docker pull registry.k8s.io/cluster-api/kubeadm-bootstrap-controller:${RELEASE_TAG}
-       docker pull registry.k8s.io/cluster-api/kubeadm-control-plane-controller:${RELEASE_TAG}
-       ```
+         * Wait for the [promotion prow job](https://prow.k8s.io/?repo=kubernetes%2Fk8s.io&job=post-k8sio-image-promo) to complete successfully. Then test the production images are accessible:
+
+         ```bash
+         docker pull registry.k8s.io/cluster-api/clusterctl:${RELEASE_TAG} &&
+         docker pull registry.k8s.io/cluster-api/cluster-api-controller:${RELEASE_TAG} &&
+         docker pull registry.k8s.io/cluster-api/kubeadm-bootstrap-controller:${RELEASE_TAG} &&
+         docker pull registry.k8s.io/cluster-api/kubeadm-control-plane-controller:${RELEASE_TAG}
+         ```
+
 4. Publish the release in GitHub:
-    1. Get the final release notes from the docs team and add them to the GitHub release.
-    2. Publish the release (ensure to flag the release as pre-release if necessary).
-5. Publish `clusterctl` to Homebrew by bumping the version in [clusterctl.rb](https://github.com/Homebrew/homebrew-core/blob/master/Formula/clusterctl.rb).
+   1. Ask the [Maintainer](#maintainer) to publish the release in GitHub.
+5. Publish `clusterctl` to Homebrew by bumping the version in [clusterctl.rb](https://github.com/Homebrew/homebrew-core/blob/master/Formula/c/clusterctl.rb).
    <br>**Notes**:
     * This is only done for new latest stable releases, not for beta / RC releases and not for previous release branches.
     * Check if homebrew already has a PR to update the version (homebrew introduced automation that picks it up). Open one if no PR exists.
+      * To open a PR, you need two things: `tag` (i.e v1.4.2 & v1.3.7 releases are being published, where release-1.4 is the latest stable release branch, so tag would be v1.4.2) and `revision` (it is a commit hash of the tag, i.e if the tag is v1.4.2, it can be found by looking for commit id in [v1.4.2 tag page](https://github.com/kubernetes-sigs/cluster-api/releases/tag/v1.4.2)).
+      * Once the PR is open, no action should be needed. Homebrew bot should push a second commit (see an example [here](https://github.com/Homebrew/homebrew-core/pull/129986/commits/0da6edddf1143aa50033f7e8ae1ebd07ecdd0941)) to the same PR to update the binary hashes automatically.
       * For an example please see: [PR: clusterctl 1.1.5](https://github.com/Homebrew/homebrew-core/pull/105075/files).
       * Homebrew has [conventions for commit messages](https://docs.brew.sh/Formula-Cookbook#commit) usually
         the commit message for us should look like: `clusterctl 1.1.5`.
 6. **For minor releases** Set EOL date for previous release (prior art: https://github.com/kubernetes-sigs/cluster-api/issues/7146) and update Cluster API support and guarantees in CONTRIBUTING.md (prior art: https://github.com/kubernetes-sigs/cluster-api/pull/8308).
+7. **For latest stable releases** Index the most recent CRDs in the release by navigating to `https://doc.crds.dev/github.com/kubernetes-sigs/cluster-api@<CURRENT_RELEASE>` 
 
 Additional information:
+
 * [Versioning documentation](./../../CONTRIBUTING.md#versioning) for more information.
 * Cutting a release as of today requires permissions to:
-    * Create a release tag on the GitHub repository.
-    * Create/update/publish GitHub releases.
+  * Create a release tag on the GitHub repository.
+  * Create/update/publish GitHub releases.
+
+#### [Optional] Public release session
+   1. Host a release session over a public zoom meeting.
+   2. Record the session for future reference and transparency.
+   3. Use release process-related waiting periods as a forum for discussing issues/questions.
+   4. Publish the recording on YouTube channel.
 
 #### [Optional] [Track] Bump the Cluster API apiVersion
 
@@ -267,13 +276,13 @@ Additional information:
 ### Responsibilities
 
 * Communication:
-    * Communicate key dates to the community
+  * Communicate key dates to the community
 * Documentation:
-    * Improve release process documentation
-    * Ensure the book and provider upgrade documentation are up-to-date
-    * Maintain and improve user facing documentation about releases, release policy and release calendar
+  * Improve release process documentation
+  * Ensure the book and provider upgrade documentation are up-to-date
+  * Maintain and improve user facing documentation about releases, release policy and release calendar
 * Release Notes:
-    * Polish release notes
+  * Create PR with release notes
 
 ### Tasks
 
@@ -286,7 +295,6 @@ for provider authors on how to adopt to the new Cluster API version.
 
 1. Add a new migration doc for provider implementers.
    <br>Prior art: [Add v1.2 -> v1.3 migration doc](https://github.com/kubernetes-sigs/cluster-api/pull/6698)
-2. Add a doc to collect initial release notes for users.
 
 #### Update supported versions
 
@@ -304,38 +312,48 @@ The goal of this task to make the book for the current release available under e
 3. Update references in introduction.md only on the main branch (drop unsupported versions, add the new release version).
    <br>Prior art: [Add release 1.2 book link](https://github.com/kubernetes-sigs/cluster-api/pull/6697)
 
-#### Polish release notes
+#### Create PR for release notes
+1. Checkout the `main` branch.
+1. Build the release note tools binary.
+   ```bash
+   go build -o bin/notes hack/tools/release/notes.go
+   ```
+1. Checkout the latest commit on the release branch, e.g. `release-1.4`, or the main branch if the release branch doesn't yet exist (e.g. beta release).
+1. Generate release notes with:
 
-1. Checkout the latest commit on the release branch, e.g. `release-1.4`.
-2. Generate release notes with:
    ```bash
    # PREVIOUS_TAG should be the last patch release of the previous minor release.
    PREVIOUS_TAG=v1.3.x
-   go run ./hack/tools/release/notes.go --from=${PREVIOUS_TAG} > tmp.md
+   # RELEASE_TAG should be the new desired tag (note: at this point the tag does not yet exist).
+   RELEASE_TAG=v1.4.x
+   # If this is a beta or RC release, add the --pre-release-version flag
+   ./bin/notes --from=$PREVIOUS_TAG > CHANGELOG/${RELEASE_TAG}.md
    ```
-3. Finalize the release notes:
-    1. Copy & paste the release notes into a hackmd (makes collaboration very easy).
-    2. Pay close attention to the `## :question: Sort these by hand` section, as it contains items that need to be manually sorted.
-    3. Ensure consistent formatting of entries (e.g. prefix (see [v1.2.0](https://github.com/kubernetes-sigs/cluster-api/releases/tag/v1.2.0) release notes)).
-    4. Merge dependency bump PR entries for the same dependency into a single entry.
-    5. Move minor changes into a single line at the end of each section.
-    6. Sort entries within a section alphabetically.
-    7. Write highlights section based on the initial release notes doc.
-    8. Add Kubernetes version support section.
-    9. Modify `Changes since v1.x.y` to `Changes since v1.x`
+
+1. This will generate a new release notes file at `CHANGELOG/<RELEASE_TAG>.md`. Finalize the release notes:
+    - [ ] Update the `Kubernetes version support section`. If this is a patch release you can most probably copy the same values from the previous patch release notes. Except if this is the release where a new Kubernetes version support is added.
+       <br>**Note**: Check our [Kubernetes support policy](https://cluster-api.sigs.k8s.io/reference/versions.html#supported-kubernetes-versions) in the CAPI book. In case of doubt, reach out to the current release lead.
+    - [ ] If this is a `vX.X.0` release, fill in the content for the `Highlights` section. Otherwise, remove the section altogether.
+    - [ ] If there a deprecations in this release (for example, a CAPI API version drop), add them, to the `Deprecation Warning` section. Otherwise, remove the section altogether.
+    - [ ] Look for any `MISSING_AREA` entries. Add the corresponding label to the PR and regenerate the notes.
+    - [ ] Look for any `MULTIPLE_AREAS` entries. If the PR does indeed guarantee multiple areas, just remove the `MULTIPLE_AREAS` prefix and just leave the areas. Otherwise, fix the labels in the PR and regenerate the notes.
+    - [ ] Review that all areas are correctly assigned to each PR. If not, correct the labels and regenerate the notes.
+    - [ ] Look for area duplications in PR title. Sometimes authors add a prefix in their PR title that matches the area label. When the notes are generated, the area is as a prefix to the PR title, which can create redundant information. Remove the one from the PR title and just leave the area. Make sure you capitalize the title after this.
+    - [ ] Check that all entries are in the right section. Sometimes the wrong emoji prefix is added to the PR title, which drives the section in which the entry is added in the release notes. Manually move any entry as needed. Note that fixing the PR title won't fix this even after regenerating the notes, since the notes tool reads this info from the commit messages and these don't get rewritten.
+    - [ ] Sort manually all entries if you made any manual edits that might have altered the correct order.
+    - [ ] **For minor releases:** Modify `Changes since v1.x.y` to `Changes since v1.x`
        <br>**Note**: The release notes tool includes all merges since the previous release branch was branched of.
-4. Iterate until the GA release by generating incremental release notes and modifying the release notes in hackmd accordingly:
-   ```bash
-   # PREVIOUS_TAG should be the tag from which the previous release notes have been generated, e.g.:
-   PREVIOUS_TAG=v1.4.0-rc.0
-   go run ./hack/tools/release/notes.go --from=${PREVIOUS_TAG} > tmp.md
-   ```
+1. Checkout `main`, branch out from it and add `CHANGELOG/<RELEASE_TAG>.md`.
+1. Open a pull request **against the main branch** with all manual edits to `CHANGELOG/<RELEASE_TAG>.md` which is used for the new release notes. The commit and PR title should be `🚀 Release v1.x.y`.
+       <br>**Note**: Important! The commit should only contain the release notes file, nothing else, otherwise automation will not work.
+
 
 #### Change production branch in Netlify to the new release branch
 
 The goal of this task to make the book for the current release available under `https://cluster-api.sigs.k8s.io`.
 
 Someone with access to Netlify should:
+
 1. Change production branch in Netlify the current release branch (e.g. `release-1.4`) to make the book available under `https://cluster-api.sigs.k8s.io`. It's done under [production branch settings](https://app.netlify.com/sites/kubernetes-sigs-cluster-api/settings/deploys#branches-and-deploy-contexts)
 2. [Trigger a redeploy](https://app.netlify.com/sites/kubernetes-sigs-cluster-api/deploys).
 
@@ -356,19 +374,23 @@ The goal of this task is to ensure all stakeholders are informed about the curre
 upcoming code freezes etc based on the [release timeline (1.4 example)](./releases/release-1.4.md).
 
 Information can be distributed via:
+
 * `sig-cluster-lifecycle` mailing list
+  * Note: The person sending out the email should ensure that they are first part of the mailing list. If the email is sent out is not received by the community, reach out to the maintainers to unblock and approve the email.
 * Slack
 * Office hours
 * Cluster API book
 * ...
 
 Relevant information includes: (TBD)
+
 * Beta, RC, GA release
 * Start of code freeze
 * Implementation progress
 * ...
 
 Stakeholders are: (TBD)
+
 * End users of Cluster API
 * Contributors to core Cluster API
 * Provider implementers
@@ -380,21 +402,22 @@ The goal of this task is to inform all providers that a new beta.0 version a rel
 
 We should inform at least the following providers via a new issue on their respective repos that a new version of CAPI is being released (provide the release date) and that the beta.0 version is ready for them to test.
 
- - Addon provider helm: https://github.com/kubernetes-sigs/cluster-api-addon-provider-helm/issues/new
- - AWS: https://github.com/kubernetes-sigs/cluster-api-provider-aws/issues/new
- - Azure: https://github.com/kubernetes-sigs/cluster-api-provider-azure/issues/new
- - Cloudstack: https://github.com/kubernetes-sigs/cluster-api-provider-cloudstack/issues/new
- - Digital Ocean: https://github.com/kubernetes-sigs/cluster-api-provider-digitalocean/issues/new
- - GCP: https://github.com/kubernetes-sigs/cluster-api-provider-gcp/issues/new
- - Kubemark: https://github.com/kubernetes-sigs/cluster-api-provider-kubemark/issues/new
- - Kubevirt: https://github.com/kubernetes-sigs/cluster-api-provider-kubevirt/issues/new
- - IBMCloud: https://github.com/kubernetes-sigs/cluster-api-provider-ibmcloud/issues/new
- - Nested: https://github.com/kubernetes-sigs/cluster-api-provider-nested/issues/new
- - OCI: https://github.com/oracle/cluster-api-provider-oci/issues/new
- - Openstack: https://github.com/kubernetes-sigs/cluster-api-provider-openstack/issues/new
- - Operator: https://github.com/kubernetes-sigs/cluster-api-operator/issues/new
- - Packet: https://github.com/kubernetes-sigs/cluster-api-provider-packet/issues/new
- - vSphere: https://github.com/kubernetes-sigs/cluster-api-provider-vsphere/issues/new
+* Addon provider helm: https://github.com/kubernetes-sigs/cluster-api-addon-provider-helm/issues/new
+* AWS: https://github.com/kubernetes-sigs/cluster-api-provider-aws/issues/new
+* Azure: https://github.com/kubernetes-sigs/cluster-api-provider-azure/issues/new
+* Cloudstack: https://github.com/kubernetes-sigs/cluster-api-provider-cloudstack/issues/new
+* Digital Ocean: https://github.com/kubernetes-sigs/cluster-api-provider-digitalocean/issues/new
+* GCP: https://github.com/kubernetes-sigs/cluster-api-provider-gcp/issues/new
+* Kubemark: https://github.com/kubernetes-sigs/cluster-api-provider-kubemark/issues/new
+* Kubevirt: https://github.com/kubernetes-sigs/cluster-api-provider-kubevirt/issues/new
+* IBMCloud: https://github.com/kubernetes-sigs/cluster-api-provider-ibmcloud/issues/new
+* Metal3: https://github.com/metal3-io/cluster-api-provider-metal3/issues/new
+* Nested: https://github.com/kubernetes-sigs/cluster-api-provider-nested/issues/new
+* OCI: https://github.com/oracle/cluster-api-provider-oci/issues/new
+* Openstack: https://github.com/kubernetes-sigs/cluster-api-provider-openstack/issues/new
+* Operator: https://github.com/kubernetes-sigs/cluster-api-operator/issues/new
+* Packet: https://github.com/kubernetes-sigs/cluster-api-provider-packet/issues/new
+* vSphere: https://github.com/kubernetes-sigs/cluster-api-provider-vsphere/issues/new
 
 TODO: Right now we don't have a template for this message but the Comms Team will provide one later. 
 
@@ -403,13 +426,13 @@ TODO: Right now we don't have a template for this message but the Comms Team wil
 ### Responsibilities
 
 * Signal:
-    * Responsibility for the quality of the release
-    * Continuously monitor CI signal, so a release can be cut at any time
-    * Add CI signal for new release branches
-* Bug Triage:
-    * Make sure blocking issues and bugs are triaged and dealt with in a timely fashion
-* Automation
-    * Maintain and improve release automation, tooling & related developer docs
+  * Responsibility for the quality of the release
+  * Continuously monitor CI signal, so a release can be cut at any time
+  * Add CI signal for new release branches
+  * Bug Triage:
+  * Make sure blocking issues and bugs are triaged and dealt with in a timely fashion
+  * Automation
+  * Maintain and improve release automation, tooling & related developer docs
 
 ### Tasks
 
@@ -434,10 +457,13 @@ While we add test coverage for the new release branch we will also drop the test
 3. Remove tests for old release branches according to our policy documented in [Support and guarantees](../../CONTRIBUTING.md#support-and-guarantees)
    For example, let's assume we just created tests for v1.4, then we can now drop test coverage for the release-1.1 branch.
 4. Verify the jobs and dashboards a day later by taking a look at: `https://testgrid.k8s.io/sig-cluster-lifecycle-cluster-api-1.4`
-5. Update `.github/workflows/scan.yml` - to setup Trivy scanning - `.github/workflows/lint-docs-weekly.yml` - to setup link checking in the CAPI book - and `.github/workflows/test-release-weekly.yml` - to verify the release target is working - for the currently supported branches.
+5. Update `.github/workflows/weekly-security-scan.yaml` - to setup Trivy and govulncheck scanning - `.github/workflows/weekly-md-link-check.yaml` - to setup link checking in the CAPI book - and `.github/workflows/weekly-test-release.yaml` - to verify the release target is working - for the currently supported branches.
+6. Update the [PR markdown link checker](https://github.com/kubernetes-sigs/cluster-api/blob/main/.github/workflows/pr-md-link-check.yaml) accordingly (e.g. `main` -> `release-1.4`).
+   <br>Prior art: [Update branch for link checker](https://github.com/kubernetes-sigs/cluster-api/pull/9206)
 
 
 Prior art:
+
 * [Add jobs for CAPI release 1.2](https://github.com/kubernetes/test-infra/pull/26621)
 * [Update github workflows](https://github.com/kubernetes-sigs/cluster-api/pull/8398)
 
@@ -458,18 +484,16 @@ The goal of this task is to keep our tests running in CI stable.
     3. Mark the issue as `release-blocking` if applicable.
 5. Triage periodic GitHub actions failures, with special attention to image scan results;
    Eventually open issues as described above.
-6. Monitor IPv6 testing PR informing jobs (look for `capi-pr-e2e-informing-ipv6-<branch_name>` tab on main and supported releases testgrid dashboards), since they are not part of any periodic jobs.
+6. Run periodic deep-dive sessions with the CI team to investigate failing and flaking tests. Example session recording: https://www.youtube.com/watch?v=YApWftmiDTg
 
 #### [Continuously] Reduce the amount of flaky tests
 
 The Cluster API tests are pretty stable, but there are still some flaky tests from time to time.
 
 To reduce the amount of flakes please periodically:
+
 1. Take a look at recent CI failures via `k8s-triage`:
-    * [periodic-cluster-api-e2e-main](https://storage.googleapis.com/k8s-triage/index.html?pr=1&job=periodic-cluster-api-e2e-main)
-    * [periodic-cluster-api-e2e-mink8s-main](https://storage.googleapis.com/k8s-triage/index.html?pr=1&job=periodic-cluster-api-e2e-mink8s-main)
-    * [periodic-cluster-api-test-main](https://storage.googleapis.com/k8s-triage/index.html?pr=1&job=periodic-cluster-api-test-main)
-    * [periodic-cluster-api-test-mink8s-main](https://storage.googleapis.com/k8s-triage/index.html?pr=1&job=periodic-cluster-api-test-mink8s-main)
+    * [main: e2e, e2e-mink8s, test, test-mink8s](https://storage.googleapis.com/k8s-triage/index.html?job=.*cluster-api.*(test%7Ce2e)-(mink8s-)*main&xjob=.*-provider-.*)
 2. Open issues using an appropriate template (flaking-test) for occurring flakes and ideally fix them or find someone who can.
    **Note**: Given resource limitations in the Prow cluster it might not be possible to fix all flakes.
    Let's just try to pragmatically keep the amount of flakes pretty low.
@@ -481,3 +505,24 @@ and add them to the milestone of the current release.
 
 We probably have to figure out some details about the overlap between the bug triage task here, release leads
 and Cluster API maintainers.
+
+## Maintainer
+
+The Maintainer must be a person with write access to the Cluster API repo. They can hold another role in the release team. The Maintainer need only be involved in the release as required on days when releases are cut. They are not expected to take part in release team meetings or other activities, but should feel free to do so.
+
+### Responsibilities
+
+* Be available on release day in case the release team needs help with tag creation.
+* Publish the release.
+* Ensure a substitute is nominated if they are not available.
+
+### Tasks
+
+#### [Repeatedly] Publish the release
+
+**NOTE:** clusterctl will have issues installing providers between the time the release tag is cut and the Github release is published. See [issue 7889](https://github.com/kubernetes-sigs/cluster-api/issues/7889) for more details
+
+Publish the release.
+
+   1. The draft release should be automatically created via the [Create Release GitHub Action](https://github.com/kubernetes-sigs/cluster-api/actions/workflows/release.yml) with release notes previously committed to the repo by the release team.
+   2. Publish the release. Ensure release is flagged as `pre-release` for all `beta` and `rc` releases or `latest` for a new release in the most recent release branch.

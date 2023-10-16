@@ -656,7 +656,7 @@ func Test_DefaultClusterVariables(t *testing.T) {
 				return
 			}
 			g.Expect(errList).To(BeEmpty())
-			g.Expect(vars).To(Equal(tt.want))
+			g.Expect(vars).To(BeComparableTo(tt.want))
 		})
 	}
 }
@@ -1195,7 +1195,7 @@ func Test_DefaultClusterVariable(t *testing.T) {
 			}
 			g.Expect(errList).To(BeEmpty())
 
-			g.Expect(defaultedVariable).To(Equal(tt.want))
+			g.Expect(defaultedVariable).To(BeComparableTo(tt.want))
 		})
 	}
 }
@@ -1335,8 +1335,8 @@ func Test_getAllVariables(t *testing.T) {
 		}
 
 		valuesIndex, err := newValuesIndex(values)
-		g.Expect(err).To(BeNil())
+		g.Expect(err).ToNot(HaveOccurred())
 		got := getAllVariables(values, valuesIndex, definitions)
-		g.Expect(got).To(Equal(expectedValues))
+		g.Expect(got).To(BeComparableTo(expectedValues))
 	})
 }

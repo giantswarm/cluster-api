@@ -112,6 +112,8 @@ func (m *ClusterResourceSet) SetConditions(conditions clusterv1alpha4.Conditions
 }
 
 // +kubebuilder:object:root=true
+// +kubebuilder:unservedversion
+// +kubebuilder:deprecatedversion
 // +kubebuilder:resource:path=clusterresourcesets,scope=Namespaced,categories=cluster-api
 // +kubebuilder:subresource:status
 // +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp",description="Time duration since creation of ClusterResourceSet"
@@ -139,5 +141,5 @@ type ClusterResourceSetList struct {
 }
 
 func init() {
-	SchemeBuilder.Register(&ClusterResourceSet{}, &ClusterResourceSetList{})
+	objectTypes = append(objectTypes, &ClusterResourceSet{}, &ClusterResourceSetList{})
 }

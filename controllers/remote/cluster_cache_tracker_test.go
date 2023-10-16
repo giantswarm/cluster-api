@@ -31,6 +31,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
+	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
@@ -38,7 +39,7 @@ import (
 	"sigs.k8s.io/cluster-api/util/conditions"
 )
 
-func mapper(i client.Object) []reconcile.Request {
+func mapper(_ context.Context, i client.Object) []reconcile.Request {
 	return []reconcile.Request{
 		{
 			NamespacedName: types.NamespacedName{
@@ -68,16 +69,18 @@ func TestClusterCacheTracker(t *testing.T) {
 			t.Log("Setting up a new manager")
 			var err error
 			mgr, err = manager.New(env.Config, manager.Options{
-				Scheme:             scheme.Scheme,
-				MetricsBindAddress: "0",
+				Scheme: scheme.Scheme,
+				Metrics: metricsserver.Options{
+					BindAddress: "0",
+				},
 			})
-			g.Expect(err).NotTo(HaveOccurred())
+			g.Expect(err).ToNot(HaveOccurred())
 
 			c = &testController{
 				ch: make(chan string),
 			}
 			w, err = ctrl.NewControllerManagedBy(mgr).For(&clusterv1.MachineDeployment{}).Build(c)
-			g.Expect(err).NotTo(HaveOccurred())
+			g.Expect(err).ToNot(HaveOccurred())
 
 			mgrContext, mgrCancel = context.WithCancel(ctx)
 			t.Log("Starting the manager")
@@ -90,13 +93,13 @@ func TestClusterCacheTracker(t *testing.T) {
 
 			t.Log("Setting up a ClusterCacheTracker")
 			cct, err = NewClusterCacheTracker(mgr, ClusterCacheTrackerOptions{
-				Indexes: DefaultIndexes,
+				Indexes: []Index{NodeProviderIDIndex},
 			})
-			g.Expect(err).NotTo(HaveOccurred())
+			g.Expect(err).ToNot(HaveOccurred())
 
 			t.Log("Creating a namespace for the test")
 			ns, err := env.CreateNamespace(ctx, "cluster-cache-tracker-test")
-			g.Expect(err).To(BeNil())
+			g.Expect(err).ToNot(HaveOccurred())
 
 			t.Log("Creating a test cluster")
 			clusterA = &clusterv1.Cluster{

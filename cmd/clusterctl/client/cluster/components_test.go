@@ -17,6 +17,7 @@ limitations under the License.
 package cluster
 
 import (
+	"context"
 	"fmt"
 	"testing"
 
@@ -256,7 +257,7 @@ func Test_providerComponents_Delete(t *testing.T) {
 
 			c := newComponentsClient(proxy)
 
-			err := c.Delete(DeleteOptions{
+			err := c.Delete(context.Background(), DeleteOptions{
 				Provider:         tt.args.provider,
 				IncludeNamespace: tt.args.includeNamespace,
 				IncludeCRDs:      tt.args.includeCRD,
@@ -267,10 +268,10 @@ func Test_providerComponents_Delete(t *testing.T) {
 				return
 			}
 
-			g.Expect(err).NotTo(HaveOccurred())
+			g.Expect(err).ToNot(HaveOccurred())
 
 			cs, err := proxy.NewClient()
-			g.Expect(err).NotTo(HaveOccurred())
+			g.Expect(err).ToNot(HaveOccurred())
 
 			for _, want := range tt.wantDiff {
 				obj := &unstructured.Unstructured{}
@@ -282,7 +283,7 @@ func Test_providerComponents_Delete(t *testing.T) {
 					Name:      want.object.Name,
 				}
 
-				err := cs.Get(ctx, key, obj)
+				err := cs.Get(context.Background(), key, obj)
 				if err != nil && !apierrors.IsNotFound(err) {
 					t.Fatalf("Failed to get %v from the cluster: %v", key, err)
 				}
@@ -325,15 +326,15 @@ func Test_providerComponents_DeleteCoreProviderWebhookNamespace(t *testing.T) {
 		var nsList corev1.NamespaceList
 
 		// assert length before deleting
-		_ = proxyClient.List(ctx, &nsList)
+		_ = proxyClient.List(context.Background(), &nsList)
 		g.Expect(nsList.Items).Should(HaveLen(1))
 
 		c := newComponentsClient(proxy)
-		err := c.DeleteWebhookNamespace()
+		err := c.DeleteWebhookNamespace(context.Background())
 		g.Expect(err).To(Not(HaveOccurred()))
 
 		// assert length after deleting
-		_ = proxyClient.List(ctx, &nsList)
+		_ = proxyClient.List(context.Background(), &nsList)
 		g.Expect(nsList.Items).Should(BeEmpty())
 	})
 }
@@ -444,20 +445,20 @@ func Test_providerComponents_Create(t *testing.T) {
 			for _, obj := range tt.args.objectsToCreate {
 				uns := &unstructured.Unstructured{}
 				if err := scheme.Scheme.Convert(obj, uns, nil); err != nil {
-					g.Expect(fmt.Errorf("%v %v could not be converted to unstructured", err.Error(), obj)).NotTo(HaveOccurred())
+					g.Expect(fmt.Errorf("%v %v could not be converted to unstructured", err.Error(), obj)).ToNot(HaveOccurred())
 				}
 				unstructuredObjectsToCreate = append(unstructuredObjectsToCreate, *uns)
 			}
-			err := c.Create(unstructuredObjectsToCreate)
+			err := c.Create(context.Background(), unstructuredObjectsToCreate)
 			if tt.wantErr {
 				g.Expect(err).To(HaveOccurred())
 				return
 			}
 
-			g.Expect(err).NotTo(HaveOccurred())
+			g.Expect(err).ToNot(HaveOccurred())
 
 			cs, err := proxy.NewClient()
-			g.Expect(err).NotTo(HaveOccurred())
+			g.Expect(err).ToNot(HaveOccurred())
 
 			for _, item := range tt.want {
 				obj := &unstructured.Unstructured{}
@@ -468,7 +469,7 @@ func Test_providerComponents_Create(t *testing.T) {
 					Name:      item.GetName(),
 				}
 
-				err := cs.Get(ctx, key, obj)
+				err := cs.Get(context.Background(), key, obj)
 
 				if err != nil && !apierrors.IsNotFound(err) {
 					t.Fatalf("Failed to get %v from the cluster: %v", key, err)
@@ -479,14 +480,14 @@ func Test_providerComponents_Create(t *testing.T) {
 				if item.GetObjectKind().GroupVersionKind().Kind == "Pod" {
 					p1, okp1 := item.(*corev1.Pod)
 					if !(okp1) {
-						g.Expect(fmt.Errorf("%v %v could retrieve pod", err.Error(), obj)).NotTo(HaveOccurred())
+						g.Expect(fmt.Errorf("%v %v could retrieve pod", err.Error(), obj)).ToNot(HaveOccurred())
 					}
 					p2 := &corev1.Pod{}
 					if err := scheme.Scheme.Convert(obj, p2, nil); err != nil {
-						g.Expect(fmt.Errorf("%v %v could not be converted to unstructured", err.Error(), obj)).NotTo(HaveOccurred())
+						g.Expect(fmt.Errorf("%v %v could not be converted to unstructured", err.Error(), obj)).ToNot(HaveOccurred())
 					}
 					if len(p1.Spec.Containers) == 0 || len(p2.Spec.Containers) == 0 {
-						g.Expect(fmt.Errorf("%v %v could not be converted to unstructured", err.Error(), obj)).NotTo(HaveOccurred())
+						g.Expect(fmt.Errorf("%v %v could not be converted to unstructured", err.Error(), obj)).ToNot(HaveOccurred())
 					}
 					g.Expect(p1.Spec.Containers[0].Image).To(Equal(p2.Spec.Containers[0].Image), cmp.Diff(obj.GetNamespace(), item.GetNamespace()))
 				}

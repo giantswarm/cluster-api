@@ -29,10 +29,6 @@ import (
 	logf "sigs.k8s.io/cluster-api/cmd/clusterctl/log"
 )
 
-var (
-	ctx = context.TODO()
-)
-
 // Kubeconfig is a type that specifies inputs related to the actual
 // kubeconfig.
 type Kubeconfig struct {
@@ -89,7 +85,7 @@ type Client interface {
 }
 
 // PollImmediateWaiter tries a condition func until it returns true, an error, or the timeout is reached.
-type PollImmediateWaiter func(interval, timeout time.Duration, condition wait.ConditionFunc) error
+type PollImmediateWaiter func(ctx context.Context, interval, timeout time.Duration, condition wait.ConditionWithContextFunc) error
 
 // clusterClient implements Client.
 type clusterClient struct {
@@ -102,7 +98,7 @@ type clusterClient struct {
 }
 
 // RepositoryClientFactory defines a function that returns a new repository.Client.
-type RepositoryClientFactory func(provider config.Provider, configClient config.Client, options ...repository.Option) (repository.Client, error)
+type RepositoryClientFactory func(ctx context.Context, provider config.Provider, configClient config.Client, options ...repository.Option) (repository.Client, error)
 
 // ensure clusterClient implements Client.
 var _ Client = &clusterClient{}
@@ -214,7 +210,9 @@ func newClusterClient(kubeconfig Kubeconfig, configClient config.Client, options
 
 	// if there is an injected PollImmediateWaiter, use it, otherwise use the default one
 	if client.pollImmediateWaiter == nil {
-		client.pollImmediateWaiter = wait.PollImmediate
+		client.pollImmediateWaiter = func(ctx context.Context, interval, timeout time.Duration, condition wait.ConditionWithContextFunc) error {
+			return wait.PollUntilContextTimeout(ctx, interval, timeout, true, condition)
+		}
 	}
 
 	return client

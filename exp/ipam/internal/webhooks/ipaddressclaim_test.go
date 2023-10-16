@@ -24,7 +24,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/utils/pointer"
 
-	ipamv1 "sigs.k8s.io/cluster-api/exp/ipam/api/v1alpha1"
+	ipamv1 "sigs.k8s.io/cluster-api/exp/ipam/api/v1beta1"
 )
 
 func TestIPAddressClaimValidateCreate(t *testing.T) {
@@ -65,11 +65,13 @@ func TestIPAddressClaimValidateCreate(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			g := NewWithT(t)
 			wh := IPAddressClaim{}
+			warnings, err := wh.ValidateCreate(context.Background(), &tt.claim)
 			if tt.expectErr {
-				g.Expect(wh.ValidateCreate(context.Background(), &tt.claim)).NotTo(Succeed())
+				g.Expect(err).To(HaveOccurred())
 			} else {
-				g.Expect(wh.ValidateCreate(context.Background(), &tt.claim)).To(Succeed())
+				g.Expect(err).ToNot(HaveOccurred())
 			}
+			g.Expect(warnings).To(BeEmpty())
 		})
 	}
 }
@@ -113,11 +115,13 @@ func TestIPAddressClaimValidateUpdate(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			g := NewWithT(t)
 			wh := IPAddressClaim{}
+			warnings, err := wh.ValidateUpdate(context.Background(), &tt.oldClaim, &tt.newClaim)
 			if tt.expectErr {
-				g.Expect(wh.ValidateUpdate(context.Background(), &tt.oldClaim, &tt.newClaim)).NotTo(Succeed())
+				g.Expect(err).To(HaveOccurred())
 			} else {
-				g.Expect(wh.ValidateUpdate(context.Background(), &tt.oldClaim, &tt.newClaim)).To(Succeed())
+				g.Expect(err).ToNot(HaveOccurred())
 			}
+			g.Expect(warnings).To(BeEmpty())
 		})
 	}
 }
