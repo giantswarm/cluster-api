@@ -88,7 +88,7 @@ Please follow the development workflow:
 
 ### Keep fork customizations up to date
 
-Only `README.md` and `.circleci/` should differ between upstream and our fork, so the diff of everything else should be empty, or at worst, contain hotfixes that are not in upstream yet:
+Only `README.md`, `.github/` and `.circleci/` should differ between upstream and our fork, so the diff of everything else should be empty, or at worst, contain hotfixes that are not in upstream yet:
 
 ```sh
 git fetch upstream
@@ -98,7 +98,10 @@ git diff `# the upstream tag we merged recently` vX.Y.Z..origin/release-X.Y `# o
 And we should also keep our `main` and `release-X.Y` branches in sync, so this diff should be empty:
 
 ```sh
-git diff main..release-X.Y -- .circleci/ README.md
+git diff main..release-X.Y -- .circleci/ README.md .github/
 ```
 
 If this shows any output, please align the `main` branch with the release branches.
+
+We changed the upstream github actions to work with our repository (e.g., removing references to non-synced branches). 
+When updating to a new release, please also update branch references in the actions (e.g., bump the release version in `.github/workflows/{test-release-weekly.yml, lint-docs-weekly.yml, weekly-security-scan.yaml`).
