@@ -165,9 +165,10 @@ def load_provider_tiltfiles():
 
 tilt_helper_dockerfile_header = """
 # Tilt image
-FROM golang:1.20.8 as tilt-helper
+FROM golang:1.20.11 as tilt-helper
+# Install delve. Note this should be kept in step with the Go release minor version.
+RUN go install github.com/go-delve/delve/cmd/dlv@v1.20
 # Support live reloading with Tilt
-RUN go install github.com/go-delve/delve/cmd/dlv@v1.9.1
 RUN wget --output-document /restart.sh --quiet https://raw.githubusercontent.com/tilt-dev/rerun-process-wrapper/master/restart.sh  && \
     wget --output-document /start.sh --quiet https://raw.githubusercontent.com/tilt-dev/rerun-process-wrapper/master/start.sh && \
     chmod +x /start.sh && chmod +x /restart.sh && chmod +x /go/bin/dlv && \
@@ -175,7 +176,7 @@ RUN wget --output-document /restart.sh --quiet https://raw.githubusercontent.com
 """
 
 tilt_dockerfile_header = """
-FROM golang:1.19.13 as tilt
+FROM golang:1.20.11 as tilt
 WORKDIR /
 COPY --from=tilt-helper /process.txt .
 COPY --from=tilt-helper /start.sh .
