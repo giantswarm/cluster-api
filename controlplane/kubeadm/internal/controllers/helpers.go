@@ -62,7 +62,7 @@ func (r *KubeadmControlPlaneReconciler) reconcileKubeconfig(ctx context.Context,
 	case apierrors.IsNotFound(err):
 		createErr := kubeconfig.CreateSecretWithOwner(
 			ctx,
-			r.SecretCachingClient,
+			r.Client,
 			clusterName,
 			endpoint.String(),
 			controllerOwnerRef,
