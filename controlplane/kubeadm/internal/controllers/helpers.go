@@ -57,7 +57,6 @@ func (r *KubeadmControlPlaneReconciler) reconcileKubeconfig(ctx context.Context,
 
 	controllerOwnerRef := *metav1.NewControllerRef(controlPlane.KCP, controlplanev1.GroupVersion.WithKind(kubeadmControlPlaneKind))
 	clusterName := util.ObjectKey(controlPlane.Cluster)
-	log.Info("GIANTSWARM DEBUGGER Reconciling kubeconfig Secret", clusterName.Namespace, clusterName.Name)
 	configSecret, err := secret.GetFromNamespacedName(ctx, r.Client, clusterName, secret.Kubeconfig)
 	switch {
 	case apierrors.IsNotFound(err):
@@ -74,7 +73,6 @@ func (r *KubeadmControlPlaneReconciler) reconcileKubeconfig(ctx context.Context,
 		// always return if we have just created in order to skip rotation checks
 		return ctrl.Result{}, createErr
 	case err != nil:
-		log.Info("GIANTSWARM DEBUGGER Failed to retrieve kubeconfig Secret", clusterName.Namespace, clusterName.Name, err.Error())
 		return ctrl.Result{}, errors.Wrap(err, "failed to retrieve kubeconfig Secret")
 	}
 
