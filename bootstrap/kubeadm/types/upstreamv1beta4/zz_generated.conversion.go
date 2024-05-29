@@ -439,14 +439,14 @@ func Convert_v1beta1_ClusterConfiguration_To_upstreamv1beta4_ClusterConfiguratio
 }
 
 func autoConvert_upstreamv1beta4_ControlPlaneComponent_To_v1beta1_ControlPlaneComponent(in *ControlPlaneComponent, out *v1beta1.ControlPlaneComponent, s conversion.Scope) error {
-	// WARNING: in.ExtraArgs requires manual conversion: inconvertible types ([]sigs.k8s.io/cluster-api/bootstrap/kubeadm/types/upstreamv1beta4.Arg vs map[string]string)
+	// WARNING: in.ExtraArgs requires manual conversion: inconvertible types ([]./bootstrap/kubeadm/types/upstreamv1beta4.Arg vs map[string]string)
 	out.ExtraVolumes = *(*[]v1beta1.HostPathMount)(unsafe.Pointer(&in.ExtraVolumes))
 	// WARNING: in.ExtraEnvs requires manual conversion: does not exist in peer-type
 	return nil
 }
 
 func autoConvert_v1beta1_ControlPlaneComponent_To_upstreamv1beta4_ControlPlaneComponent(in *v1beta1.ControlPlaneComponent, out *ControlPlaneComponent, s conversion.Scope) error {
-	// WARNING: in.ExtraArgs requires manual conversion: inconvertible types (map[string]string vs []sigs.k8s.io/cluster-api/bootstrap/kubeadm/types/upstreamv1beta4.Arg)
+	// WARNING: in.ExtraArgs requires manual conversion: inconvertible types (map[string]string vs []./bootstrap/kubeadm/types/upstreamv1beta4.Arg)
 	out.ExtraVolumes = *(*[]HostPathMount)(unsafe.Pointer(&in.ExtraVolumes))
 	return nil
 }
@@ -742,7 +742,7 @@ func autoConvert_upstreamv1beta4_LocalEtcd_To_v1beta1_LocalEtcd(in *LocalEtcd, o
 		return err
 	}
 	out.DataDir = in.DataDir
-	// WARNING: in.ExtraArgs requires manual conversion: inconvertible types ([]sigs.k8s.io/cluster-api/bootstrap/kubeadm/types/upstreamv1beta4.Arg vs map[string]string)
+	// WARNING: in.ExtraArgs requires manual conversion: inconvertible types ([]./bootstrap/kubeadm/types/upstreamv1beta4.Arg vs map[string]string)
 	// WARNING: in.ExtraEnvs requires manual conversion: does not exist in peer-type
 	out.ServerCertSANs = *(*[]string)(unsafe.Pointer(&in.ServerCertSANs))
 	out.PeerCertSANs = *(*[]string)(unsafe.Pointer(&in.PeerCertSANs))
@@ -754,7 +754,7 @@ func autoConvert_v1beta1_LocalEtcd_To_upstreamv1beta4_LocalEtcd(in *v1beta1.Loca
 		return err
 	}
 	out.DataDir = in.DataDir
-	// WARNING: in.ExtraArgs requires manual conversion: inconvertible types (map[string]string vs []sigs.k8s.io/cluster-api/bootstrap/kubeadm/types/upstreamv1beta4.Arg)
+	// WARNING: in.ExtraArgs requires manual conversion: inconvertible types (map[string]string vs []./bootstrap/kubeadm/types/upstreamv1beta4.Arg)
 	out.ServerCertSANs = *(*[]string)(unsafe.Pointer(&in.ServerCertSANs))
 	out.PeerCertSANs = *(*[]string)(unsafe.Pointer(&in.PeerCertSANs))
 	return nil
@@ -788,7 +788,7 @@ func autoConvert_upstreamv1beta4_NodeRegistrationOptions_To_v1beta1_NodeRegistra
 	out.Name = in.Name
 	out.CRISocket = in.CRISocket
 	out.Taints = *(*[]corev1.Taint)(unsafe.Pointer(&in.Taints))
-	// WARNING: in.KubeletExtraArgs requires manual conversion: inconvertible types ([]sigs.k8s.io/cluster-api/bootstrap/kubeadm/types/upstreamv1beta4.Arg vs map[string]string)
+	// WARNING: in.KubeletExtraArgs requires manual conversion: inconvertible types ([]./bootstrap/kubeadm/types/upstreamv1beta4.Arg vs map[string]string)
 	out.IgnorePreflightErrors = *(*[]string)(unsafe.Pointer(&in.IgnorePreflightErrors))
 	out.ImagePullPolicy = string(in.ImagePullPolicy)
 	// WARNING: in.ImagePullSerial requires manual conversion: does not exist in peer-type
@@ -799,7 +799,7 @@ func autoConvert_v1beta1_NodeRegistrationOptions_To_upstreamv1beta4_NodeRegistra
 	out.Name = in.Name
 	out.CRISocket = in.CRISocket
 	out.Taints = *(*[]corev1.Taint)(unsafe.Pointer(&in.Taints))
-	// WARNING: in.KubeletExtraArgs requires manual conversion: inconvertible types (map[string]string vs []sigs.k8s.io/cluster-api/bootstrap/kubeadm/types/upstreamv1beta4.Arg)
+	// WARNING: in.KubeletExtraArgs requires manual conversion: inconvertible types (map[string]string vs []./bootstrap/kubeadm/types/upstreamv1beta4.Arg)
 	out.IgnorePreflightErrors = *(*[]string)(unsafe.Pointer(&in.IgnorePreflightErrors))
 	out.ImagePullPolicy = corev1.PullPolicy(in.ImagePullPolicy)
 	return nil
