@@ -31,6 +31,7 @@ type moveOptions struct {
 	toKubeconfig          string
 	toKubeconfigContext   string
 	namespace             string
+	clusterName           string
 	fromDirectory         string
 	toDirectory           string
 	dryRun                bool
@@ -74,6 +75,8 @@ func init() {
 		"Context to be used within the kubeconfig file for the destination management cluster. If empty, current context will be used.")
 	moveCmd.Flags().StringVarP(&mo.namespace, "namespace", "n", "",
 		"The namespace where the workload cluster is hosted. If unspecified, the current context's namespace is used.")
+	moveCmd.Flags().StringVarP(&mo.clusterName, "cluster-name", "c", "",
+		"The cluster owning the resources to be moved.")
 	moveCmd.Flags().BoolVar(&mo.dryRun, "dry-run", false,
 		"Enable dry run, don't really perform the move actions")
 	moveCmd.Flags().StringVar(&mo.toDirectory, "to-directory", "",
@@ -109,6 +112,7 @@ func runMove() error {
 		FromDirectory:  mo.fromDirectory,
 		ToDirectory:    mo.toDirectory,
 		Namespace:      mo.namespace,
+		ClusterName:    mo.clusterName,
 		DryRun:         mo.dryRun,
 	})
 }

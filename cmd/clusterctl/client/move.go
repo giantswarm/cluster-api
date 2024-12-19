@@ -39,6 +39,9 @@ type MoveOptions struct {
 	// namespace will be used.
 	Namespace string
 
+	// ClusterName contains the cluster name that will be used as a label selector when fetching the resources to move.
+	ClusterName string
+
 	// ExperimentalResourceMutatorFn accepts any number of resource mutator functions that are applied on all resources being moved.
 	// This is an experimental feature and is exposed only from the library and not (yet) through the CLI.
 	ExperimentalResourceMutators []cluster.ResourceMutatorFunc
@@ -99,7 +102,7 @@ func (c *clusterctlClient) move(ctx context.Context, options MoveOptions) error 
 		}
 	}
 
-	return fromCluster.ObjectMover().Move(ctx, options.Namespace, toCluster, options.DryRun, options.ExperimentalResourceMutators...)
+	return fromCluster.ObjectMover().Move(ctx, options.Namespace, options.ClusterName, toCluster, options.DryRun, options.ExperimentalResourceMutators...)
 }
 
 func (c *clusterctlClient) fromDirectory(ctx context.Context, options MoveOptions) error {

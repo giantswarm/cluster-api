@@ -418,13 +418,16 @@ func getCRDList(ctx context.Context, proxy Proxy, crdList *apiextensionsv1.Custo
 
 // Discovery reads all the Kubernetes objects existing in a namespace (or in all namespaces if empty) for the types received in input, and then adds
 // everything to the objects graph.
-func (o *objectGraph) Discovery(ctx context.Context, namespace string) error {
+func (o *objectGraph) Discovery(ctx context.Context, namespace, clusterName string) error {
 	log := logf.Log
 	log.Info("Discovering Cluster API objects")
 
 	selectors := []client.ListOption{}
 	if namespace != "" {
 		selectors = append(selectors, client.InNamespace(namespace))
+	}
+	if clusterName != "" {
+		selectors = append(selectors, client.MatchingLabels{clusterv1.ClusterNameLabel: clusterName})
 	}
 
 	discoveryBackoff := newReadBackoff()
