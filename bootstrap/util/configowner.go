@@ -144,6 +144,12 @@ func getConfigOwner(ctx context.Context, c client.Client, obj metav1.Object, get
 			Group: clusterv1.GroupVersion.Group,
 			Kind:  "Machine",
 		},
+		// At GiantSwarm we use the `KarpenterMachinePool` as the owner of the `KubeadmConfig`.
+		// Without this, the `KubeadmConfig` wouldn't get reconciled and userdata wouldn't be generated.
+		{
+			Group: "kaas.giantswarm.io",
+			Kind:  "KarpenterMachinePool",
+		},
 	}
 
 	if feature.Gates.Enabled(feature.MachinePool) {
