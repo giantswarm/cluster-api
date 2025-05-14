@@ -79,3 +79,7 @@ func Convert_v1beta1_MachinePoolStatus_To_v1alpha4_MachinePoolStatus(in *expv1.M
 	// V1Beta2 was added in v1beta1
 	return autoConvert_v1beta1_MachinePoolStatus_To_v1alpha4_MachinePoolStatus(in, out, s)
 }
+
+func Convert_v1beta1_MachinePoolSpec_To_v1alpha4_MachinePoolSpec(in *expv1.MachinePoolSpec, out *MachinePoolSpec, s apimachineryconversion.Scope) error {
+	return autoConvert_v1beta1_MachinePoolSpec_To_v1alpha4_MachinePoolSpec(in, out, s)
+}
