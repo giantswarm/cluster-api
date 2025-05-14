@@ -21,6 +21,10 @@ package v1alpha4
 import (
 	"testing"
 
+	fuzz "github.com/google/gofuzz"
+	"k8s.io/apimachinery/pkg/api/apitesting/fuzzer"
+	runtimeserializer "k8s.io/apimachinery/pkg/runtime/serializer"
+
 	expv1 "sigs.k8s.io/cluster-api/exp/api/v1beta1"
 	utilconversion "sigs.k8s.io/cluster-api/util/conversion"
 )
@@ -29,7 +33,22 @@ import (
 
 func TestFuzzyConversion(t *testing.T) {
 	t.Run("for MachinePool", utilconversion.FuzzTestFunc(utilconversion.FuzzTestFuncInput{
-		Hub:   &expv1.MachinePool{},
-		Spoke: &MachinePool{},
+		Hub:         &expv1.MachinePool{},
+		Spoke:       &MachinePool{},
+		FuzzerFuncs: []fuzzer.FuzzerFuncs{fuzzFuncs},
 	}))
+}
+
+func fuzzFuncs(_ runtimeserializer.CodecFactory) []interface{} {
+	return []interface{}{
+		HubMachinePoolSpecFuzzer,
+	}
+}
+
+func HubMachinePoolSpecFuzzer(in *expv1.MachinePoolSpec, c fuzz.Continue) {
+	c.Fuzz(in)
+
+	// This field does not exist in v1alpha4
+	// data is incompatible, so we're forcing zero values here.
+	in.Strategy = nil
 }

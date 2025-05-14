@@ -44,6 +44,7 @@ func fuzzFuncs(_ runtimeserializer.CodecFactory) []interface{} {
 	return []interface{}{
 		BootstrapFuzzer,
 		MachinePoolSpecFuzzer,
+		HubMachinePoolSpecFuzzer,
 		ObjectMetaFuzzer,
 	}
 }
@@ -69,7 +70,15 @@ func ObjectMetaFuzzer(in *clusterv1alpha3.ObjectMeta, c fuzz.Continue) {
 func MachinePoolSpecFuzzer(in *MachinePoolSpec, c fuzz.Continue) {
 	c.Fuzz(in)
 
-	// These fields have been removed in v1beta1
-	// data is going to be lost, so we're forcing zero values here.
+	// This field has been changed in v1beta1
+	// data is incompatible, so we're forcing zero values here.
+	in.Strategy = nil
+}
+
+func HubMachinePoolSpecFuzzer(in *expv1.MachinePoolSpec, c fuzz.Continue) {
+	c.Fuzz(in)
+
+	// This field has been changed in v1beta1
+	// data is incompatible, so we're forcing zero values here.
 	in.Strategy = nil
 }
