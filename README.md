@@ -63,3 +63,21 @@ Participation in the Kubernetes community is governed by the [Kubernetes Code of
 [Help wanted]: https://github.com/kubernetes-sigs/cluster-api/issues?utf8=%E2%9C%93&q=is%3Aopen+is%3Aissue+label%3A%22help+wanted%22+
 
 <!-- ANCHOR_END: Community -->
+
+## Giant Swarm changes
+
+**tl;dr:** Here's how we generate our tags:
+
+```bash
+# Get latest upstream tag.
+latest_upstream_tag="$(git tag --merged | grep --extended-regexp "^v\d+\.\d+\.\d+$" | sort --version-sort | tail --lines 1)"
+
+# Get short revision.
+short_revision="$(git rev-parse --short HEAD)"
+
+# Concatenate Giant Swarm tag.
+giant_swarm_tag="${latest_upstream_tag}-gs-${short_revision}"
+
+# Tag commit.
+git tag "${giant_swarm_tag}"
+````

@@ -114,3 +114,12 @@ func Convert_v1beta1_MachinePoolStatus_To_v1alpha3_MachinePoolStatus(in *expv1.M
 	// V1Beta2 was added in v1beta1
 	return autoConvert_v1beta1_MachinePoolStatus_To_v1alpha3_MachinePoolStatus(in, out, s)
 }
+
+func Convert_v1alpha3_MachineDeploymentStrategy_To_v1beta1_MachinePoolStrategy(in *clusterv1alpha3.MachineDeploymentStrategy, out *expv1.MachinePoolStrategy, _ apimachineryconversion.Scope) error {
+	out.Remediation = nil
+	return nil
+}
+
+func Convert_v1beta1_MachinePoolStrategy_To_v1alpha3_MachineDeploymentStrategy(in *expv1.MachinePoolStrategy, out *clusterv1alpha3.MachineDeploymentStrategy, _ apimachineryconversion.Scope) error {
+	return nil
+}
