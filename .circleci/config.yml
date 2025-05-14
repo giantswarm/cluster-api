@@ -1,0 +1,108 @@
+version: 2.1
+
+orbs:
+  go: circleci/go@3.0.2
+
+workflows:
+  build:
+    jobs:
+      - test
+      - build:
+          context:
+            - architect
+          filters:
+            tags:
+              only: /^v.*/
+
+jobs:
+  test:
+    resource_class: large
+    executor:
+      name: go/default
+      tag: 1.24.6
+    steps:
+      - checkout
+      - go/load-build-cache
+      - go/mod-download
+      - run:
+          command: make setup-envtest
+      - go/save-build-cache
+      - go/save-mod-cache
+      - run:
+          command: make test
+
+  build:
+    resource_class: xlarge
+    machine:
+      image: ubuntu-2404:2024.11.1
+    environment:
+      COMPONENTS: core kubeadm-bootstrap kubeadm-control-plane
+      PLATFORMS: amd64 arm64
+
+      REGISTRY_AZURE: gsoci.azurecr.io/giantswarm
+      REGISTRY_QUAY: quay.io/giantswarm
+      REGISTRY_ALIYUN: giantswarm-registry.cn-shanghai.cr.aliyuncs.com/giantswarm
+    steps:
+      - checkout
+
+      - run:
+          name: Generate CRDs
+          command: |-
+            # Generate CRDs.
+            make generate
+
+            # Check diff.
+            if ! git diff --exit-code
+            then
+              echo "There are differences in generated files."
+              echo "Please run and commit 'make generate', otherwise we can run into CRDs mismatching the code."
+              exit 1
+            fi
+
+      - run:
+          name: Build images
+          command: |-
+            # Iterate registry.
+            for registry in "${REGISTRY_AZURE}" "${REGISTRY_QUAY}" "${REGISTRY_ALIYUN}"
+            do
+              # Build images.
+              make docker-build-all ALL_DOCKER_BUILD="${COMPONENTS}" ALL_ARCH="${PLATFORMS}" REGISTRY="${registry}" TAG="${CIRCLE_TAG:-${CIRCLE_SHA1}}"
+            done
+
+      - run:
+          name: Push to Azure
+          command: |-
+            # Log in to registry.
+            docker login --username "${ACR_GSOCI_USERNAME}" --password "${ACR_GSOCI_PASSWORD}" "${REGISTRY_AZURE%%/*}"
+
+            # Push images.
+            make docker-push-all ALL_DOCKER_BUILD="${COMPONENTS}" ALL_ARCH="${PLATFORMS}" REGISTRY="${REGISTRY_AZURE}" TAG="${CIRCLE_TAG:-${CIRCLE_SHA1}}"
+
+      - run:
+          name: Push to Quay
+          command: |-
+            # Log in to registry.
+            docker login --username "${QUAY_USERNAME}" --password "${QUAY_PASSWORD}" "${REGISTRY_QUAY%%/*}"
+
+            # Push images.
+            make docker-push-all ALL_DOCKER_BUILD="${COMPONENTS}" ALL_ARCH="${PLATFORMS}" REGISTRY="${REGISTRY_QUAY}" TAG="${CIRCLE_TAG:-${CIRCLE_SHA1}}"
+
+      - run:
+          name: Push to Aliyun
+          command: |-
+            # Try up to 10 times.
+            for i in {1..10}
+            do
+              # Log in to registry.
+              docker login --username "${ALIYUN_USERNAME}" --password "${ALIYUN_PASSWORD}" "${REGISTRY_ALIYUN%%/*}" && \
+              \
+              # Push images.
+              make docker-push-all ALL_DOCKER_BUILD="${COMPONENTS}" ALL_ARCH="${PLATFORMS}" REGISTRY="${REGISTRY_ALIYUN}" TAG="${CIRCLE_TAG:-${CIRCLE_SHA1}}" && exit 0
+
+              # Print attempt.
+              echo "Attempt #${i} failed."
+              sleep 30
+            done
+
+            # Exit erroneously.
+            exit 1
