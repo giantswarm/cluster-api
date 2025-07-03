@@ -26,13 +26,15 @@ import (
 	expv1 "sigs.k8s.io/cluster-api/exp/api/v1beta1"
 	clusterv1alpha3 "sigs.k8s.io/cluster-api/internal/apis/core/v1alpha3"
 	utilconversion "sigs.k8s.io/cluster-api/util/conversion"
+	"sigs.k8s.io/controller-runtime/pkg/conversion"
 )
 
 func TestFuzzyConversion(t *testing.T) {
 	t.Run("for MachinePool", utilconversion.FuzzTestFunc(utilconversion.FuzzTestFuncInput{
-		Hub:         &expv1.MachinePool{},
-		Spoke:       &MachinePool{},
-		FuzzerFuncs: []fuzzer.FuzzerFuncs{fuzzFuncs},
+		Hub:              &expv1.MachinePool{},
+		HubAfterMutation: machinePoolHubAfterMutation,
+		Spoke:            &MachinePool{},
+		FuzzerFuncs:      []fuzzer.FuzzerFuncs{fuzzFuncs},
 	}))
 }
 
@@ -41,6 +43,7 @@ func fuzzFuncs(_ runtimeserializer.CodecFactory) []interface{} {
 		BootstrapFuzzer,
 		MachinePoolSpecFuzzer,
 		ObjectMetaFuzzer,
+		hubMachinePoolSpec,
 	}
 }
 
@@ -65,7 +68,17 @@ func ObjectMetaFuzzer(in *clusterv1alpha3.ObjectMeta, c fuzz.Continue) {
 func MachinePoolSpecFuzzer(in *MachinePoolSpec, c fuzz.Continue) {
 	c.Fuzz(in)
 
-	// These fields have been removed in v1beta1
-	// data is going to be lost, so we're forcing zero values here.
+	in.Strategy = nil
+}
+
+func machinePoolHubAfterMutation(c conversion.Hub) {
+	mp := c.(*expv1.MachinePool)
+
+	mp.Spec.Strategy = nil
+}
+
+func hubMachinePoolSpec(in *expv1.MachinePoolSpec, c fuzz.Continue) {
+	c.Fuzz(in)
+
 	in.Strategy = nil
 }

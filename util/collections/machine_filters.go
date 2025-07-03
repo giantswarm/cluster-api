@@ -194,6 +194,16 @@ func HasUnhealthyControlPlaneComponents(isEtcdManaged bool) Func {
 	}
 }
 
+// IsUnhealthyAndOwnerRemediated returns a filter to find all machines that have a MachineHealthCheckSucceeded condition set to False,
+// indicating a problem was detected on the machine, and the MachineOwnerRemediated condition set to False, indicating that the machine owner is
+// responsible for performing remediation for the machine.
+func IsUnhealthyAndOwnerRemediated(machine *clusterv1.Machine) bool {
+	if machine == nil {
+		return false
+	}
+	return conditions.IsFalse(machine, clusterv1.MachineHealthCheckSucceededCondition) && conditions.IsFalse(machine, clusterv1.MachineOwnerRemediatedCondition)
+}
+
 // IsReady returns a filter to find all machines with the ReadyCondition equals to True.
 func IsReady() Func {
 	return func(machine *clusterv1.Machine) bool {
