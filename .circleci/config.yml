@@ -1,10 +1,28 @@
 version: 2.1
+orbs:
+  go: circleci/go@3.0.2
 
 
 jobs:
+  test:
+    resource_class: large
+    executor:
+      name: go/default
+      tag: "1.24.4"
+    steps:
+      - checkout
+      - go/load-build-cache
+      - go/mod-download
+      - run:
+          command: make setup-envtest
+      - go/save-build-cache
+      - go/save-mod-cache
+      - run:
+          command: make test
+
   build:
     machine:
-      image: "ubuntu-2204:2022.10.2"
+      image: "ubuntu-2204:2024.05.1"
     environment:
       ALL_ARCH: "amd64 arm64"
       REGISTRY_AZURE: gsoci.azurecr.io/giantswarm
@@ -16,6 +34,12 @@ jobs:
     resource_class: xlarge # building several Docker images for multiple architectures is otherwise slow
     steps:
       - checkout
+
+      - run:
+          name: Ensure 'make generate' matches commit
+          command: |
+            make generate
+            git diff --exit-code || { echo "There are differences in generated files. Please run and commit 'make generate'. Else we can run into CRDs mismatching the code."; exit 1; }
 
       - run:
           name: Build the CAPI docker images
@@ -91,3 +115,4 @@ workflows:
           filters:
             tags:
               only: /^v.*/
+      - test
