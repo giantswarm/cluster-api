@@ -19,7 +19,9 @@ package v1alpha4
 import (
 	"testing"
 
+	fuzz "github.com/google/gofuzz"
 	"k8s.io/apimachinery/pkg/api/apitesting/fuzzer"
+	runtimeserializer "k8s.io/apimachinery/pkg/runtime/serializer"
 
 	expv1 "sigs.k8s.io/cluster-api/exp/api/v1beta1"
 	utilconversion "sigs.k8s.io/cluster-api/util/conversion"
@@ -27,8 +29,21 @@ import (
 
 func TestFuzzyConversion(t *testing.T) {
 	t.Run("for MachinePool", utilconversion.FuzzTestFunc(utilconversion.FuzzTestFuncInput{
-		Hub:         &expv1.MachinePool{},
+		Hub: &expv1.MachinePool{},
+		// HubAfterMutation: machinePoolHubAfterMutation,
 		Spoke:       &MachinePool{},
-		FuzzerFuncs: []fuzzer.FuzzerFuncs{},
+		FuzzerFuncs: []fuzzer.FuzzerFuncs{fuzzFuncs},
 	}))
+}
+
+func fuzzFuncs(_ runtimeserializer.CodecFactory) []interface{} {
+	return []interface{}{
+		hubMachinePoolSpec,
+	}
+}
+
+func hubMachinePoolSpec(in *expv1.MachinePoolSpec, c fuzz.Continue) {
+	c.Fuzz(in)
+
+	in.Strategy = nil
 }

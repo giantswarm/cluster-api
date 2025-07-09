@@ -71,3 +71,7 @@ func Convert_v1alpha4_MachineTemplateSpec_To_v1beta1_MachineTemplateSpec(in *clu
 func Convert_v1beta1_MachineTemplateSpec_To_v1alpha4_MachineTemplateSpec(in *clusterv1.MachineTemplateSpec, out *clusterv1alpha4.MachineTemplateSpec, s apimachineryconversion.Scope) error {
 	return clusterv1alpha4.Convert_v1beta1_MachineTemplateSpec_To_v1alpha4_MachineTemplateSpec(in, out, s)
 }
+
+func Convert_v1beta1_MachinePoolSpec_To_v1alpha4_MachinePoolSpec(in *expv1.MachinePoolSpec, out *MachinePoolSpec, s apimachineryconversion.Scope) error {
+	return autoConvert_v1beta1_MachinePoolSpec_To_v1alpha4_MachinePoolSpec(in, out, s)
+}
