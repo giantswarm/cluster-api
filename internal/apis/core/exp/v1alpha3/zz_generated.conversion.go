@@ -65,6 +65,11 @@ func RegisterConversions(s *runtime.Scheme) error {
 	}); err != nil {
 		return err
 	}
+	if err := s.AddConversionFunc((*corev1alpha3.MachineDeploymentStrategy)(nil), (*v1beta1.MachinePoolStrategy)(nil), func(a, b interface{}, scope conversion.Scope) error {
+		return Convert_v1alpha3_MachineDeploymentStrategy_To_v1beta1_MachinePoolStrategy(a.(*corev1alpha3.MachineDeploymentStrategy), b.(*v1beta1.MachinePoolStrategy), scope)
+	}); err != nil {
+		return err
+	}
 	if err := s.AddConversionFunc((*MachinePoolSpec)(nil), (*v1beta1.MachinePoolSpec)(nil), func(a, b interface{}, scope conversion.Scope) error {
 		return Convert_v1alpha3_MachinePoolSpec_To_v1beta1_MachinePoolSpec(a.(*MachinePoolSpec), b.(*v1beta1.MachinePoolSpec), scope)
 	}); err != nil {
@@ -77,6 +82,11 @@ func RegisterConversions(s *runtime.Scheme) error {
 	}
 	if err := s.AddConversionFunc((*corev1alpha3.MachineTemplateSpec)(nil), (*apiv1beta1.MachineTemplateSpec)(nil), func(a, b interface{}, scope conversion.Scope) error {
 		return Convert_v1alpha3_MachineTemplateSpec_To_v1beta1_MachineTemplateSpec(a.(*corev1alpha3.MachineTemplateSpec), b.(*apiv1beta1.MachineTemplateSpec), scope)
+	}); err != nil {
+		return err
+	}
+	if err := s.AddConversionFunc((*v1beta1.MachinePoolStrategy)(nil), (*corev1alpha3.MachineDeploymentStrategy)(nil), func(a, b interface{}, scope conversion.Scope) error {
+		return Convert_v1beta1_MachinePoolStrategy_To_v1alpha3_MachineDeploymentStrategy(a.(*v1beta1.MachinePoolStrategy), b.(*corev1alpha3.MachineDeploymentStrategy), scope)
 	}); err != nil {
 		return err
 	}
@@ -163,7 +173,15 @@ func autoConvert_v1alpha3_MachinePoolSpec_To_v1beta1_MachinePoolSpec(in *Machine
 	if err := Convert_v1alpha3_MachineTemplateSpec_To_v1beta1_MachineTemplateSpec(&in.Template, &out.Template, s); err != nil {
 		return err
 	}
-	// WARNING: in.Strategy requires manual conversion: does not exist in peer-type
+	if in.Strategy != nil {
+		in, out := &in.Strategy, &out.Strategy
+		*out = new(v1beta1.MachinePoolStrategy)
+		if err := Convert_v1alpha3_MachineDeploymentStrategy_To_v1beta1_MachinePoolStrategy(*in, *out, s); err != nil {
+			return err
+		}
+	} else {
+		out.Strategy = nil
+	}
 	out.MinReadySeconds = (*int32)(unsafe.Pointer(in.MinReadySeconds))
 	out.ProviderIDList = *(*[]string)(unsafe.Pointer(&in.ProviderIDList))
 	out.FailureDomains = *(*[]string)(unsafe.Pointer(&in.FailureDomains))
@@ -179,6 +197,15 @@ func autoConvert_v1beta1_MachinePoolSpec_To_v1alpha3_MachinePoolSpec(in *v1beta1
 	out.MinReadySeconds = (*int32)(unsafe.Pointer(in.MinReadySeconds))
 	out.ProviderIDList = *(*[]string)(unsafe.Pointer(&in.ProviderIDList))
 	out.FailureDomains = *(*[]string)(unsafe.Pointer(&in.FailureDomains))
+	if in.Strategy != nil {
+		in, out := &in.Strategy, &out.Strategy
+		*out = new(corev1alpha3.MachineDeploymentStrategy)
+		if err := Convert_v1beta1_MachinePoolStrategy_To_v1alpha3_MachineDeploymentStrategy(*in, *out, s); err != nil {
+			return err
+		}
+	} else {
+		out.Strategy = nil
+	}
 	return nil
 }
 
