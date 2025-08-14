@@ -1,14 +1,25 @@
 version: 2.1
+
 orbs:
   go: circleci/go@3.0.2
 
+workflows:
+  build:
+    jobs:
+      - test
+      - build:
+          context:
+            - architect
+          filters:
+            tags:
+              only: /^v.*/
 
 jobs:
   test:
     resource_class: large
     executor:
       name: go/default
-      tag: "1.24.4"
+      tag: 1.24.6
     steps:
       - checkout
       - go/load-build-cache
@@ -21,98 +32,74 @@ jobs:
           command: make test
 
   build:
+    resource_class: xlarge
     machine:
-      image: "ubuntu-2204:2024.05.1"
+      image: ubuntu-2404:2024.11.1
     environment:
-      ALL_ARCH: "amd64 arm64"
+      COMPONENTS: core kubeadm-bootstrap kubeadm-control-plane
+      PLATFORMS: amd64 arm64
+
       REGISTRY_AZURE: gsoci.azurecr.io/giantswarm
       REGISTRY_QUAY: quay.io/giantswarm
-      REGISTRY_CHINA: giantswarm-registry.cn-shanghai.cr.aliyuncs.com/giantswarm
-
-      # We don't build all components, e.g. not CAPD or clusterctl
-      ALL_DOCKER_BUILD: "core kubeadm-bootstrap kubeadm-control-plane"
-    resource_class: xlarge # building several Docker images for multiple architectures is otherwise slow
+      REGISTRY_ALIYUN: giantswarm-registry.cn-shanghai.cr.aliyuncs.com/giantswarm
     steps:
       - checkout
 
       - run:
-          name: Ensure 'make generate' matches commit
-          command: |
+          name: Generate CRDs
+          command: |-
+            # Generate CRDs.
             make generate
-            git diff --exit-code || { echo "There are differences in generated files. Please run and commit 'make generate'. Else we can run into CRDs mismatching the code."; exit 1; }
+
+            # Check diff.
+            if ! git diff --exit-code
+            then
+              echo "There are differences in generated files."
+              echo "Please run and commit 'make generate', otherwise we can run into CRDs mismatching the code."
+              exit 1
+            fi
 
       - run:
-          name: Build the CAPI docker images
-          command: |
-            # Non-interactive logs (much shorter)
-            export DOCKER_BUILDKIT=1
-            export BUILDKIT_PROGRESS=plain
-
-            for registry in $REGISTRY_AZURE $REGISTRY_QUAY $REGISTRY_CHINA; do
-              make docker-build-all ALL_ARCH="$ALL_ARCH" ALL_DOCKER_BUILD="$ALL_DOCKER_BUILD" TAG=$CIRCLE_SHA1 REGISTRY=$registry
-
-              if [ -n "$CIRCLE_TAG" ]; then
-                echo "Building tag $CIRCLE_TAG"
-                make docker-build-all ALL_ARCH="$ALL_ARCH" ALL_DOCKER_BUILD="$ALL_DOCKER_BUILD" TAG="$CIRCLE_TAG" REGISTRY=$registry
-              fi
+          name: Build images
+          command: |-
+            # Iterate registry.
+            for registry in "${REGISTRY_AZURE}" "${REGISTRY_QUAY}" "${REGISTRY_ALIYUN}"
+            do
+              # Build images.
+              make docker-build-all ALL_DOCKER_BUILD="${COMPONENTS}" ALL_ARCH="${PLATFORMS}" REGISTRY="${registry}" TAG="${CIRCLE_TAG:-${CIRCLE_SHA1}}"
             done
-
-            docker images
 
       - run:
           name: Push to Azure
-          command: |
-            docker login --username $ACR_GSOCI_USERNAME --password $ACR_GSOCI_PASSWORD "${REGISTRY_AZURE%%/*}"
+          command: |-
+            # Log in to registry.
+            docker login --username "${ACR_GSOCI_USERNAME}" --password "${ACR_GSOCI_PASSWORD}" "${REGISTRY_AZURE%%/*}"
 
-            make docker-push-all ALL_ARCH="$ALL_ARCH" ALL_DOCKER_BUILD="$ALL_DOCKER_BUILD" TAG=$CIRCLE_SHA1 REGISTRY=$REGISTRY_AZURE
-
-            if [ -n "$CIRCLE_TAG" ]; then
-              echo "Pushing tag $CIRCLE_TAG"
-              make docker-push-all ALL_ARCH="$ALL_ARCH" ALL_DOCKER_BUILD="$ALL_DOCKER_BUILD" TAG="$CIRCLE_TAG" REGISTRY=$REGISTRY_AZURE
-            fi
+            # Push images.
+            make docker-push-all ALL_DOCKER_BUILD="${COMPONENTS}" ALL_ARCH="${PLATFORMS}" REGISTRY="${REGISTRY_AZURE}" TAG="${CIRCLE_TAG:-${CIRCLE_SHA1}}"
 
       - run:
-          name: Push to quay
-          command: |
-            docker login --username $QUAY_USERNAME --password $QUAY_PASSWORD quay.io
+          name: Push to Quay
+          command: |-
+            # Log in to registry.
+            docker login --username "${QUAY_USERNAME}" --password "${QUAY_PASSWORD}" "${REGISTRY_QUAY%%/*}"
 
-            make docker-push-all ALL_ARCH="$ALL_ARCH" ALL_DOCKER_BUILD="$ALL_DOCKER_BUILD" TAG=$CIRCLE_SHA1 REGISTRY=$REGISTRY_QUAY
-
-            if [ -n "$CIRCLE_TAG" ]; then
-              echo "Pushing tag $CIRCLE_TAG"
-              make docker-push-all ALL_ARCH="$ALL_ARCH" ALL_DOCKER_BUILD="$ALL_DOCKER_BUILD" TAG="$CIRCLE_TAG" REGISTRY=$REGISTRY_QUAY
-            fi
+            # Push images.
+            make docker-push-all ALL_DOCKER_BUILD="${COMPONENTS}" ALL_ARCH="${PLATFORMS}" REGISTRY="${REGISTRY_QUAY}" TAG="${CIRCLE_TAG:-${CIRCLE_SHA1}}"
 
       - run:
-          name: Push to aliyun
-          command: |
-            for n in $(seq 1 5); do
-              (
-                set -eu
-                docker login --username $ALIYUN_USERNAME --password $ALIYUN_PASSWORD giantswarm-registry.cn-shanghai.cr.aliyuncs.com
+          name: Push to Aliyun
+          command: |-
+            # Try up to 10 times.
+            for i in {1..10}
+            do
+              # Log in to registry.
+              docker login --username "${ALIYUN_USERNAME}" --password "${ALIYUN_PASSWORD}" "${REGISTRY_ALIYUN%%/*}" && \
+              \
+              # Push images.
+              make docker-push-all ALL_DOCKER_BUILD="${COMPONENTS}" ALL_ARCH="${PLATFORMS}" REGISTRY="${REGISTRY_ALIYUN}" TAG="${CIRCLE_TAG:-${CIRCLE_SHA1}}" && break
 
-                make docker-push-all ALL_ARCH="$ALL_ARCH" ALL_DOCKER_BUILD="$ALL_DOCKER_BUILD" TAG=$CIRCLE_SHA1 REGISTRY=$REGISTRY_CHINA
-
-                if [ -n "${CIRCLE_TAG:-}" ]; then
-                  echo "Pushing tag $CIRCLE_TAG"
-                  make docker-push-all ALL_ARCH="$ALL_ARCH" ALL_DOCKER_BUILD="$ALL_DOCKER_BUILD" TAG="$CIRCLE_TAG" REGISTRY=$REGISTRY_CHINA
-                fi
-              ) || { echo "Failed attempt ${n}"; sleep 30; continue; }
-
-              echo "Succeeded in attempt ${n}"
-              exit 0
+              # Print attempt.
+              echo "Attempt #${i} failed."
+              sleep 30
             done
-
-            exit 1
-
-workflows:
-  version: 2
-  build_and_update:
-    jobs:
-      - build:
-          context:
-            - architect
-          filters:
-            tags:
-              only: /^v.*/
-      - test
