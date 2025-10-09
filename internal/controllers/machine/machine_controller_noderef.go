@@ -360,7 +360,7 @@ func (r *Reconciler) patchNode(ctx context.Context, remoteClient client.Client, 
 		return nil
 	}
 
-	return remoteClient.Patch(ctx, newNode, client.StrategicMergeFrom(node))
+	return remoteClient.Patch(ctx, newNode, client.StrategicMergeFrom(node, client.MergeFromWithOptimisticLock{}))
 }
 
 // shouldNodeHaveOutdatedTaint tries to compare the revision of the owning MachineSet to the MachineDeployment.
