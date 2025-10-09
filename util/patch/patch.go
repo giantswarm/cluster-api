@@ -200,7 +200,7 @@ func (h *Helper) patch(ctx context.Context, obj client.Object) error {
 	if err != nil {
 		return err
 	}
-	return h.client.Patch(ctx, afterObject, client.MergeFrom(beforeObject))
+	return h.client.Patch(ctx, afterObject, client.MergeFromWithOptions(beforeObject, client.MergeFromWithOptimisticLock{}))
 }
 
 // patchStatus issues a patch if the status has changed.
@@ -212,7 +212,7 @@ func (h *Helper) patchStatus(ctx context.Context, obj client.Object) error {
 	if err != nil {
 		return err
 	}
-	return h.client.Status().Patch(ctx, afterObject, client.MergeFrom(beforeObject))
+	return h.client.Status().Patch(ctx, afterObject, client.MergeFromWithOptions(beforeObject, client.MergeFromWithOptimisticLock{}))
 }
 
 // patchStatusConditions issues a patch if there are any changes to the conditions slice under
