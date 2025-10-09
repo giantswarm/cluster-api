@@ -361,7 +361,7 @@ func (r *Reconciler) patchNode(ctx context.Context, remoteClient client.Client, 
 	}
 	log := ctrl.LoggerFrom(ctx)
 	log.Info("Patching Node", "Node", klog.KRef("", node.Name), "Taints", newNode.Spec.Taints, "Labels", newNode.Labels)
-	return remoteClient.Patch(ctx, newNode, client.StrategicMergeFrom(node, client.MergeFromWithOptimisticLock{}))
+	return remoteClient.Patch(ctx, newNode, client.MergeFromWithOptions(node, client.MergeFromWithOptimisticLock{}))
 }
 
 // shouldNodeHaveOutdatedTaint tries to compare the revision of the owning MachineSet to the MachineDeployment.
