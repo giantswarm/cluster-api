@@ -40,7 +40,6 @@ jobs:
       PLATFORMS: amd64 arm64
 
       REGISTRY_AZURE: gsoci.azurecr.io/giantswarm
-      REGISTRY_QUAY: quay.io/giantswarm
       REGISTRY_ALIYUN: giantswarm-registry.cn-shanghai.cr.aliyuncs.com/giantswarm
     steps:
       - checkout
@@ -63,7 +62,7 @@ jobs:
           name: Build images
           command: |-
             # Iterate registry.
-            for registry in "${REGISTRY_AZURE}" "${REGISTRY_QUAY}" "${REGISTRY_ALIYUN}"
+            for registry in "${REGISTRY_AZURE}" "${REGISTRY_ALIYUN}"
             do
               # Build images.
               make docker-build-all ALL_DOCKER_BUILD="${COMPONENTS}" ALL_ARCH="${PLATFORMS}" REGISTRY="${registry}" TAG="${CIRCLE_TAG:-${CIRCLE_SHA1}}"
@@ -77,15 +76,6 @@ jobs:
 
             # Push images.
             make docker-push-all ALL_DOCKER_BUILD="${COMPONENTS}" ALL_ARCH="${PLATFORMS}" REGISTRY="${REGISTRY_AZURE}" TAG="${CIRCLE_TAG:-${CIRCLE_SHA1}}"
-
-      - run:
-          name: Push to Quay
-          command: |-
-            # Log in to registry.
-            docker login --username "${QUAY_USERNAME}" --password "${QUAY_PASSWORD}" "${REGISTRY_QUAY%%/*}"
-
-            # Push images.
-            make docker-push-all ALL_DOCKER_BUILD="${COMPONENTS}" ALL_ARCH="${PLATFORMS}" REGISTRY="${REGISTRY_QUAY}" TAG="${CIRCLE_TAG:-${CIRCLE_SHA1}}"
 
       - run:
           name: Push to Aliyun
