@@ -260,7 +260,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `advertiseAddress` _string_ | advertiseAddress sets the IP address for the API server to advertise. |  | MaxLength: 39 <br />MinLength: 1 <br />Optional: \{\} <br /> |
+| `advertiseAddress` _string_ | advertiseAddress sets the IP address for the API server to advertise. |  | MaxLength: 39 <br />Optional: \{\} <br /> |
 | `bindPort` _integer_ | bindPort sets the secure port for the API Server to bind to.<br />Defaults to 6443. |  | Optional: \{\} <br /> |
 
 
