@@ -1530,7 +1530,6 @@ spec:
                             description: advertiseAddress sets the IP address for
                               the API server to advertise.
                             maxLength: 39
-                            minLength: 1
                             type: string
                           bindPort:
                             description: |-
@@ -1697,7 +1696,6 @@ spec:
                                 description: advertiseAddress sets the IP address
                                   for the API server to advertise.
                                 maxLength: 39
-                                minLength: 1
                                 type: string
                               bindPort:
                                 description: |-

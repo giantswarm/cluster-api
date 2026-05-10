@@ -283,9 +283,13 @@ type ClusterStatus struct {
 
 // APIEndpoint struct contains elements of API server instance deployed on a node.
 type APIEndpoint struct {
+	//
+	// We dropped MinLength=0 since our charts are currently still rendering it with an empty string.
+	// As soon as each and every chart version in use no longer does so, we can re-add this constraint.
+	//
+
 	// advertiseAddress sets the IP address for the API server to advertise.
 	// +optional
-	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=39
 	AdvertiseAddress string `json:"advertiseAddress,omitempty"`
 
